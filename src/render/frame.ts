@@ -3,7 +3,7 @@
 
 import { EFFECTS, effectDuration, KINDS, SHEETS } from '../level/kinds';
 import type { Actor } from '../sim/actor';
-import type { GameEvent } from '../sim/events';
+import type { GameEvent, SoundName } from '../sim/events';
 import { TILE } from '../sim/grid';
 import type { World } from '../sim/world';
 import type { Assets } from './assets';
@@ -11,9 +11,10 @@ import { Blood, BLOOD_COLORS } from './blood';
 import { Lens } from './lens';
 import { Camera, VIEW_H, VIEW_W } from './camera';
 import { type Caster, type Light, LightSheet, shaftPath, shafts } from './lighting';
-import { rimOffset } from './shading';
+import { flashSource, rimOffset } from './shading';
 import { groundLine, paintBackdrop } from './scene';
 import { paintSky, paintSnow } from './sky';
+import { drawBolt, Storm } from './storm';
 import type { Words } from '../campaign';
 import { Hud } from './hud';
 import { text, textWidth } from './text';
@@ -28,6 +29,14 @@ const FIRE = ['#fff3c4', '#ffc93c', '#ff8a2a', '#e0401c'];
 const MONK_ANCHOR = 40, GHOUL_ANCHOR = 28;
 // The picture closes in on a finishing blow: how far, and when (seconds: in, held until, back out by).
 const ZOOM = 1.5, ZOOM_IN = 0.1, ZOOM_HOLD = 0.42, ZOOM_OUT = 0.7;
+// A flash of lightning: the light that comes in through each opening on the sky (at its brightest;
+// it dies with the flash), and the pale light it leaves everywhere else.
+const LIGHTNING = {
+  radius: 130, strength: 0.7,                 // the light round each opening: it gives the bodies a cold edge
+  wall: 0.4, lean: 0.9, rise: 1.15, dark: 0.9, // the light laid on the wall; the shadows the bodies cut in it lean away from the opening, a little taller
+  everywhere: 0.08,                           // over the finished picture, bodies and all
+  color: [205, 218, 255] as [number, number, number],
+};
 const hash = (a: number, b: number): number => { const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return s - Math.floor(s); };
 
 export class Stage {
@@ -49,8 +58,14 @@ export class Stage {
   private readonly holes: HTMLCanvasElement | null = null;     // where the wall is open on the sky
   private readonly skyView: HTMLCanvasElement | null = null;
   private readonly bench = [document.createElement('canvas'), document.createElement('canvas')];     // where a sprite is lit before it is drawn
+  private aim: [number, number] | null = null;          // where the camera looks, when it is not the hero
+  private readonly storm: Storm | null;
+  private heardNow: SoundName[] = [];                   // what the stage itself makes heard: the thunder
+  private readonly openings: { x: number; y: number }[] = [];     // the middle of each opening on the sky, where a flash comes in
+  private flashSheet: HTMLCanvasElement | null = null;
 
-  constructor(private readonly world: World, private readonly assets: Assets, opening: string[], private readonly won: Words) {
+  /** With `scenery`, only the place is drawn: nobody in it, no words over it, and the camera looks where it is told. */
+  constructor(private readonly world: World, private readonly assets: Assets, opening: string[], private readonly won: Words, private readonly scenery = false) {
     const level = world.level;
     this.hud = new Hud(world, opening);
     this.camera = new Camera(level.width, level.height);
@@ -66,6 +81,8 @@ export class Stage {
       this.skyView = document.createElement('canvas');
       this.skyView.width = VIEW_W; this.skyView.height = VIEW_H;
     }
+    this.storm = scenery || level.settings.storm ? new Storm() : null;
+    if (this.storm) for (const o of level.objects) if (o.kind === 'arch') this.openings.push({ x: o.x, y: o.y - Number(o.props.height ?? 88) / 2 });
     this.lights = new LightSheet(level);
     this.beams = shafts(level);
     this.ground = groundLine(level.grid);
@@ -82,10 +99,20 @@ export class Stage {
 
   // Where the camera looks: the hero, at chest height; a jump does not lift it, a fall takes it down.
   private focus(): [number, number] {
+    if (this.aim) return this.aim;
     const p = this.world.hero, feet = p.y + p.h;
     const y = p.onGround || p.climbing ? feet : Math.max(feet, p.lastFloor * TILE);
     return [p.x + p.w / 2, y - 60];
   }
+
+  /** Tells the camera where to look from now on, instead of at the hero; `jump` puts it there at once. */
+  look(x: number, y: number, jump = false): void {
+    this.aim = [x, y];
+    if (jump) this.camera.follow(x, y);
+  }
+
+  /** The sounds of the stage since the last call: the thunder. */
+  heard(): SoundName[] { const out = this.heardNow; this.heardNow = []; return out; }
 
   /** Takes in what the world reported: effects start playing, dust becomes particles. */
   apply(events: readonly GameEvent[]): void {
@@ -125,6 +152,7 @@ export class Stage {
     if (this.punch) { this.punch.t += dt; if (this.punch.t >= ZOOM_OUT) this.punch = null; }
     if (this.world.hitStop > 0) return;
     this.hud.update(dt);
+    if (this.storm?.update(dt).thunder) this.heardNow.push('thunder');
     for (const fx of this.effects) fx.t += dt;
     this.effects = this.effects.filter(fx => fx.t < effectDuration(fx.kind));
     for (const q of this.particles) { q.life -= dt; q.vy += q.g * dt; q.x += q.vx * dt; q.y += q.vy * dt; }
@@ -164,10 +192,7 @@ export class Stage {
 
     g.translate(-cx, -cy);
     this.drawLoops(g, t, false);
-    for (let i = 0; i < level.settings.bats; i++) {
-      const x = ((t * (38 + i * 9) + i * 390) % (level.width + 200)) - 100, y = 34 + i * 96 + 12 * Math.sin(t * 0.9 + i * 2);
-      this.sheetFrame(g, 'bat', Math.floor(t * 30 + i * 20) % SHEETS.bat.frames, x, y, i % 2 === 1);
-    }
+    this.drawBats(g, t);
     this.drawDoor(g, t);
     this.drawLoops(g, t, true);
     for (const o of level.objects) {
@@ -178,24 +203,37 @@ export class Stage {
 
     // The light falls on the wall and on what hangs on it; the bodies throw their shadows there.
     const moving = this.movingLights();
-    this.lights.draw(g, cx, cy, level.settings.darkness, this.restingLights(), moving, t, this.casters(t));
+    const casters = this.casters(t);
+    this.lights.draw(g, cx, cy, level.settings.darkness, this.restingLights(), moving, t, casters);
+    if (this.storm && this.storm.glow > 0.02) this.lightning(g, casters, cx, cy, this.storm.glow);
 
     // The night, where the wall is open: it has its own light, and no shadow falls on it.
     if (this.holes && this.skyView) {
       const k = this.skyView.getContext('2d')!;
       k.globalCompositeOperation = 'source-over';
       paintSky(k, cx, level.height - VIEW_H - cy, t, level.settings.snow);
+      const storm = this.storm;
+      if (storm && storm.flash > 0) {                // the whole sky lights up
+        k.globalCompositeOperation = 'lighter';
+        k.fillStyle = `rgba(160,175,240,${0.85 * storm.flash})`; k.fillRect(0, 0, VIEW_W, VIEW_H);
+      }
+      if (storm?.bolt) drawBolt(k, storm.bolt, Math.min(1, 0.35 + storm.flash));
       k.globalCompositeOperation = 'destination-in';
       k.drawImage(this.holes, -cx, -cy);
+      // The bats fly inside, in front of the opening: the sky is not laid over them.
+      k.globalCompositeOperation = 'destination-out';
+      k.translate(-cx, -cy); this.drawBats(k, t); k.setTransform(1, 0, 0, 1, 0, 0);
       g.drawImage(this.skyView, 0, 0);
     }
 
     // What burns or glows is not darkened; the hero takes the light of where he stands.
     g.translate(-cx, -cy);
     this.drawEmbers(g, t);
-    for (const f of w.foes) if (f.kind === 'ghoul') this.drawGhoul(g, f, t);
-    for (const f of w.foes) if (f.kind === 'shade') this.drawMonk(g, f, t);
-    this.drawMonk(g, w.hero, t);
+    if (!this.scenery) {
+      for (const f of w.foes) if (f.kind === 'ghoul') this.drawGhoul(g, f, t);
+      for (const f of w.foes) if (f.kind === 'shade') this.drawMonk(g, f, t);
+      this.drawMonk(g, w.hero, t);
+    }
     for (const fx of this.effects) this.drawEffect(g, fx);
     for (const q of this.particles) { g.fillStyle = q.color; g.fillRect(Math.round(q.x), Math.round(q.y), 2, 2); }
     for (const d of this.blood.drops) { g.fillStyle = BLOOD_COLORS[d.shade]; g.fillRect(Math.round(d.x), Math.round(d.y), d.size, d.size); }
@@ -206,9 +244,14 @@ export class Stage {
     this.drawAir(g, t);
     g.setTransform(1, 0, 0, 1, 0, 0);
     if (level.settings.snow) paintSnow(g, cx, cy, t);
+    if (this.storm && this.storm.glow > 0) {          // the flash comes in through every opening
+      g.save(); g.globalCompositeOperation = 'lighter';
+      g.fillStyle = `rgba(120,130,205,${LIGHTNING.everywhere * this.storm.glow})`; g.fillRect(0, 0, VIEW_W, VIEW_H);
+      g.restore();
+    }
     this.closeIn(g, cx, cy);
     this.drawLens(g);
-    this.hud.draw(g, t, paused, this.won);
+    if (!this.scenery) this.hud.draw(g, t, paused, this.won);
   }
 
   // Closes in on a finishing blow: the picture drawn so far is enlarged round the place of the blow.
@@ -228,6 +271,8 @@ export class Stage {
     const w = this.world, out: Light[] = [];
     for (const m of w.embers) if (!m.taken) out.push({ x: m.x, y: m.y, radius: 54, strength: 0.75, flicker: 0, color: [255, 150, 70] });
     if (w.door && w.doorOpen) out.push({ x: w.door.x + 16, y: w.door.y + 36, radius: 140, strength: 1, flicker: 0, color: [255, 215, 140] });
+    const flash = this.storm?.glow ?? 0;
+    if (flash > 0.02) for (const o of this.openings) out.push({ x: o.x, y: o.y, radius: LIGHTNING.radius, strength: LIGHTNING.strength * flash, flicker: 0, color: LIGHTNING.color });
     return out;
   }
 
@@ -235,6 +280,7 @@ export class Stage {
     const w = this.world, p = w.hero;
     const out: Light[] = [];
     this.own.clear();
+    if (this.scenery) return out;
     const carry = (a: Actor, l: Light): void => { this.own.set(a, l); out.push(l); };
     // The hero is never quite in the dark: a pale light goes with him.
     if (p.charge > 0) carry(p, { x: p.x + 7, y: p.y + 18, radius: 170, strength: 1, flicker: 0, color: [255, 160, 70] });
@@ -250,17 +296,18 @@ export class Stage {
   // The bodies that throw a shadow on the wall: each gives its outline, in black.
   private casters(t: number): Caster[] {
     const w = this.world, out: Caster[] = [];
+    if (this.scenery) return out;
     const monk = (a: Actor): void => {
       if (a.ko > 0) return;
       const cx = a.x + a.w / 2, feet = a.y + a.h, key = 'shadow/' + this.monkFrame(a, t);
-      out.push({ x: cx, y: a.y + a.h / 2, own: this.own.get(a) ?? null, draw: k => this.sprite(k, key, cx, feet, MONK_ANCHOR, a.facing < 0) });
+      out.push({ x: cx, y: a.y + a.h / 2, feet, own: this.own.get(a) ?? null, draw: k => this.sprite(k, key, cx, feet, MONK_ANCHOR, a.facing < 0) });
     };
     monk(w.hero);
     for (const f of w.foes) {
       if (f.kind === 'shade') monk(f);
       else if (f.dead <= 0) {
         const cx = f.x + f.w / 2, feet = f.y + f.h, key = 'shadow-ghoul/' + (1 + Math.floor(f.animT * 12) % 8);
-        out.push({ x: cx, y: f.y + f.h / 2, own: this.own.get(f) ?? null, draw: k => this.sprite(k, key, cx, feet, GHOUL_ANCHOR, f.facing > 0) });
+        out.push({ x: cx, y: f.y + f.h / 2, feet, own: this.own.get(f) ?? null, draw: k => this.sprite(k, key, cx, feet, GHOUL_ANCHOR, f.facing > 0) });
       }
     }
     return out;
@@ -274,6 +321,39 @@ export class Stage {
     x = Math.round(x); y = Math.round(y);
     if (!flip) { g.drawImage(pic, sx, sy, s.w, s.h, x - s.px, y - s.py, s.w, s.h); return; }
     g.save(); g.translate(x, 0); g.scale(-1, 1); g.drawImage(pic, sx, sy, s.w, s.h, -s.px, y - s.py, s.w, s.h); g.restore();
+  }
+
+  // A flash of lightning laid on the wall: everywhere at once, but each body cuts its shadow in
+  // it, standing on its feet and leaning away from the opening the flash comes in by.
+  private lightning(g: CanvasRenderingContext2D, casters: readonly Caster[], cx: number, cy: number, flash: number): void {
+    this.flashSheet ??= Object.assign(document.createElement('canvas'), { width: VIEW_W, height: VIEW_H });
+    const k = this.flashSheet.getContext('2d')!, [r, gg, b] = LIGHTNING.color;
+    k.setTransform(1, 0, 0, 1, 0, 0);
+    k.globalCompositeOperation = 'source-over'; k.globalAlpha = 1;
+    k.fillStyle = `rgba(${r},${gg},${b},${(LIGHTNING.wall * flash).toFixed(3)})`;
+    k.clearRect(0, 0, VIEW_W, VIEW_H); k.fillRect(0, 0, VIEW_W, VIEW_H);
+    k.globalCompositeOperation = 'destination-out';
+    k.translate(-cx, -cy);
+    for (const c of casters) {
+      const o = flashSource(this.openings, c.x, c.y);
+      if (!o) continue;
+      const away = c.x >= o.x ? 1 : -1;
+      k.save(); k.translate(c.x, c.feet); k.transform(1, 0, -LIGHTNING.lean * away, LIGHTNING.rise, 0, 0); k.translate(-c.x, -c.feet);
+      k.globalAlpha = LIGHTNING.dark; c.draw(k);
+      k.restore();
+    }
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'lighter'; g.filter = 'blur(1px)';
+    g.drawImage(this.flashSheet, 0, 0);
+    g.restore();
+  }
+
+  // The bats of the place, flying across it from one side to the other.
+  private drawBats(g: CanvasRenderingContext2D, t: number): void {
+    const level = this.world.level;
+    for (let i = 0; i < level.settings.bats; i++) {
+      const x = ((t * (38 + i * 9) + i * 390) % (level.width + 200)) - 100, y = 34 + i * 96 + 12 * Math.sin(t * 0.9 + i * 2);
+      this.sheetFrame(g, 'bat', Math.floor(t * 30 + i * 20) % SHEETS.bat.frames, x, y, i % 2 === 1);
+    }
   }
 
   // A picture with a column of it on x and its bottom on y, mirrored when asked.

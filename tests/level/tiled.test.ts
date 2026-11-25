@@ -13,7 +13,7 @@ describe('parseLevel', () => {
 
   it('reads the size and the settings', () => {
     expect([lv.width, lv.height]).toEqual([640, 480]);
-    expect(lv.settings).toEqual({ name: 'salle3', title: 'THE NAVE', darkness: 0.58, music: 'nef', mist: true, bats: 2, sky: false, snow: false });
+    expect(lv.settings).toEqual({ name: 'salle3', title: 'THE NAVE', darkness: 0.58, music: 'nef', mist: true, bats: 2, sky: false, snow: false, storm: false });
   });
   it('reads the collision grid', () => {
     expect(lv.grid.solidAt(5, 13)).toBe(true);

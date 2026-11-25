@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { KINDS } from '../../src/level/kinds';
 import type { Light } from '../../src/render/lighting';
-import { ambientOf, keyLight, lightAt, reach, rimOffset, shadowOf, SHADOW_DEPTH } from '../../src/render/shading';
+import { ambientOf, flashSource, keyLight, lightAt, reach, rimOffset, shadowOf, SHADOW_DEPTH } from '../../src/render/shading';
 
 const lamp = (x: number, y: number, radius = 100, strength = 1, color: [number, number, number] = [255, 170, 90]): Light => ({ x, y, radius, strength, flicker: 0, color });
 
@@ -68,6 +68,19 @@ describe('the shadow something casts on the wall behind it', () => {
   });
   it('is not cast by something standing on the lamp itself', () => {
     expect(shadowOf(lamp(0, 0, 200), 3, 2)).toBeNull();
+  });
+});
+
+describe('the opening a flash of lightning comes in by, for a body', () => {
+  const openings = [{ x: 100, y: 50 }, { x: 400, y: 50 }, { x: 120, y: 200 }];
+  it('is the nearest opening of its own floor', () => {
+    expect(flashSource(openings, 180, 70)).toEqual({ x: 100, y: 50 });
+    expect(flashSource(openings, 330, 60)).toEqual({ x: 400, y: 50 });
+    expect(flashSource(openings, 140, 190)).toEqual({ x: 120, y: 200 });       // not the one of the floor above, though nearer in x
+  });
+  it('is none when no opening is near enough', () => {
+    expect(flashSource(openings, 700, 60)).toBeNull();
+    expect(flashSource(openings, 250, 400)).toBeNull();
   });
 });
 

@@ -23,9 +23,9 @@
       return this.on;
     }
     /** Names the tune of the level; it starts as soon as sound is allowed. */
-    setMusic(name) {
-      if (name === this.tune) return;
-      this.tune = name;
+    setMusic(name2) {
+      if (name2 === this.tune) return;
+      this.tune = name2;
       try {
         this.source?.stop();
       } catch {
@@ -206,8 +206,8 @@
         this.hiss("bandpass", f, f * 0.4, { at, dur: 0.05 + Math.random() * 0.06, vol: vol * (0.5 + Math.random() * 0.5), hall: 0.25 }, 2.5);
       }
     }
-    play(name) {
-      switch (name) {
+    play(name2) {
+      switch (name2) {
         case "jump":
           this.hiss("bandpass", 500, 1500, { dur: 0.12, vol: 0.14 }, 1.4);
           this.tone("sine", 200, 330, { dur: 0.09, vol: 0.06 });
@@ -281,6 +281,16 @@
           this.tone("sine", 120, 30, { dur: 0.6, vol: 0.6, hall: 0.3 });
           this.hiss("lowpass", 1400, 150, { dur: 0.45, vol: 0.4, hall: 0.5 });
           break;
+        case "thunder":
+          this.duck(2.2);
+          this.hiss("highpass", 2400, 500, { dur: 0.3, vol: 0.32, hall: 0.7 });
+          this.hiss("lowpass", 1100, 70, { at: 0.02, dur: 2.8, vol: 0.75, hall: 0.7 });
+          for (let i = 0; i < 5; i++) {
+            const f = 180 + Math.random() * 240;
+            this.hiss("lowpass", f, 55, { at: 0.3 + i * 0.38 + Math.random() * 0.2, dur: 0.9 + Math.random() * 0.7, vol: 0.5 - i * 0.07, hall: 0.7 });
+          }
+          this.tone("sine", 52, 28, { dur: 2.4, vol: 0.45, hall: 0.3 });
+          break;
         case "win":
           this.duck(1.2);
           [587.3, 740, 880, 1174.7].forEach((f, i) => {
@@ -295,18 +305,41 @@
 
   // src/campaign.ts
   function afterWin(index, count) {
-    return index + 1 < count ? index + 1 : 0;
+    return index + 1 < count ? index + 1 : "end";
   }
   function wonWords(index, count) {
     if (index + 1 < count) return { title: "ROOM CLEARED", lines: ["PRESS JUMP FOR THE NEXT ROOM"] };
-    return { title: "UNEXTINGUISHED", lines: ["EVERY ROOM IS CLEARED", "PRESS JUMP TO START AGAIN"] };
+    return { title: "ROOM CLEARED", lines: ["PRESS JUMP TO GO ON"] };
   }
   function openingWords(title) {
     return [title, "COLLECT THE EMBERS", "THEN REACH THE DOOR"];
   }
   function firstLevel(search, count) {
     const asked = Number(new URLSearchParams(search).get("level"));
-    return Number.isInteger(asked) && asked >= 1 && asked <= count ? asked - 1 : 0;
+    return Number.isInteger(asked) && asked >= 1 && asked <= count ? asked - 1 : null;
+  }
+  function clockText(seconds) {
+    const s = Math.floor(seconds);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }
+  var NO_RUN = Object.freeze({ time: 0, slain: 0, spilt: 0, falls: 0 });
+  function addRun(run2, w) {
+    return { time: run2.time + w.clock, slain: run2.slain + w.slain, spilt: run2.spilt + w.spilt, falls: run2.falls + (w.state === "lost" ? 1 : 0) };
+  }
+  var BLOOD_PER_LITRE = 100;
+  function endWords(run2) {
+    const falls = run2.falls === 0 ? "NEVER KNOCKED OUT" : run2.falls === 1 ? "KNOCKED OUT ONCE" : `KNOCKED OUT ${run2.falls} TIMES`;
+    return [`TIME ${clockText(run2.time)}`, `FOES SNUFFED OUT ${run2.slain}`, `BLOOD SPILT ${(run2.spilt / BLOOD_PER_LITRE).toFixed(1)} L`, falls];
+  }
+  function titleLevel(levels) {
+    return Math.max(0, levels.findIndex((l) => l.settings.sky));
+  }
+  var CLIMB = 60;
+  var SWAY = 37;
+  function panAim(t, width, height) {
+    const y = height / 2 + height / 2 * Math.cos(2 * Math.PI * t / CLIMB);
+    const x = width / 2 + width / 2 * Math.sin(2 * Math.PI * t / SWAY);
+    return [x, y];
   }
 
   // src/input.ts
@@ -321,7 +354,9 @@
     special: ["KeyV", "KeyI"],
     restart: ["KeyR", "Enter"],
     music: ["KeyM"],
-    pause: ["KeyP"]
+    pause: ["KeyP"],
+    full: ["KeyF"],
+    cheat: ["KeyG"]
   };
   var STICK = 0.4;
   var STICK_UP = 0.5;
@@ -346,11 +381,11 @@
     keys = /* @__PURE__ */ new Set();
     taps = /* @__PURE__ */ new Set();
     // pressed since the last read: a tap shorter than a frame still counts
-    held = { jump: false, attack: false, special: false, restart: false, music: false, pause: false };
+    held = { jump: false, attack: false, special: false, restart: false, music: false, pause: false, full: false, cheat: false };
     /** The state of the controls now. Call once per frame: presses are reported on the frame they happen. */
     read() {
-      const key = (name) => KEYS[name].some((code) => this.keys.has(code) || this.taps.has(code));
-      const now = { left: key("left"), right: key("right"), up: key("up"), down: key("down"), jump: key("jump"), attack: key("attack"), guard: key("guard"), special: key("special"), restart: key("restart"), music: key("music"), pause: key("pause") };
+      const key = (name2) => KEYS[name2].some((code) => this.keys.has(code) || this.taps.has(code));
+      const now = { left: key("left"), right: key("right"), up: key("up"), down: key("down"), jump: key("jump"), attack: key("attack"), guard: key("guard"), special: key("special"), restart: key("restart"), music: key("music"), pause: key("pause"), full: key("full"), cheat: key("cheat") };
       for (const pad of this.pads()) {
         if (!pad || !pad.connected) continue;
         const b = (i) => !!pad.buttons[i]?.pressed, ax = pad.axes[0] ?? 0, ay = pad.axes[1] ?? 0;
@@ -365,9 +400,9 @@
         now.restart ||= b(9);
         now.pause ||= b(8);
       }
-      const pressed = (name) => {
-        const p = now[name] && !this.held[name];
-        this.held[name] = now[name];
+      const pressed = (name2) => {
+        const p = now[name2] && !this.held[name2];
+        this.held[name2] = now[name2];
         return p;
       };
       const frame = {
@@ -382,6 +417,8 @@
         restartPressed: pressed("restart"),
         musicPressed: pressed("music"),
         pausePressed: pressed("pause"),
+        fullPressed: pressed("full"),
+        cheatPressed: pressed("cheat"),
         any: Object.values(now).some(Boolean)
       };
       this.taps.clear();
@@ -461,7 +498,7 @@
     ...Object.fromEntries(range(2, 8).map((i) => ["death/" + i, `${CHURCH}fx/enemy-death${i}.png`])),
     ...Object.fromEntries(range(1, 3).map((i) => ["orb/" + i, `${CHURCH}fx/fireball${i}.png`]))
   };
-  var sheet = (name, frames, w, h, px, py, cols) => ({ file: `pixelfx/${name}.png`, fps: 30, frames, w, h, px, py, cols });
+  var sheet = (name2, frames, w, h, px, py, cols) => ({ file: `pixelfx/${name2}.png`, fps: 30, frames, w, h, px, py, cols });
   var SHEETS = {
     "hit-spark": sheet("hit-spark", 16, 136, 80, 44, 64, 4),
     "crit-hit": sheet("crit-hit", 28, 216, 136, 84, 106, 5),
@@ -560,7 +597,7 @@
     }
     return props;
   }
-  function parseLevel(tiled, knownKinds, name = "") {
+  function parseLevel(tiled, knownKinds, name2 = "") {
     const map = tiled;
     if (!map || map.type !== "map" || !Array.isArray(map.layers)) throw new LevelError("this file is not a Tiled map");
     if (map.orientation !== "orthogonal" || map.infinite) throw new LevelError("the map must be orthogonal and of a fixed size");
@@ -590,14 +627,15 @@
     }
     const p = readProps(map.properties);
     const settings = {
-      name,
-      title: typeof p.title === "string" ? p.title : name.toUpperCase(),
+      name: name2,
+      title: typeof p.title === "string" ? p.title : name2.toUpperCase(),
       darkness: typeof p.darkness === "number" ? p.darkness : 0.5,
       music: typeof p.music === "string" ? p.music : "",
       mist: p.mist === true,
       bats: typeof p.bats === "number" ? p.bats : 0,
       sky: p.sky === true,
-      snow: p.snow === true
+      snow: p.snow === true,
+      storm: p.storm === true
     };
     return { grid: new Grid(map.width, map.height, cells), objects, settings, width: map.width * TILE, height: map.height * TILE };
   }
@@ -1025,14 +1063,20 @@
     shake = 0;
     slow = 0;
     // while above zero, the page lets time pass slowly
+    slain = 0;
+    // foes ended: ghouls struck down, shades finished
+    spilt = 0;
+    // blood thrown, his and theirs, in the units of the blood events
+    invincible = false;
+    // the cheat: no blow harms the hero
     events = [];
     doorChime = -1;
     // seconds until the door is heard opening, -1 when not waiting
     wasOpen = false;
     spare = 0;
     // embers won from the foes, less those spent on charges
-    charged = /* @__PURE__ */ new Set();
-    // whom the charge in flight has already struck
+    struck = /* @__PURE__ */ new Set();
+    // whom the blow or the charge in hand has already struck
     trail = 0;
     emit = (event) => {
       this.events.push(event);
@@ -1074,6 +1118,7 @@
         this.emit({ type: "sound", name: "block" });
         return;
       }
+      if (this.invincible) return;
       p.guard = false;
       p.hp = Math.max(0, p.hp - damage);
       p.invul = 1.2;
@@ -1130,7 +1175,7 @@
           p.attackT = 0;
           p.strikeBuffer = 0;
           p.guard = false;
-          this.charged.clear();
+          this.struck.clear();
           this.trail = 0;
           this.emit({ type: "sound", name: "charge" });
           this.stepCharge(p);
@@ -1150,6 +1195,7 @@
         p.attackT = this.strikeOf(p).time;
         p.attackHit = false;
         p.sinceAttack = 0;
+        this.struck.clear();
         if (!p.attackAir) {
           if (p.attackKind !== "punch" && !this.foes.some((f) => f.ko <= 0 && f.dead <= 0 && overlap(this.reach(p), f))) p.vx = p.facing * LUNGE;
           this.warn(p);
@@ -1160,12 +1206,15 @@
       if (p.climbing) p.guard = false;
       move(p, this.grid, STEP, this.emit);
       if (p.onGround && p.attackAir && p.attackT > 0) p.attackT = 0;
-      if (p.attackT > 0 && !p.attackHit) {
+      if (p.attackT > 0) {
         const s = this.strikeOf(p), since = s.time - p.attackT;
         if (since > s.from && since < s.to) {
           const box = this.reach(p);
-          const foe = this.foes.find((f) => this.canBeHit(f) && overlap(box, f));
-          if (foe) this.strikeFoe(foe, p.facing, s);
+          for (const foe of this.foes) {
+            if (this.struck.has(foe) || !this.canBeHit(foe) || !overlap(box, foe)) continue;
+            this.struck.add(foe);
+            this.strikeFoe(foe, p.facing, s);
+          }
         }
       }
       if (Math.abs(p.vx) > 12 && p.onGround) p.animT += STEP;
@@ -1183,8 +1232,8 @@
       }
       const box = { x: p.facing > 0 ? p.x : p.x - CHARGE.reach, y: p.y, w: p.w + CHARGE.reach, h: p.h };
       for (const foe of this.foes) {
-        if (this.charged.has(foe) || foe.ko > 0 || foe.dead > 0 || !overlap(box, foe)) continue;
-        this.charged.add(foe);
+        if (this.struck.has(foe) || foe.ko > 0 || foe.dead > 0 || !overlap(box, foe)) continue;
+        this.struck.add(foe);
         this.strikeFoe(foe, p.facing, CHARGE_BLOW);
       }
       if (p.blocked) p.charge = 0;
@@ -1208,6 +1257,7 @@
     }
     // Blood leaves an actor at chest height, the way the blow went.
     bleed(a, dir, amount, chunks) {
+      this.spilt += amount;
       this.emit({ type: "blood", x: a.x + a.w / 2, y: a.y + 12, dir, amount, chunks });
     }
     // A wound goes on bleeding: a little blood at short intervals, for as long as it lasts.
@@ -1238,6 +1288,7 @@
       if (e.kind === "ghoul") {
         e.dead = 6;
         e.vx = 0;
+        this.slain++;
         this.hitStop = 0.06;
         this.shake = 0.14;
         this.emit({ type: "effect", kind: "death", x, y, flip: false });
@@ -1289,6 +1340,7 @@
         this.slow = SLOW;
         this.emit({ type: "effect", kind: "poof-green", x, y, flip: false });
         this.spare++;
+        this.slain++;
         this.emit({ type: "effect", kind: "collect-burst", x, y: e.y + 12 + EMBER_BURST_DROP, flip: false });
         this.emit({ type: "finisher", x, y: e.y + 12 });
         this.emit({ type: "sound", name: "finish" });
@@ -1476,10 +1528,10 @@
         images.set(key, img);
         loaded.set(key, img);
       }),
-      ...Object.entries(SHEETS).map(async ([name, s]) => {
+      ...Object.entries(SHEETS).map(async ([name2, s]) => {
         const img = await load(base + s.file);
-        sheets.set(name, img);
-        loaded.set("sheet:" + name, img);
+        sheets.set(name2, img);
+        loaded.set("sheet:" + name2, img);
       })
     ]);
     for (const n of MONK_FRAMES) {
@@ -1498,7 +1550,7 @@
       if (!found) throw new AssetError(`no ${what} named "${key}"`);
       return found;
     };
-    return { image: (key) => get(images, key, "picture"), sheet: (name) => get(sheets, name, "sheet") };
+    return { image: (key) => get(images, key, "picture"), sheet: (name2) => get(sheets, name2, "sheet") };
   }
 
   // src/render/blood.ts
@@ -1721,6 +1773,16 @@
     const k = reach(l, x, y);
     if (k <= 0) return null;
     return { scale: 1 + SHADOW_DEPTH, alpha: Math.min(SHADOW_DARK, 0.25 + k) };
+  }
+  var FLASH_FLOOR = 70;
+  var FLASH_REACH = 260;
+  function flashSource(openings, x, y) {
+    let best = null;
+    for (const o of openings) {
+      if (Math.abs(o.y - y) > FLASH_FLOOR || Math.abs(o.x - x) > FLASH_REACH) continue;
+      if (!best || Math.abs(o.x - x) < Math.abs(best.x - x)) best = o;
+    }
+    return best;
   }
   function rimOffset(l, x, y) {
     const dx = l.x - x, dy = l.y - y, d = Math.hypot(dx, dy) || 1;
@@ -2278,6 +2340,130 @@
     });
   }
 
+  // src/render/storm.ts
+  var STORM = {
+    first: 2.5,
+    // seconds before the first strike, so that the title shows one soon
+    calm: [6, 13],
+    // seconds between two strikes
+    sound: [0.25, 1.4],
+    // seconds between the flash and its thunder: the farther, the later
+    life: 0.28,
+    // seconds a bolt stays in sight
+    fade: 14,
+    // per second: how fast a flash dies
+    glow: 3,
+    // per second: how fast the light it leaves inside dies, slower, for the eye to catch it
+    zig: 14
+    // pixels: the most a bolt steps sideways at once
+  };
+  function boltPath(x, top, bottom, rand) {
+    const main = [[x, top]];
+    const lean = (rand() - 0.5) * 8;
+    let cx = x, cy = top;
+    while (cy < bottom) {
+      cy = Math.min(bottom, cy + Math.round(8 + rand() * 12));
+      cx += Math.round(Math.max(-STORM.zig, Math.min(STORM.zig, lean + (rand() - 0.5) * 2 * STORM.zig)));
+      main.push([cx, cy]);
+    }
+    const branches = [];
+    const fork = (i) => {
+      const side = rand() < 0.5 ? -1 : 1, b = [[main[i][0], main[i][1]]];
+      let bx = main[i][0], by = main[i][1];
+      for (let n = 3 + Math.floor(rand() * 5); n > 0; n--) {
+        by += Math.round(6 + rand() * 6);
+        bx += side * Math.round(4 + rand() * 6) + Math.round((rand() - 0.5) * 6);
+        b.push([bx, by]);
+      }
+      branches.push(b);
+    };
+    for (let i = 2; i < main.length - 3; i++) if (rand() < 0.22) fork(i);
+    if (!branches.length && main.length > 4) fork(Math.floor(main.length / 2));
+    return { main, branches };
+  }
+  var Storm = class {
+    constructor(rand = Math.random, width = 640, foot = 260) {
+      this.rand = rand;
+      this.width = width;
+      this.foot = foot;
+    }
+    rand;
+    width;
+    foot;
+    /** How bright the flash is now, from 0 (dark) to 1. */
+    flash = 0;
+    /** The light the flashes leave inside, from 0 to 1: as bright as the flash, but slower to die. */
+    glow = 0;
+    /** The bolt in sight, in the coordinates of the view, or null. */
+    bolt = null;
+    wait = STORM.first;
+    life = 0;
+    again = [];
+    // the flash comes back: when, how bright
+    thunderIn = -1;
+    /** Lets the storm live for dt seconds; `thunder` is true on the moment the thunder is heard. */
+    update(dt) {
+      let thunder = false;
+      this.flash *= Math.exp(-STORM.fade * dt);
+      if (this.flash < 5e-3) this.flash = 0;
+      this.again = this.again.filter((a) => {
+        a.t -= dt;
+        if (a.t > 0) return true;
+        this.flash = Math.max(this.flash, a.v);
+        return false;
+      });
+      if (this.bolt && (this.life -= dt) <= 0) this.bolt = null;
+      if (this.thunderIn >= 0 && (this.thunderIn -= dt) < 0) {
+        thunder = true;
+        this.thunderIn = -1;
+      }
+      if ((this.wait -= dt) <= 0) this.strike();
+      this.glow = Math.max(this.flash, this.glow * Math.exp(-STORM.glow * dt));
+      if (this.glow < 5e-3) this.glow = 0;
+      return { thunder };
+    }
+    strike() {
+      const r = this.rand, [c0, c1] = STORM.calm, [s0, s1] = STORM.sound;
+      this.wait = c0 + r() * (c1 - c0);
+      const near = r();
+      this.bolt = boltPath(Math.round(60 + r() * (this.width - 120)), 0, Math.round(this.foot * (0.6 + 0.4 * near)), r);
+      this.life = STORM.life;
+      this.flash = 1;
+      this.again = [{ t: 0.07 + r() * 0.05, v: 0.65 + r() * 0.3 }];
+      if (r() < 0.6) this.again.push({ t: 0.2 + r() * 0.1, v: 0.5 + r() * 0.3 });
+      this.thunderIn = s1 - near * (s1 - s0);
+    }
+  };
+  function pixels(k, a, b, size) {
+    const n = Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]), 1);
+    for (let i = 0; i <= n; i++) k.fillRect(Math.round(a[0] + (b[0] - a[0]) * i / n), Math.round(a[1] + (b[1] - a[1]) * i / n), size, size);
+  }
+  function drawBolt(k, bolt, alpha) {
+    k.save();
+    k.globalCompositeOperation = "lighter";
+    const halo = (pts, width, color) => {
+      k.beginPath();
+      k.moveTo(pts[0][0], pts[0][1]);
+      for (const p of pts) k.lineTo(p[0], p[1]);
+      k.lineWidth = width;
+      k.strokeStyle = color;
+      k.lineJoin = "round";
+      k.stroke();
+    };
+    const core = (pts, size, color) => {
+      k.fillStyle = color;
+      for (let i = 1; i < pts.length; i++) pixels(k, pts[i - 1], pts[i], size);
+    };
+    for (const b of bolt.branches) {
+      halo(b, 4, `rgba(120,140,255,${0.25 * alpha})`);
+      core(b, 1, `rgba(215,225,255,${0.85 * alpha})`);
+    }
+    halo(bolt.main, 10, `rgba(110,130,255,${0.18 * alpha})`);
+    halo(bolt.main, 4, `rgba(170,190,255,${0.45 * alpha})`);
+    core(bolt.main, 2, `rgba(255,255,255,${alpha})`);
+    k.restore();
+  }
+
   // src/render/text.ts
   var FONT = {
     A: "010101111101101",
@@ -2415,6 +2601,7 @@
       const low = p.hp <= 2;
       this.bar(g2, MARGIN2, p.hp, this.heroLag, false, low ? "#ff5a3a" : "#ffd23a", t, low && w.state === "play");
       text(g2, "MONK", MARGIN2, BAR_Y + BAR_H + 5, "#e2d8f0");
+      if (w.invincible) text(g2, "INVINCIBLE", MARGIN2 + textWidth("MONK") + 12, BAR_Y + BAR_H + 5, "#ffe27a");
       const foe = this.foe;
       if (foe) {
         const dazed = foe.dazed > 0, x = VIEW_W - MARGIN2 - BAR_W;
@@ -2424,7 +2611,7 @@
       }
       const got = w.carried;
       if (w.embers.length) centered(g2, `EMBERS ${got}/${w.embers.length}`, VIEW_H - 20, w.doorOpen ? "#ffe27a" : "#e2d8f0");
-      const s = Math.floor(w.clock), clock = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+      const clock = clockText(w.clock);
       text(g2, clock, VIEW_W - MARGIN2 - textWidth(clock), VIEW_H - 20, "#e2d8f0");
       if (this.finish > 0) {
         const words = "SNUFFED OUT", scale = 6, y = 84, hot = Math.floor(t * 14) % 2 === 0;
@@ -2433,7 +2620,7 @@
       } else if (w.state === "play" && this.banner > 0) {
         this.opening.forEach((line, i) => centered(g2, line, 40 + i * 16, i === 0 ? "#ffe27a" : "#e2d8f0"));
       } else if (w.state === "play" && w.doorOpen && w.door && Math.floor(t * 2) % 2) centered(g2, "THE DOOR IS OPEN", 40, "#ffe27a");
-      const panel = (lines) => {
+      const panel2 = (lines) => {
         const h = 44 + lines.length * 24, y = Math.round((VIEW_H - h) / 2) - 10;
         g2.fillStyle = "rgba(10,8,20,0.88)";
         g2.fillRect(120, y, 400, h);
@@ -2442,9 +2629,9 @@
         g2.strokeRect(121, y + 1, 398, h - 2);
         lines.forEach(([str, color, scale], i) => centered(g2, str, y + 20 + i * 26, color, scale ?? 2));
       };
-      if (w.state === "won") panel([[won.title, "#ffe27a", 4], [`TIME ${clock}`, "#e2d8f0"], ...won.lines.map((l) => [l, "#9d93b8"])]);
-      else if (w.state === "lost" && w.slow <= 0) panel([["KNOCKED OUT", "#ff7a6a", 4], ["PRESS JUMP TO TRY AGAIN", "#9d93b8"]]);
-      else if (paused) panel([["PAUSED", "#ffe27a", 4], ["PRESS P TO GO ON", "#9d93b8"]]);
+      if (w.state === "won") panel2([[won.title, "#ffe27a", 4], [`TIME ${clock}`, "#e2d8f0"], ...won.lines.map((l) => [l, "#9d93b8"])]);
+      else if (w.state === "lost" && w.slow <= 0) panel2([["KNOCKED OUT", "#ff7a6a", 4], ["PRESS JUMP TO TRY AGAIN", "#9d93b8"]]);
+      else if (paused) panel2([["PAUSED", "#ffe27a", 4], ["PRESS P TO GO ON", "#9d93b8"]]);
     }
   };
 
@@ -2460,16 +2647,30 @@
   var ZOOM_IN = 0.1;
   var ZOOM_HOLD = 0.42;
   var ZOOM_OUT = 0.7;
+  var LIGHTNING = {
+    radius: 130,
+    strength: 0.7,
+    // the light round each opening: it gives the bodies a cold edge
+    wall: 0.4,
+    lean: 0.9,
+    rise: 1.15,
+    dark: 0.9,
+    // the light laid on the wall; the shadows the bodies cut in it lean away from the opening, a little taller
+    everywhere: 0.08,
+    // over the finished picture, bodies and all
+    color: [205, 218, 255]
+  };
   var hash3 = (a, b) => {
     const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
     return s - Math.floor(s);
   };
   var Stage = class {
-    // where a sprite is lit before it is drawn
-    constructor(world, assets, opening, won) {
+    /** With `scenery`, only the place is drawn: nobody in it, no words over it, and the camera looks where it is told. */
+    constructor(world, assets, opening, won, scenery = false) {
       this.world = world;
       this.assets = assets;
       this.won = won;
+      this.scenery = scenery;
       const level = world.level;
       this.hud = new Hud(world, opening);
       this.camera = new Camera(level.width, level.height);
@@ -2488,6 +2689,10 @@
         this.skyView.width = VIEW_W;
         this.skyView.height = VIEW_H;
       }
+      this.storm = scenery || level.settings.storm ? new Storm() : null;
+      if (this.storm) {
+        for (const o of level.objects) if (o.kind === "arch") this.openings.push({ x: o.x, y: o.y - Number(o.props.height ?? 88) / 2 });
+      }
       this.lights = new LightSheet(level);
       this.beams = shafts(level);
       this.ground = groundLine(level.grid);
@@ -2505,6 +2710,7 @@
     world;
     assets;
     won;
+    scenery;
     camera;
     backdrop;
     lights;
@@ -2528,11 +2734,32 @@
     // where the wall is open on the sky
     skyView = null;
     bench = [document.createElement("canvas"), document.createElement("canvas")];
+    // where a sprite is lit before it is drawn
+    aim = null;
+    // where the camera looks, when it is not the hero
+    storm;
+    heardNow = [];
+    // what the stage itself makes heard: the thunder
+    openings = [];
+    // the middle of each opening on the sky, where a flash comes in
+    flashSheet = null;
     // Where the camera looks: the hero, at chest height; a jump does not lift it, a fall takes it down.
     focus() {
+      if (this.aim) return this.aim;
       const p = this.world.hero, feet = p.y + p.h;
       const y = p.onGround || p.climbing ? feet : Math.max(feet, p.lastFloor * TILE);
       return [p.x + p.w / 2, y - 60];
+    }
+    /** Tells the camera where to look from now on, instead of at the hero; `jump` puts it there at once. */
+    look(x, y, jump = false) {
+      this.aim = [x, y];
+      if (jump) this.camera.follow(x, y);
+    }
+    /** The sounds of the stage since the last call: the thunder. */
+    heard() {
+      const out = this.heardNow;
+      this.heardNow = [];
+      return out;
     }
     /** Takes in what the world reported: effects start playing, dust becomes particles. */
     apply(events) {
@@ -2573,6 +2800,7 @@
       }
       if (this.world.hitStop > 0) return;
       this.hud.update(dt);
+      if (this.storm?.update(dt).thunder) this.heardNow.push("thunder");
       for (const fx2 of this.effects) fx2.t += dt;
       this.effects = this.effects.filter((fx2) => fx2.t < effectDuration(fx2.kind));
       for (const q of this.particles) {
@@ -2617,10 +2845,7 @@
       g2.setTransform(1, 0, 0, 1, 0, 0);
       g2.translate(-cx, -cy);
       this.drawLoops(g2, t, false);
-      for (let i = 0; i < level.settings.bats; i++) {
-        const x = (t * (38 + i * 9) + i * 390) % (level.width + 200) - 100, y = 34 + i * 96 + 12 * Math.sin(t * 0.9 + i * 2);
-        this.sheetFrame(g2, "bat", Math.floor(t * 30 + i * 20) % SHEETS.bat.frames, x, y, i % 2 === 1);
-      }
+      this.drawBats(g2, t);
       this.drawDoor(g2, t);
       this.drawLoops(g2, t, true);
       for (const o of level.objects) {
@@ -2632,20 +2857,35 @@
       }
       g2.setTransform(1, 0, 0, 1, 0, 0);
       const moving = this.movingLights();
-      this.lights.draw(g2, cx, cy, level.settings.darkness, this.restingLights(), moving, t, this.casters(t));
+      const casters = this.casters(t);
+      this.lights.draw(g2, cx, cy, level.settings.darkness, this.restingLights(), moving, t, casters);
+      if (this.storm && this.storm.glow > 0.02) this.lightning(g2, casters, cx, cy, this.storm.glow);
       if (this.holes && this.skyView) {
         const k = this.skyView.getContext("2d");
         k.globalCompositeOperation = "source-over";
         paintSky(k, cx, level.height - VIEW_H - cy, t, level.settings.snow);
+        const storm = this.storm;
+        if (storm && storm.flash > 0) {
+          k.globalCompositeOperation = "lighter";
+          k.fillStyle = `rgba(160,175,240,${0.85 * storm.flash})`;
+          k.fillRect(0, 0, VIEW_W, VIEW_H);
+        }
+        if (storm?.bolt) drawBolt(k, storm.bolt, Math.min(1, 0.35 + storm.flash));
         k.globalCompositeOperation = "destination-in";
         k.drawImage(this.holes, -cx, -cy);
+        k.globalCompositeOperation = "destination-out";
+        k.translate(-cx, -cy);
+        this.drawBats(k, t);
+        k.setTransform(1, 0, 0, 1, 0, 0);
         g2.drawImage(this.skyView, 0, 0);
       }
       g2.translate(-cx, -cy);
       this.drawEmbers(g2, t);
-      for (const f of w.foes) if (f.kind === "ghoul") this.drawGhoul(g2, f, t);
-      for (const f of w.foes) if (f.kind === "shade") this.drawMonk(g2, f, t);
-      this.drawMonk(g2, w.hero, t);
+      if (!this.scenery) {
+        for (const f of w.foes) if (f.kind === "ghoul") this.drawGhoul(g2, f, t);
+        for (const f of w.foes) if (f.kind === "shade") this.drawMonk(g2, f, t);
+        this.drawMonk(g2, w.hero, t);
+      }
       for (const fx of this.effects) this.drawEffect(g2, fx);
       for (const q of this.particles) {
         g2.fillStyle = q.color;
@@ -2661,9 +2901,16 @@
       this.drawAir(g2, t);
       g2.setTransform(1, 0, 0, 1, 0, 0);
       if (level.settings.snow) paintSnow(g2, cx, cy, t);
+      if (this.storm && this.storm.glow > 0) {
+        g2.save();
+        g2.globalCompositeOperation = "lighter";
+        g2.fillStyle = `rgba(120,130,205,${LIGHTNING.everywhere * this.storm.glow})`;
+        g2.fillRect(0, 0, VIEW_W, VIEW_H);
+        g2.restore();
+      }
       this.closeIn(g2, cx, cy);
       this.drawLens(g2);
-      this.hud.draw(g2, t, paused, this.won);
+      if (!this.scenery) this.hud.draw(g2, t, paused, this.won);
     }
     // Closes in on a finishing blow: the picture drawn so far is enlarged round the place of the blow.
     closeIn(g2, cx, cy) {
@@ -2680,12 +2927,15 @@
       const w = this.world, out = [];
       for (const m of w.embers) if (!m.taken) out.push({ x: m.x, y: m.y, radius: 54, strength: 0.75, flicker: 0, color: [255, 150, 70] });
       if (w.door && w.doorOpen) out.push({ x: w.door.x + 16, y: w.door.y + 36, radius: 140, strength: 1, flicker: 0, color: [255, 215, 140] });
+      const flash = this.storm?.glow ?? 0;
+      if (flash > 0.02) for (const o of this.openings) out.push({ x: o.x, y: o.y, radius: LIGHTNING.radius, strength: LIGHTNING.strength * flash, flicker: 0, color: LIGHTNING.color });
       return out;
     }
     movingLights() {
       const w = this.world, p = w.hero;
       const out = [];
       this.own.clear();
+      if (this.scenery) return out;
       const carry = (a, l) => {
         this.own.set(a, l);
         out.push(l);
@@ -2702,25 +2952,26 @@
     // The bodies that throw a shadow on the wall: each gives its outline, in black.
     casters(t) {
       const w = this.world, out = [];
+      if (this.scenery) return out;
       const monk = (a) => {
         if (a.ko > 0) return;
         const cx = a.x + a.w / 2, feet = a.y + a.h, key = "shadow/" + this.monkFrame(a, t);
-        out.push({ x: cx, y: a.y + a.h / 2, own: this.own.get(a) ?? null, draw: (k) => this.sprite(k, key, cx, feet, MONK_ANCHOR, a.facing < 0) });
+        out.push({ x: cx, y: a.y + a.h / 2, feet, own: this.own.get(a) ?? null, draw: (k) => this.sprite(k, key, cx, feet, MONK_ANCHOR, a.facing < 0) });
       };
       monk(w.hero);
       for (const f of w.foes) {
         if (f.kind === "shade") monk(f);
         else if (f.dead <= 0) {
           const cx = f.x + f.w / 2, feet = f.y + f.h, key = "shadow-ghoul/" + (1 + Math.floor(f.animT * 12) % 8);
-          out.push({ x: cx, y: f.y + f.h / 2, own: this.own.get(f) ?? null, draw: (k) => this.sprite(k, key, cx, feet, GHOUL_ANCHOR, f.facing > 0) });
+          out.push({ x: cx, y: f.y + f.h / 2, feet, own: this.own.get(f) ?? null, draw: (k) => this.sprite(k, key, cx, feet, GHOUL_ANCHOR, f.facing > 0) });
         }
       }
       return out;
     }
     // ---- pieces of the picture ------------------------------------------------------------------------
     // One frame of a sheet with its pivot on (x, y).
-    sheetFrame(g2, name, index, x, y, flip) {
-      const s = SHEETS[name], sx = index % s.cols * s.w, sy = Math.floor(index / s.cols) * s.h, pic = this.assets.sheet(name);
+    sheetFrame(g2, name2, index, x, y, flip) {
+      const s = SHEETS[name2], sx = index % s.cols * s.w, sy = Math.floor(index / s.cols) * s.h, pic = this.assets.sheet(name2);
       x = Math.round(x);
       y = Math.round(y);
       if (!flip) {
@@ -2732,6 +2983,46 @@
       g2.scale(-1, 1);
       g2.drawImage(pic, sx, sy, s.w, s.h, -s.px, y - s.py, s.w, s.h);
       g2.restore();
+    }
+    // A flash of lightning laid on the wall: everywhere at once, but each body cuts its shadow in
+    // it, standing on its feet and leaning away from the opening the flash comes in by.
+    lightning(g2, casters, cx, cy, flash) {
+      this.flashSheet ??= Object.assign(document.createElement("canvas"), { width: VIEW_W, height: VIEW_H });
+      const k = this.flashSheet.getContext("2d"), [r, gg, b] = LIGHTNING.color;
+      k.setTransform(1, 0, 0, 1, 0, 0);
+      k.globalCompositeOperation = "source-over";
+      k.globalAlpha = 1;
+      k.fillStyle = `rgba(${r},${gg},${b},${(LIGHTNING.wall * flash).toFixed(3)})`;
+      k.clearRect(0, 0, VIEW_W, VIEW_H);
+      k.fillRect(0, 0, VIEW_W, VIEW_H);
+      k.globalCompositeOperation = "destination-out";
+      k.translate(-cx, -cy);
+      for (const c of casters) {
+        const o = flashSource(this.openings, c.x, c.y);
+        if (!o) continue;
+        const away = c.x >= o.x ? 1 : -1;
+        k.save();
+        k.translate(c.x, c.feet);
+        k.transform(1, 0, -LIGHTNING.lean * away, LIGHTNING.rise, 0, 0);
+        k.translate(-c.x, -c.feet);
+        k.globalAlpha = LIGHTNING.dark;
+        c.draw(k);
+        k.restore();
+      }
+      g2.save();
+      g2.setTransform(1, 0, 0, 1, 0, 0);
+      g2.globalCompositeOperation = "lighter";
+      g2.filter = "blur(1px)";
+      g2.drawImage(this.flashSheet, 0, 0);
+      g2.restore();
+    }
+    // The bats of the place, flying across it from one side to the other.
+    drawBats(g2, t) {
+      const level = this.world.level;
+      for (let i = 0; i < level.settings.bats; i++) {
+        const x = (t * (38 + i * 9) + i * 390) % (level.width + 200) - 100, y = 34 + i * 96 + 12 * Math.sin(t * 0.9 + i * 2);
+        this.sheetFrame(g2, "bat", Math.floor(t * 30 + i * 20) % SHEETS.bat.frames, x, y, i % 2 === 1);
+      }
     }
     // A picture with a column of it on x and its bottom on y, mirrored when asked.
     sprite(g2, key, x, y, anchor, mirror) {
@@ -2966,19 +3257,131 @@
     }
   };
 
+  // src/render/title.ts
+  var FIRE3 = ["#fff3c4", "#ffc93c", "#ff8a2a", "#e0401c"];
+  var PALE = "#e2d8f0";
+  var DIM = "#9d93b8";
+  var GOLD = "#ffe27a";
+  var hash4 = (a, b) => {
+    const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+    return s - Math.floor(s);
+  };
+  function veil(g2) {
+    g2.fillStyle = "rgba(8,6,18,0.32)";
+    g2.fillRect(0, 0, VIEW_W, VIEW_H);
+    const top = g2.createLinearGradient(0, 0, 0, 130);
+    top.addColorStop(0, "rgba(8,6,18,0.85)");
+    top.addColorStop(1, "rgba(8,6,18,0)");
+    g2.fillStyle = top;
+    g2.fillRect(0, 0, VIEW_W, 130);
+    const low = g2.createLinearGradient(0, VIEW_H - 90, 0, VIEW_H);
+    low.addColorStop(0, "rgba(8,6,18,0)");
+    low.addColorStop(1, "rgba(8,6,18,0.9)");
+    g2.fillStyle = low;
+    g2.fillRect(0, VIEW_H - 90, VIEW_W, 90);
+  }
+  function sparks(g2, t) {
+    g2.save();
+    g2.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 46; i++) {
+      const speed = 14 + hash4(i, 1) * 30, life = VIEW_H + 60;
+      const y = VIEW_H + 20 - (t * speed + hash4(i, 2) * life) % life;
+      const x = hash4(i, 3) * VIEW_W + Math.sin(t * (0.6 + hash4(i, 4)) + i) * 10;
+      g2.fillStyle = FIRE3[i % 3];
+      g2.globalAlpha = 0.35 + 0.65 * Math.min(1, (y + 40) / VIEW_H);
+      g2.fillRect(Math.round(x), Math.round(y), i % 5 === 0 ? 2 : 1, i % 5 === 0 ? 2 : 1);
+    }
+    g2.restore();
+  }
+  function name(g2, t) {
+    const big = 7, word = "UNEXTINGUISHED", y = 56, h = 5 * big;
+    g2.save();
+    g2.globalCompositeOperation = "lighter";
+    const glow = g2.createRadialGradient(VIEW_W / 2, y + h / 2, 10, VIEW_W / 2, y + h / 2, 260);
+    glow.addColorStop(0, `rgba(255,120,40,${0.32 + 0.06 * Math.sin(t * 4.3) + 0.04 * Math.sin(t * 11)})`);
+    glow.addColorStop(1, "rgba(255,120,40,0)");
+    g2.fillStyle = glow;
+    g2.fillRect(0, y - 80, VIEW_W, h + 160);
+    g2.restore();
+    centered(g2, "THE", 36, PALE, 3);
+    const x = Math.round((VIEW_W - textWidth(word, big)) / 2);
+    text(g2, word, x + 4, y + 4, "#4a0a0c", big);
+    const flame = g2.createLinearGradient(0, y, 0, y + h);
+    flame.addColorStop(0, FIRE3[0]);
+    flame.addColorStop(0.45, FIRE3[1]);
+    flame.addColorStop(1, FIRE3[3]);
+    text(g2, word, x, y, flame, big);
+  }
+  function panel(g2, x, y, w, h) {
+    g2.fillStyle = "rgba(10,8,20,0.78)";
+    g2.fillRect(x, y, w, h);
+    g2.strokeStyle = "rgba(154,143,192,0.7)";
+    g2.lineWidth = 2;
+    g2.strokeRect(x + 1, y + 1, w - 2, h - 2);
+  }
+  var blink = (t) => t % 1.1 < 0.8;
+  var CONTROLS = [
+    ["MOVE", "ARROWS", "STICK"],
+    ["JUMP", "SPACE", "A"],
+    ["STRIKE", "X", "X"],
+    ["GUARD", "C", "LB"],
+    ["CHARGE", "V", "Y"]
+  ];
+  function drawTitle(g2, t) {
+    g2.setTransform(1, 0, 0, 1, 0, 0);
+    veil(g2);
+    sparks(g2, t);
+    name(g2, t);
+    centered(g2, "A GOTHIC PLATFORM FIGHTER", 104, "#c9bfe0");
+    const px = 160, pw = 320, py = 128;
+    panel(g2, px, py, pw, 136);
+    const col = [px + 24, px + 128, px + 228];
+    text(g2, "KEYBOARD", col[1], py + 12, GOLD);
+    text(g2, "GAMEPAD", col[2], py + 12, GOLD);
+    CONTROLS.forEach(([what, key, pad], i) => {
+      const y = py + 32 + i * 16;
+      text(g2, what, col[0], y, DIM);
+      text(g2, key, col[1], y, PALE);
+      text(g2, pad, col[2], y, PALE);
+    });
+    centered(g2, "THE CHARGE COSTS AN EMBER", py + 116, DIM);
+    if (blink(t)) centered(g2, "PRESS JUMP TO START", 286, GOLD, 3);
+    centered(g2, "F FULL SCREEN    M MUSIC    P PAUSE", 334, DIM);
+  }
+  function drawEnd(g2, t, lines) {
+    g2.setTransform(1, 0, 0, 1, 0, 0);
+    veil(g2);
+    sparks(g2, t);
+    name(g2, t);
+    centered(g2, "EVERY ROOM IS CLEARED", 104, "#c9bfe0");
+    const py = 132, ph = 30 + lines.length * 26;
+    panel(g2, 130, py, 380, ph);
+    lines.forEach((line, i) => centered(g2, line, py + 18 + i * 26, i === lines.length - 1 ? DIM : PALE, 3));
+    if (t > 1.5 && blink(t)) centered(g2, "PRESS JUMP", 300, GOLD, 3);
+  }
+
   // src/main.ts
   var canvas = document.getElementById("screen");
+  var wrap = document.getElementById("wrap");
   var status = document.getElementById("status");
   var g = canvas.getContext("2d");
   var sound = new Sound();
   var input = new Input(window, () => navigator.getGamepads ? navigator.getGamepads() : []);
   function fit() {
-    const help = document.getElementById("help").offsetHeight + 30;
+    const help = document.fullscreenElement ? 0 : document.getElementById("help").offsetHeight + 30;
     const scale = fitScale(window.innerWidth, window.innerHeight - help, window.devicePixelRatio || 1);
     canvas.style.width = VIEW_W * scale + "px";
     canvas.style.height = VIEW_H * scale + "px";
   }
   window.addEventListener("resize", fit);
+  document.addEventListener("fullscreenchange", fit);
+  function toggleFull() {
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {
+    });
+    else wrap.requestFullscreen?.().catch(() => {
+    });
+  }
+  canvas.addEventListener("dblclick", toggleFull);
   window.addEventListener("pointerdown", () => sound.unlock());
   window.addEventListener("gamepadconnected", (e) => {
     status.textContent = "gamepad: " + e.gamepad.id.replace(/\s*\(.*\)\s*/g, "");
@@ -2995,57 +3398,121 @@
     status.textContent = err instanceof Error ? err.message : String(err);
   }
   function run(assets, levels) {
-    let index = firstLevel(location.search, levels.length);
-    let world, stage;
+    const asked = firstLevel(location.search, levels.length);
+    const place = levels[titleLevel(levels)];
+    const sceneryWorld = new World(place);
+    const scenery = new Stage(sceneryWorld, assets, [], { title: "", lines: [] }, true);
+    let scene = "title", sceneT = 0, tally = NO_RUN;
+    let index = 0;
+    let world = null, stage = null;
     let last = 0, bank = 0, clock = 0, paused = false;
+    let cheat = false;
+    const leave = () => {
+      if (world) tally = addRun(tally, world);
+      world = null;
+      stage = null;
+    };
     const start = (i) => {
+      leave();
       index = i;
+      scene = "play";
       const level = levels[i];
       world = new World(level);
+      world.invincible = cheat;
       stage = new Stage(world, assets, openingWords(level.settings.title), wonWords(i, levels.length));
       sound.setMusic(level.settings.music);
       paused = false;
       sound.hush(false);
       bank = 0;
     };
-    start(index);
+    const show = (s) => {
+      leave();
+      scene = s;
+      sceneT = 0;
+      scenery.look(...panAim(0, place.width, place.height), true);
+      sound.setMusic(place.settings.music);
+      paused = false;
+      sound.hush(false);
+    };
+    if (asked === null) show("title");
+    else start(asked);
     window.__game = { get world() {
       return world;
+    }, get scene() {
+      return scene;
     }, get paused() {
       return paused;
     }, get level() {
       return index;
-    }, sound, start };
+    }, get run() {
+      return tally;
+    }, get stage() {
+      return stage;
+    }, scenery, sound, start };
+    const showScene = (c, elapsed) => {
+      const dt = Math.min(MAX_FRAME, Math.max(0, elapsed));
+      sceneT += dt;
+      clock += dt;
+      const go = c.jumpPressed || c.restartPressed;
+      if (scene === "title" && go) {
+        tally = NO_RUN;
+        start(0);
+        return;
+      }
+      if (scene === "end" && go && sceneT > 1.5) {
+        show("title");
+        return;
+      }
+      scenery.look(...panAim(sceneT, place.width, place.height));
+      scenery.update(dt);
+      for (const name2 of scenery.heard()) sound.play(name2);
+      scenery.draw(g, clock, false);
+      if (scene === "title") drawTitle(g, sceneT);
+      else drawEnd(g, sceneT, endWords(tally));
+    };
+    const play = (w, st, c, elapsed) => {
+      if (c.pausePressed && w.state === "play") {
+        paused = !paused;
+        sound.hush(paused);
+      }
+      if (c.restartPressed) {
+        start(index);
+        return;
+      }
+      if (w.state !== "play" && w.slow <= 0 && c.jumpPressed) {
+        const next = w.state === "won" ? afterWin(index, levels.length) : index;
+        if (next === "end") show("end");
+        else start(next);
+        return;
+      }
+      if (!paused) {
+        const rate = w.slow > 0 && w.hitStop <= 0 ? SLOW_RATE : 1;
+        const due = stepsFor(elapsed * rate, bank);
+        bank = due.bank;
+        for (let i = 0; i < due.steps; i++) {
+          const events = w.step(i === 0 ? c : { ...c, jumpPressed: false, attackPressed: false, specialPressed: false });
+          st.apply(events);
+          for (const e of events) if (e.type === "sound") sound.play(e.name);
+          st.update(STEP);
+          for (const name2 of st.heard()) sound.play(name2);
+          clock += STEP;
+        }
+      }
+      st.draw(g, clock, paused);
+    };
     const frame = (now) => {
       const elapsed = (now - last) / 1e3 || 0;
       last = now;
       const c = input.read();
       if (c.any) sound.unlock();
       if (c.musicPressed) sound.toggleMusic();
-      if (c.pausePressed && world.state === "play") {
-        paused = !paused;
-        sound.hush(paused);
+      if (c.fullPressed) toggleFull();
+      if (c.cheatPressed) {
+        cheat = !cheat;
+        if (world) world.invincible = cheat;
       }
-      if (c.restartPressed) {
-        start(index);
-        c.jumpPressed = false;
-      } else if (world.state !== "play" && world.slow <= 0 && c.jumpPressed) {
-        start(world.state === "won" ? afterWin(index, levels.length) : index);
-        c.jumpPressed = false;
-      }
-      if (!paused) {
-        const rate = world.slow > 0 && world.hitStop <= 0 ? SLOW_RATE : 1;
-        const due = stepsFor(elapsed * rate, bank);
-        bank = due.bank;
-        for (let i = 0; i < due.steps; i++) {
-          const events = world.step(i === 0 ? c : { ...c, jumpPressed: false, attackPressed: false });
-          stage.apply(events);
-          for (const e of events) if (e.type === "sound") sound.play(e.name);
-          stage.update(STEP);
-          clock += STEP;
-        }
-      }
-      stage.draw(g, clock, paused);
+      if (scene === "play" && world && stage) play(world, stage, c, elapsed);
+      else showScene(c, elapsed);
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
@@ -3061,7 +3528,7 @@
     }
     let levels;
     try {
-      levels = LEVEL_NAMES.map((name) => parseLevel(LEVELS[name], KIND_NAMES, name));
+      levels = LEVEL_NAMES.map((name2) => parseLevel(LEVELS[name2], KIND_NAMES, name2));
     } catch (err) {
       showError("LEVEL ERROR", err);
       return;

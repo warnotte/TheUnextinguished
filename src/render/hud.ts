@@ -2,7 +2,7 @@
 // words of the moment and the panels. It keeps the little it needs to animate them.
 
 import { type Actor, MAX_HP } from '../sim/actor';
-import type { Words } from '../campaign';
+import { clockText, type Words } from '../campaign';
 import type { World } from '../sim/world';
 import { VIEW_H, VIEW_W } from './camera';
 import { centered, text, textWidth } from './text';
@@ -70,6 +70,7 @@ export class Hud {
     const low = p.hp <= 2;
     this.bar(g, MARGIN, p.hp, this.heroLag, false, low ? '#ff5a3a' : '#ffd23a', t, low && w.state === 'play');
     text(g, 'MONK', MARGIN, BAR_Y + BAR_H + 5, '#e2d8f0');
+    if (w.invincible) text(g, 'INVINCIBLE', MARGIN + textWidth('MONK') + 12, BAR_Y + BAR_H + 5, '#ffe27a');
     const foe = this.foe;
     if (foe) {
       const dazed = foe.dazed > 0, x = VIEW_W - MARGIN - BAR_W;
@@ -80,7 +81,7 @@ export class Hud {
 
     const got = w.carried;
     if (w.embers.length) centered(g, `EMBERS ${got}/${w.embers.length}`, VIEW_H - 20, w.doorOpen ? '#ffe27a' : '#e2d8f0');
-    const s = Math.floor(w.clock), clock = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    const clock = clockText(w.clock);
     text(g, clock, VIEW_W - MARGIN - textWidth(clock), VIEW_H - 20, '#e2d8f0');
 
     if (this.finish > 0) {

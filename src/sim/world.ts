@@ -66,12 +66,15 @@ export class World {
   hitStop = 0;
   shake = 0;
   slow = 0;                        // while above zero, the page lets time pass slowly
+  slain = 0;                       // foes ended: ghouls struck down, shades finished
+  spilt = 0;                       // blood thrown, his and theirs, in the units of the blood events
+  invincible = false;              // the cheat: no blow harms the hero
 
   private events: GameEvent[] = [];
   private doorChime = -1;          // seconds until the door is heard opening, -1 when not waiting
   private wasOpen = false;
   private spare = 0;               // embers won from the foes, less those spent on charges
-  private readonly charged = new Set<Actor>();     // whom the charge in flight has already struck
+  private readonly struck = new Set<Actor>();      // whom the blow or the charge in hand has already struck
   private trail = 0;
   private readonly emit: Emit = event => { this.events.push(event); };
 
@@ -132,6 +135,7 @@ export class World {
       this.emit({ type: 'sound', name: 'block' });
       return;
     }
+    if (this.invincible) return;
     p.guard = false;
     p.hp = Math.max(0, p.hp - damage); p.invul = 1.2; p.hurtT = 0.3; p.attackT = 0; p.climbing = false;
     this.emit({ type: 'effect', kind: 'blunt-hit', x: p.x + p.w / 2, y: p.y + p.h, flip: dir < 0 });
@@ -168,7 +172,7 @@ export class World {
         this.spare--;
         p.charge = CHARGE.time; p.facing = byMotion ? p.motionDir : c.x || p.facing;
         p.attackT = 0; p.strikeBuffer = 0; p.guard = false;
-        this.charged.clear(); this.trail = 0;
+        this.struck.clear(); this.trail = 0;
         this.emit({ type: 'sound', name: 'charge' });
         this.stepCharge(p);
         return;
@@ -188,7 +192,7 @@ export class World {
       p.attackAir = !p.onGround;
       p.attackKind = !p.attackAir && p.sinceAttack < COMBO_WINDOW ? CHAIN[p.attackKind] : 'punch';
       p.attackT = this.strikeOf(p).time;
-      p.attackHit = false; p.sinceAttack = 0;
+      p.attackHit = false; p.sinceAttack = 0; this.struck.clear();
       if (!p.attackAir) {
         // The second and third blows step in, unless a foe is already in reach.
         if (p.attackKind !== 'punch' && !this.foes.some(f => f.ko <= 0 && f.dead <= 0 && overlap(this.reach(p), f))) p.vx = p.facing * LUNGE;
@@ -201,12 +205,15 @@ export class World {
     move(p, this.grid, STEP, this.emit);
     if (p.onGround && p.attackAir && p.attackT > 0) p.attackT = 0;       // a flying kick ends on landing
 
-    if (p.attackT > 0 && !p.attackHit) {
+    if (p.attackT > 0) {                           // a blow strikes everyone it touches, each of them once
       const s = this.strikeOf(p), since = s.time - p.attackT;
       if (since > s.from && since < s.to) {
         const box = this.reach(p);
-        const foe = this.foes.find(f => this.canBeHit(f) && overlap(box, f));
-        if (foe) this.strikeFoe(foe, p.facing, s);
+        for (const foe of this.foes) {
+          if (this.struck.has(foe) || !this.canBeHit(foe) || !overlap(box, foe)) continue;
+          this.struck.add(foe);
+          this.strikeFoe(foe, p.facing, s);
+        }
       }
     }
     if (Math.abs(p.vx) > 12 && p.onGround) p.animT += STEP;
@@ -221,8 +228,8 @@ export class World {
     if (this.trail <= 0) { this.trail = CHARGE.trail; this.emit({ type: 'flame', x: p.x + p.w / 2, y: p.y + 20, dir: p.facing }); }
     const box = { x: p.facing > 0 ? p.x : p.x - CHARGE.reach, y: p.y, w: p.w + CHARGE.reach, h: p.h };
     for (const foe of this.foes) {
-      if (this.charged.has(foe) || foe.ko > 0 || foe.dead > 0 || !overlap(box, foe)) continue;
-      this.charged.add(foe);
+      if (this.struck.has(foe) || foe.ko > 0 || foe.dead > 0 || !overlap(box, foe)) continue;
+      this.struck.add(foe);
       this.strikeFoe(foe, p.facing, CHARGE_BLOW);
     }
     if (p.blocked) p.charge = 0;
@@ -242,6 +249,7 @@ export class World {
 
   // Blood leaves an actor at chest height, the way the blow went.
   private bleed(a: Actor, dir: 1 | -1, amount: number, chunks: number): void {
+    this.spilt += amount;
     this.emit({ type: 'blood', x: a.x + a.w / 2, y: a.y + 12, dir, amount, chunks });
   }
 
@@ -267,7 +275,7 @@ export class World {
     this.hero.attackHit = true;
     const x = e.x + e.w / 2, y = e.y + e.h, heavy = blow.heavy;
     if (e.kind === 'ghoul') {
-      e.dead = 6; e.vx = 0;
+      e.dead = 6; e.vx = 0; this.slain++;
       this.hitStop = 0.06; this.shake = 0.14;
       this.emit({ type: 'effect', kind: 'death', x, y, flip: false });
       this.emit({ type: 'sound', name: 'ko' });
@@ -302,6 +310,7 @@ export class World {
       this.hitStop = 0.16; this.shake = 0.45; this.slow = SLOW;
       this.emit({ type: 'effect', kind: 'poof-green', x, y, flip: false });
       this.spare++;                            // its flame is his now
+      this.slain++;
       this.emit({ type: 'effect', kind: 'collect-burst', x, y: e.y + 12 + EMBER_BURST_DROP, flip: false });
       this.emit({ type: 'finisher', x, y: e.y + 12 });
       this.emit({ type: 'sound', name: 'finish' });

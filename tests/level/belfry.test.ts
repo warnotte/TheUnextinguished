@@ -12,14 +12,14 @@ const kinds = new Set(Object.keys(KINDS));
 const stand = (a: Actor, x: number, row: number) => Object.assign(a, { x, y: row * 16 - a.h, vx: 0, vy: 0, onGround: true, climbing: false, lastFloor: row });
 
 describe('a level open to the sky', () => {
-  it('says so in its properties, and says whether it snows', () => {
+  it('says so in its properties, and says whether it snows and storms', () => {
     const lv = parseLevel(readLevelFile('beffroi'), kinds, 'beffroi');
-    expect(lv.settings).toMatchObject({ title: 'THE BELFRY', sky: true, snow: true, music: 'poursuite' });
+    expect(lv.settings).toMatchObject({ title: 'THE BELFRY', sky: true, snow: true, storm: true, music: 'poursuite' });
   });
 
   it('is closed and dry unless it says otherwise', () => {
     const lv = parseLevel(readLevelFile('salle3'), kinds, 'salle3');
-    expect(lv.settings).toMatchObject({ sky: false, snow: false });
+    expect(lv.settings).toMatchObject({ sky: false, snow: false, storm: false });
   });
 
   it('has openings in its wall: the arch, a kind of decor that is painted', () => {

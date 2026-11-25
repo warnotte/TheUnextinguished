@@ -51,6 +51,19 @@ export function shadowOf(l: Light, x: number, y: number): { scale: number; alpha
   return { scale: 1 + SHADOW_DEPTH, alpha: Math.min(SHADOW_DARK, 0.25 + k) };
 }
 
+const FLASH_FLOOR = 70;          // px: an opening this much higher or lower than a body is on another floor
+const FLASH_REACH = 260;         // px: an opening farther than this along the floor sends a body no shadow
+
+/** The opening a flash of lightning comes in by, for a body centred on (x, y): the nearest one of its floor, or null. */
+export function flashSource<P extends { x: number; y: number }>(openings: readonly P[], x: number, y: number): P | null {
+  let best: P | null = null;
+  for (const o of openings) {
+    if (Math.abs(o.y - y) > FLASH_FLOOR || Math.abs(o.x - x) > FLASH_REACH) continue;
+    if (!best || Math.abs(o.x - x) < Math.abs(best.x - x)) best = o;
+  }
+  return best;
+}
+
 /** One pixel towards the lamp, on each axis: the edge of a sprite that catches its light. */
 export function rimOffset(l: Light, x: number, y: number): [number, number] {
   const dx = l.x - x, dy = l.y - y, d = Math.hypot(dx, dy) || 1;

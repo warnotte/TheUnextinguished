@@ -20,6 +20,19 @@ await page.goto(pathToFileURL('index.html').href);
 await page.waitForFunction(() => window.__game, null, { timeout: 15000 }).catch(() => {});
 check('the game starts', await game(() => !!window.__game), await page.locator('#status').textContent());
 await page.waitForTimeout(400);
+check('it opens on the title', await game(() => __game.scene === 'title' && __game.world === null));
+await game(() => { __game.scenery.storm.wait = 0; });          // a strike of lightning, at once
+await page.waitForTimeout(1600);                                // and its thunder
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/title.png' });
+await page.keyboard.press('KeyF');
+await page.waitForTimeout(400);
+const full = await game(() => [!!document.fullscreenElement, document.getElementById('screen').getBoundingClientRect().width]);
+await page.keyboard.press('KeyF');
+await page.waitForTimeout(400);
+check('F puts the picture on the full screen, and F again takes it back', full[0] && full[1] % 640 === 0 && (await game(() => !document.fullscreenElement)), String(full));
+await page.keyboard.press('Space');
+await page.waitForTimeout(400);
+check('jump on the title starts the first level', await game(() => __game.scene === 'play' && __game.level === 0 && __game.world.state === 'play'));
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/start.png' });
 
 const size = await game(() => { const c = document.getElementById('screen'); return [c.width, c.height, c.getBoundingClientRect().width]; });
@@ -71,6 +84,25 @@ const second = await game(() => ({ index: __game.level, name: __game.world.level
 check('jump then starts the next level', second.index === 1 && second.name !== first && second.state === 'play', JSON.stringify(second));
 await page.waitForTimeout(600);
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/second.png' });
+
+// The last level won leads to the end, which tells the run, then back to the title.
+await game(() => __game.start(2));
+await page.waitForTimeout(300);
+await game(() => {
+  const w = __game.world, h = w.hero, d = w.door;
+  for (const f of w.foes) { f.cool = 99; f.stun = 99; f.dead = 99; }
+  for (const m of w.embers) m.taken = true;
+  Object.assign(h, { x: d.x + 9, y: d.y + d.h - h.h, vx: 0, vy: 0, onGround: true });
+});
+await page.waitForFunction(() => __game.world.state === 'won', null, { timeout: 4000 }).catch(() => {});
+await page.keyboard.press('Space');
+await page.waitForTimeout(1800);
+const end = await game(() => ({ scene: __game.scene, run: __game.run }));
+check('the last level won leads to the end, with the tally of the run', end.scene === 'end' && end.run.time > 1, JSON.stringify(end));
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/end.png' });
+await page.keyboard.press('Space');
+await page.waitForTimeout(300);
+check('jump on the end goes back to the title', await game(() => __game.scene === 'title'));
 
 check('no error in the console, no file missing', errors.length === 0, errors.join(' | '));
 console.log(results.every(Boolean) ? `ALL ${results.length} CHECKS PASS` : `${results.filter(v => !v).length} of ${results.length} CHECKS FAIL`);

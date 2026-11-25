@@ -66,7 +66,7 @@ const map = {
   properties: [
     { name: 'bats', type: 'int', value: 3 }, { name: 'darkness', type: 'float', value: 0.58 }, { name: 'mist', type: 'bool', value: false },
     { name: 'music', type: 'string', value: 'poursuite' }, { name: 'sky', type: 'bool', value: true }, { name: 'snow', type: 'bool', value: true },
-    { name: 'title', type: 'string', value: 'THE BELFRY' },
+    { name: 'storm', type: 'bool', value: true }, { name: 'title', type: 'string', value: 'THE BELFRY' },
   ],
   tilesets: [{ firstgid: 1, name: 'collision', image: '../assets/engine/collision.png', imagewidth: 32, imageheight: 16, tilewidth: 16, tileheight: 16, tilecount: 2, columns: 2, margin: 0, spacing: 0 }],
   layers: [{ id: 1, name: 'collision', type: 'tilelayer', width: W, height: H, x: 0, y: 0, opacity: 1, visible: true, data: cells }, group(2, 'decor', decor), group(3, 'items', items), group(4, 'actors', actors)],

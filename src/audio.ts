@@ -250,6 +250,16 @@ export class Sound {
         this.tone('sine', 120, 30, { dur: 0.6, vol: 0.6, hall: 0.3 });
         this.hiss('lowpass', 1400, 150, { dur: 0.45, vol: 0.4, hall: 0.5 });
         break;
+      case 'thunder':
+        this.duck(2.2);
+        this.hiss('highpass', 2400, 500, { dur: 0.3, vol: 0.32, hall: 0.7 });             // the crack of the sky
+        this.hiss('lowpass', 1100, 70, { at: 0.02, dur: 2.8, vol: 0.75, hall: 0.7 });       // the roll
+        for (let i = 0; i < 5; i++) {                                                     // and its rumbles, farther and farther
+          const f = 180 + Math.random() * 240;
+          this.hiss('lowpass', f, 55, { at: 0.3 + i * 0.38 + Math.random() * 0.2, dur: 0.9 + Math.random() * 0.7, vol: 0.5 - i * 0.07, hall: 0.7 });
+        }
+        this.tone('sine', 52, 28, { dur: 2.4, vol: 0.45, hall: 0.3 });
+        break;
       case 'win':
         this.duck(1.2);
         [587.3, 740, 880, 1174.7].forEach((f, i) => { this.bell(f, i * 0.12, 0.16); this.tone('triangle', f / 2, f / 2, { at: i * 0.12, dur: 0.3, vol: 0.1, hall: 0.5 }); });

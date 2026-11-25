@@ -13,7 +13,7 @@ const FONT: Record<string, string> = {
   ':': '000010000010000', '.': '000000000000010', '!': '010010010000010', '/': '001001010100100', '-': '000000111000000', ' ': '000000000000000',
 };
 
-export function text(g: CanvasRenderingContext2D, str: string, x: number, y: number, color: string, scale = 2): void {
+export function text(g: CanvasRenderingContext2D, str: string, x: number, y: number, color: string | CanvasGradient, scale = 2): void {
   g.fillStyle = color;
   for (const ch of str) {
     const bits = FONT[ch] ?? FONT[' '];
@@ -24,6 +24,6 @@ export function text(g: CanvasRenderingContext2D, str: string, x: number, y: num
 
 export const textWidth = (str: string, scale = 2): number => str.length * 4 * scale - scale;
 
-export function centered(g: CanvasRenderingContext2D, str: string, y: number, color: string, scale = 2): void {
+export function centered(g: CanvasRenderingContext2D, str: string, y: number, color: string | CanvasGradient, scale = 2): void {
   text(g, str, Math.round((VIEW_W - textWidth(str, scale)) / 2), y, color, scale);
 }

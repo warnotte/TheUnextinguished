@@ -276,6 +276,84 @@ describe('a shade in the duel', () => {
   });
 });
 
+describe('a blow among several foes', () => {
+  it('strikes every foe the flying kick touches, not only the first', () => {
+    const w = new World(makeLevel(ROWS, [at('hero', 100), at('shade', 134), at('shade', 138), at('shade', 142), at('door', 900)]));
+    for (const f of w.foes) Object.assign(f, { cool: 9, stun: 0.2 });
+    play(w, press({ jump: true, jumpPressed: true }), 0.12);
+    play(w, press({ jump: true, attackPressed: true }), 0.7);
+    expect(w.foes.map(f => f.hp)).toEqual([4, 4, 4]);
+  });
+
+  it('strikes every foe within reach of a blow on the ground', () => {
+    const w = new World(makeLevel(ROWS, [at('hero', 100), at('shade', 124), at('shade', 130), at('door', 900)]));
+    for (const f of w.foes) f.cool = 9;
+    play(w, strike, 0.3);
+    expect(w.foes.map(f => f.hp)).toEqual([5, 5]);
+  });
+
+  it('kills the ghouls that stand together with one blow', () => {
+    const w = new World(makeLevel(ROWS, [at('hero', 100), at('ghoul', 124), at('ghoul', 130), at('door', 900)]));
+    for (const f of w.foes) f.invul = 0;                      // out of the ground already
+    play(w, strike, 0.3);
+    expect(w.foes.every(f => f.dead > 0)).toBe(true);
+  });
+
+  it('strikes each foe only once with the same blow', () => {
+    const w = new World(makeLevel(ROWS, [at('hero', 100), at('shade', 124), at('door', 900)]));
+    const foe = w.foes[0];
+    foe.cool = 9;
+    w.step(strike);
+    for (let i = 0; i < 80; i++) { foe.x = 124; foe.vx = 0; w.step(NO_CONTROLS); }     // held within reach for the whole blow
+    expect(foe.hp).toBe(5);
+  });
+});
+
+describe('the cheat', () => {
+  it('leaves the hero unharmed by any blow: no loss of health, never knocked out', () => {
+    const w = new World(makeLevel(ROWS, [at('hero', 100), at('shade', 126), at('ghoul', 80), at('door', 900)]));
+    w.invincible = true;
+    for (const f of w.foes) { f.cool = 0; f.invul = 0; }
+    for (let i = 0; i < 6; i++) w.hurtHero(1);
+    play(w, NO_CONTROLS, 4);
+    expect(w.hero.hp).toBe(6);
+    expect(w.state).toBe('play');
+  });
+
+  it('can be taken off again', () => {
+    const w = new World(makeLevel(ROWS, [at('hero', 100), at('door', 900)]));
+    w.invincible = true; w.invincible = false;
+    w.hurtHero(1);
+    expect(w.hero.hp).toBe(4);
+  });
+});
+
+describe('what a level keeps count of', () => {
+  it('counts the foes ended: a ghoul struck down, a shade finished', () => {
+    const w = armed(at('ghoul', 140), at('shade', 220));
+    const [ghoul, shade] = w.foes;
+    ghoul.invul = 0;
+    play(w, strike, 0.4);
+    expect(w.slain).toBe(1);
+    Object.assign(shade, { hp: 0, dazed: 2, cool: 9 });
+    play(w, charge, 0.6);
+    expect(shade.ko).toBeGreaterThan(0);
+    expect(w.slain).toBe(2);
+  });
+
+  it('counts the blood spilt, his and theirs', () => {
+    const w = new World(makeLevel(ROWS, [at('hero', 100), at('shade', 124), at('door', 900)]));
+    w.foes[0].cool = 9;
+    expect(w.spilt).toBe(0);
+    const events = play(w, strike, 0.6);
+    const thrown = events.reduce((n, e) => n + (e.type === 'blood' ? e.amount : 0), 0);
+    expect(thrown).toBeGreaterThan(0);
+    expect(w.spilt).toBe(thrown);
+    w.hurtHero(1);
+    expect(w.spilt).toBeGreaterThan(thrown);
+  });
+});
+
 describe('turning round in the middle of a fight', () => {
   it('strikes the way that is held, when both are pressed together', () => {
     const w = new World(makeLevel(ROWS, [at('hero', 300), at('door', 900)]));

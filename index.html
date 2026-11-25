@@ -30,13 +30,15 @@
   kbd { display:inline-block; min-width:1.2em; padding:0 5px; border:1px solid #3a4152; border-radius:3px; background:#141821; color:#d5d8e0; font:12px/1.5 Consolas, monospace; }
   #status { color:#e8a33a; }
   small { color:#5d6474; }
+  #wrap:fullscreen { background:#000; cursor:none; }
+  #wrap:fullscreen #help { display:none; }
 </style>
 </head>
 <body>
 <div id="wrap">
   <canvas id="screen" width="640" height="360"></canvas>
   <div id="help">
-    <div><b>Keyboard</b> — move <kbd>←</kbd><kbd>→</kbd> or <kbd>Q</kbd><kbd>D</kbd> · climb <kbd>↑</kbd><kbd>↓</kbd> or <kbd>Z</kbd><kbd>S</kbd> · jump <kbd>Space</kbd> · strike <kbd>X</kbd> or <kbd>Ctrl</kbd> · guard <kbd>C</kbd> or <kbd>↓</kbd> · charge <kbd>V</kbd> (costs an ember) · restart <kbd>R</kbd> · music <kbd>M</kbd></div>
+    <div><b>Keyboard</b> — move <kbd>←</kbd><kbd>→</kbd> or <kbd>Q</kbd><kbd>D</kbd> · climb <kbd>↑</kbd><kbd>↓</kbd> or <kbd>Z</kbd><kbd>S</kbd> · jump <kbd>Space</kbd> · strike <kbd>X</kbd> or <kbd>Ctrl</kbd> · guard <kbd>C</kbd> or <kbd>↓</kbd> · charge <kbd>V</kbd> (costs an ember) · pause <kbd>P</kbd> · restart <kbd>R</kbd> · music <kbd>M</kbd> · full screen <kbd>F</kbd> or a double click</div>
     <div><b>Gamepad</b> — stick or d-pad · jump <kbd>A</kbd> · strike <kbd>X</kbd> or <kbd>B</kbd> · guard <kbd>LB</kbd> or <kbd>RB</kbd> · charge <kbd>Y</kbd>, or <kbd>↓</kbd><kbd>→</kbd> then strike · restart <kbd>Start</kbd> · <span id="status"></span></div>
     <div><small>Sprites and tiles: "Gothicvania Church" by Luis Zuno (ansimuz), public domain (CC0). Effects: pixelfx by Patch, MIT. Music: ours, on NoobSynth's emulated chips (FM, NES, SNES, AY).</small></div>
   </div>

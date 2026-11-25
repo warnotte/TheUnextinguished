@@ -9,7 +9,8 @@ what hunts you. Blows draw blood, which runs down the walls and stays on the flo
 
 ## Play
 
-Open `index.html` by double-click (after a build, see below). No server, no network.
+Open `index.html` by double-click (after a build, see below). No server, no network. The game opens
+on its title, which shows the controls; jump starts it.
 
 | | Keyboard | Gamepad |
 |---|---|---|
@@ -22,12 +23,14 @@ Open `index.html` by double-click (after a build, see below). No server, no netw
 | Pause | P | Select |
 | Restart | R | Start |
 | Music on / off | M | |
+| Full screen | F, or a double click on the picture | |
+| Cheat: the monk cannot be harmed (G again to stop) | G | |
 
 The duel:
 
 - **The chain.** Three strikes in a row are a punch, a kick and a sweep. The punch takes one point
   of health, the kick and the sweep two; the sweep throws the foe away. A strike in the air is a
-  flying kick (two points).
+  flying kick (two points). A blow strikes every foe it touches, each of them once.
 - **The guard** stops any blow that comes from the front, at the cost of a step back.
 - **The flaming charge** costs one ember. It carries the hero a long way straight ahead, over the
   gaps, through whoever stands there (three points of health, guard or no guard); nothing hurts him
@@ -40,8 +43,13 @@ The duel:
 - A shade at the end of its health stands dazed for three seconds: a kick, a sweep, a flying kick
   or a charge then ends it; left alone, it comes round.
 
-The levels follow each other: the door of one leads to the next. To start at the second or the
-third level, add `?level=2` or `?level=3` to the address of the page.
+The levels follow each other: the door of one leads to the next. After the last comes the end,
+which tells the run: its time, the foes snuffed out, the blood spilt, how often the hero was knocked
+out. Then back to the title. To go straight to a level, without the title, add `?level=1`,
+`?level=2` or `?level=3` to the address of the page.
+
+The title stands in front of the first level open on the sky (the belfry), climbing it slowly under
+a storm: now and then lightning flashes through the arches and the thunder follows.
 
 ## Build and test
 
@@ -62,8 +70,8 @@ npm run test:e2e   # the whole game in the installed Chrome (after a build)
 |---|---|
 | `src/sim/` | The world, stepped 120 times a second, with no drawing: grid, movement, combat, the pursuers. Each step returns events (effects, sounds). |
 | `src/level/` | `tiled.ts` reads a Tiled map; `kinds.ts` is the registry of everything a level can ask for, and of every picture, sheet and effect. |
-| `src/render/` | Camera, the fixed backdrop painted from the grid and the objects, the light (`lighting.ts`, `shading.ts`), blood (`blood.ts`, `lens.ts`), the words over the picture (`hud.ts`), the frame. |
-| `src/campaign.ts` | The run of the levels: which comes after a win, the words at the start and the end of each. |
+| `src/render/` | Camera, the fixed backdrop painted from the grid and the objects, the light (`lighting.ts`, `shading.ts`), blood (`blood.ts`, `lens.ts`), the sky and the storm (`sky.ts`, `storm.ts`), the words over the picture (`hud.ts`, `title.ts`), the frame. |
+| `src/campaign.ts` | The run of the levels: the title, which level comes after a win, the end and its tally, the words on the way. |
 | `src/input.ts`, `src/audio.ts`, `src/loop.ts`, `src/main.ts` | Controls, sound, the main loop. |
 | `src/levels.ts` | The list of levels: the only file of the engine that names them. |
 | `levels/` | The levels, one script each. |
@@ -88,7 +96,7 @@ object, paint a cell); nothing drives them yet.
   decor, the feet of an actor, the pivot of a torch.
 - The map's own properties set the level: `title`, `darkness` (0 to 1), `music`, `mist`, `bats`,
   `sky` (the night shows through the arches, in planes that slide at different speeds:
-  `src/render/sky.ts`) and `snow`.
+  `src/render/sky.ts`), `snow` and `storm` (now and then lightning lights the place through its openings, each body throws a long shadow on the wall, and the thunder follows).
 - The third level, the belfry, is written by `node tools/make-beffroi.mjs`.
 - The levels are played in the order `index.html` loads them.
 

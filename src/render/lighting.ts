@@ -11,8 +11,8 @@ import { VIEW_H, VIEW_W } from './camera';
 import { ambientOf, keyLight, lightAt, type RGB, shadowOf } from './shading';
 
 export interface Light { x: number; y: number; radius: number; strength: number; flicker: number; color: RGB }
-/** A body that casts a shadow: its middle, the lamp it carries itself (which casts none of it), and how to draw its outline in black. */
-export interface Caster { x: number; y: number; own: Light | null; draw(k: CanvasRenderingContext2D): void }
+/** A body that casts a shadow: its middle, the height of its feet, the lamp it carries itself (which casts none of it), and how to draw its outline in black. */
+export interface Caster { x: number; y: number; feet: number; own: Light | null; draw(k: CanvasRenderingContext2D): void }
 export interface Segment { x0: number; y0: number; x1: number; y1: number }
 
 // px the light goes on into the stone it meets: the depth of a slab with the rock that hangs under it,
