@@ -184,6 +184,7 @@ export class World {
     p.strikeBuffer = c.attackPressed ? STRIKE_BUFFER : Math.max(0, p.strikeBuffer - STEP);
     if (p.strikeBuffer > 0 && p.attackT <= 0 && !p.climbing && p.hurtT <= 0) {
       p.strikeBuffer = 0; p.guard = false;
+      if (c.x) p.facing = c.x;                     // each blow goes the way that is held: he can turn between two
       p.attackAir = !p.onGround;
       p.attackKind = !p.attackAir && p.sinceAttack < COMBO_WINDOW ? CHAIN[p.attackKind] : 'punch';
       p.attackT = this.strikeOf(p).time;

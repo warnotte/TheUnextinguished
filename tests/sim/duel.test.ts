@@ -275,3 +275,38 @@ describe('a shade in the duel', () => {
     expect(foe.hp).toBe(4);
   });
 });
+
+describe('turning round in the middle of a fight', () => {
+  it('strikes the way that is held, when both are pressed together', () => {
+    const w = new World(makeLevel(ROWS, [at('hero', 300), at('door', 900)]));
+    expect(w.hero.facing).toBe(1);
+    w.step(press({ x: -1, attackPressed: true }));
+    expect(w.hero.attackT).toBeGreaterThan(0);
+    expect(w.hero.facing).toBe(-1);
+  });
+
+  it('turns between two blows, even when the strikes never stop', () => {
+    const w = new World(makeLevel(ROWS, [at('hero', 300), at('door', 900)]));
+    next(w);                                                 // a first blow, to the right
+    for (let i = 0; i < Math.round(0.7 / STEP); i++) w.step(press({ x: -1, attackPressed: i % 12 === 0 }));     // the strike hammered, left held
+    expect(w.hero.facing).toBe(-1);
+    expect(w.hero.attackT).toBeGreaterThan(0);                // and he is still striking
+  });
+
+  it('lands the blow on the foe behind him', () => {
+    const w = new World(makeLevel(ROWS, [at('hero', 300), at('shade', 274), at('door', 900)]));
+    const foe = w.foes[0];
+    foe.cool = 9;
+    next(w);                                                 // into the air, to the right
+    for (let i = 0; i < Math.round(0.7 / STEP); i++) w.step(press({ x: -1, attackPressed: i % 12 === 0 }));
+    expect(foe.hp).toBeLessThan(6);
+  });
+
+  it('does not turn in the middle of a blow', () => {
+    const w = new World(makeLevel(ROWS, [at('hero', 300), at('door', 900)]));
+    w.step(strike);
+    for (let i = 0; i < 20; i++) w.step(press({ x: -1 }));
+    expect(w.hero.attackT).toBeGreaterThan(0);
+    expect(w.hero.facing).toBe(1);
+  });
+});

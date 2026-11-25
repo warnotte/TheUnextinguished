@@ -1144,6 +1144,7 @@
       if (p.strikeBuffer > 0 && p.attackT <= 0 && !p.climbing && p.hurtT <= 0) {
         p.strikeBuffer = 0;
         p.guard = false;
+        if (c.x) p.facing = c.x;
         p.attackAir = !p.onGround;
         p.attackKind = !p.attackAir && p.sinceAttack < COMBO_WINDOW ? CHAIN[p.attackKind] : "punch";
         p.attackT = this.strikeOf(p).time;
