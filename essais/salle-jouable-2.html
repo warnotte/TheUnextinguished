@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Unextinguished — playable room 2</title>
+<style>
+  html, body { margin:0; height:100%; background:#07080c; color:#8f96a6; font:13px/1.5 "Segoe UI", system-ui, sans-serif; overflow:hidden; }
+  #wrap { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; }
+  canvas { display:block; background:#000; image-rendering:pixelated; }
+  #help { text-align:center; }
+  kbd { display:inline-block; min-width:1.2em; padding:0 5px; border:1px solid #3a4152; border-radius:3px; background:#141821; color:#d5d8e0; font:12px/1.5 Consolas, monospace; }
+  #pad { color:#e8a33a; }
+  small { color:#5d6474; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="screen" width="640" height="480"></canvas>
+  <div id="help">
+    <div><b>Keyboard</b> — move <kbd>←</kbd><kbd>→</kbd> or <kbd>Q</kbd><kbd>D</kbd> · climb <kbd>↑</kbd><kbd>↓</kbd> or <kbd>Z</kbd><kbd>S</kbd> · jump <kbd>Space</kbd> · strike <kbd>X</kbd> or <kbd>Ctrl</kbd> · restart <kbd>R</kbd> · music <kbd>M</kbd> (<span id="music">on</span>, starts at the first key press)</div>
+    <div><b>Gamepad</b> — stick or d-pad · jump <kbd>A</kbd> · strike <kbd>X</kbd> or <kbd>B</kbd> · restart <kbd>Start</kbd> · <span id="pad">no gamepad seen yet: press a button on it</span></div>
+    <div><small>Sprites and tiles: "Gothicvania Church" by Luis Zuno (ansimuz), public domain (CC0). Effects: pixelfx by Patch, MIT. Music: ours, on NoobSynth's AY-3-8910.</small></div>
+  </div>
+</div>
+
+<script src="assets/music/poursuite.js"></script>
+<script>
+(() => {
+'use strict';
+
+// Throwaway trial room, second take: the same room and rules as the first, twice the size, dressed
+// with the "Gothicvania Church" pack (CC0). The world is 640x480, in 16-pixel tiles, stepped at a
+// fixed rate.
+
+const W = 640, H = 480, T = 16, COLS = 40, ROWS = 30;
+const STEP = 1 / 120;
+const RUN = 165, ACC = 2000, AIR_ACC = 1300, FRICTION = 2400, GRAVITY = 1760, JUMP = 492, JUMP_CUT = 170, MAX_FALL = 840, CLIMB = 124;
+const FOE_PACE = 0.84, GHOUL_SPEED = 118;
+const PUNCH_T = 0.36, KICK_T = 0.42, STRIKE_T = 0.16;
+const PACK = 'assets/gothicvania-church/', PFX = 'assets/pixelfx/';
+
+// Effects rendered as sprite sheets with pixelfx (frame size, pivot, columns as its JSON gives them).
+const FX = {
+  'hit-spark':     { fps: 30, frames: 16, w: 136, h: 80,  px: 44, py: 64,  cols: 4 },
+  'crit-hit':      { fps: 30, frames: 28, w: 216, h: 136, px: 84, py: 106, cols: 5 },
+  'blunt-hit':     { fps: 30, frames: 28, w: 128, h: 88,  px: 64, py: 72,  cols: 5 },
+  'collect-burst': { fps: 30, frames: 42, w: 112, h: 108, px: 56, py: 94,  cols: 7 },
+  'poof-green':    { fps: 30, frames: 49, w: 112, h: 92,  px: 56, py: 80,  cols: 7 },
+  'heavy-landing': { fps: 30, frames: 49, w: 176, h: 80,  px: 88, py: 60,  cols: 5 },
+  torch:           { fps: 30, frames: 60, w: 72,  h: 120, px: 36, py: 94,  cols: 10 },
+};
+const TORCHES = [[320, 262], [600, 284], [40, 284], [240, 396], [432, 396], [430, 60]];
+
+// ---- Room ---------------------------------------------------------------------------------------
+const grid = Array.from({ length: ROWS }, () => new Array(COLS).fill(0));   // 0 air, 1 stone, 2 ladder
+const LADDERS = [];
+function stone(c0, c1, r0, r1 = r0) { for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) grid[r][c] = 1; }
+function ladder(c, rTop, rBot) { for (let r = rTop; r <= rBot; r++) { grid[r][c] = 2; grid[r][c + 1] = 2; } LADDERS.push({ c, rTop, rBot, x: (c + 1) * T }); }
+
+stone(0, 0, 0, 29); stone(39, 39, 0, 29); stone(0, 39, 27, 29);                       // walls and ground
+stone(1, 12, 20); stone(16, 27, 20); stone(31, 38, 20);                              // first floor
+stone(5, 17, 13); stone(22, 34, 13);                                                  // second floor
+stone(1, 14, 6); stone(18, 20, 6); stone(24, 38, 6);                                  // third floor
+ladder(3, 20, 26); ladder(33, 20, 26);
+ladder(10, 13, 19); ladder(24, 13, 19);
+ladder(12, 6, 12); ladder(30, 6, 12);
+
+const solidAt = (c, r) => c < 0 || c >= COLS || r < 0 || r >= ROWS || grid[r][c] === 1;
+const ladderAt = (c, r) => c >= 0 && c < COLS && r >= 0 && r < ROWS && grid[r][c] === 2;
+const ladderTopAt = (c, r) => ladderAt(c, r) && !ladderAt(c, r - 1);
+const floorAt = (c, r) => solidAt(c, r) || ladderTopAt(c, r);
+
+const EMBER_SPOTS = [[3, 4], [19, 4], [36, 4], [7, 11], [19.5, 8], [33, 11], [20, 18], [37, 18], [20, 25]];
+const DOOR = { x: 36 * T, y: 23 * T, w: 32, h: 64 };
+const GLOWS = [[92, 152], [170, 152], [150, 44]];   // where the backdrop has flames of its own
+
+// ---- State --------------------------------------------------------------------------------------
+let hero, foe, ghoul, embers, particles, effects, state, clock, hitStop, shake, banner, frameT = 0;
+
+function actor(kind, x, floorRow) {
+  return { kind, x, y: floorRow * T - 40, w: 14, h: 40, vx: 0, vy: 0, facing: 1, onGround: true, climbing: false, lastFloor: floorRow,
+    animT: 0, attackT: 0, attackKind: 'punch', attackAir: false, attackHit: false, sinceAttack: 9, invul: 0, hurtT: 0, hp: 3, coyote: 0, buffer: 0,
+    stun: 0, ko: 0, windup: 0, strike: 0, recover: 0, struck: false, cool: 0, airDir: 0, climbDir: 1, dead: 0 };
+}
+
+function reset() {
+  hero = actor('hero', 28, 27);
+  foe = actor('foe', 35 * T, 6);
+  foe.facing = -1; foe.cool = 1.5;
+  ghoul = actor('ghoul', 520, 27);
+  ghoul.facing = -1; ghoul.invul = 1.5;
+  embers = EMBER_SPOTS.map(([c, r], i) => ({ x: c * T + 8, y: r * T + 8, taken: false, phase: i * 0.7 }));
+  particles = []; effects = [];
+  state = 'play'; clock = 0; hitStop = 0; shake = 0; banner = 3.5;
+}
+
+// ---- Input --------------------------------------------------------------------------------------
+const keys = new Set();
+const KEYMAP = {
+  left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'], up: ['ArrowUp', 'KeyW'], down: ['ArrowDown', 'KeyS'],
+  jump: ['Space', 'KeyK'], attack: ['KeyX', 'KeyJ', 'ControlLeft', 'ControlRight'], restart: ['KeyR', 'Enter'],
+};
+const taps = new Set();          // keys pressed since the last frame: a tap shorter than a frame still counts
+addEventListener('keydown', e => { keys.add(e.code); if (!e.repeat) { taps.add(e.code); if (e.code === 'KeyM') toggleMusic(); } audio(); if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault(); });
+addEventListener('keyup', e => keys.delete(e.code));
+addEventListener('blur', () => keys.clear());
+addEventListener('pointerdown', audio);
+const padLabel = document.getElementById('pad');
+addEventListener('gamepadconnected', e => { padLabel.textContent = 'gamepad: ' + e.gamepad.id.replace(/\s*\(.*\)\s*/g, ''); });
+addEventListener('gamepaddisconnected', () => { padLabel.textContent = 'gamepad unplugged'; });
+
+const inp = { x: 0, up: false, down: false, jump: false, jumpPressed: false, attackPressed: false, restartPressed: false };
+const held = { jump: false, attack: false, restart: false };
+
+function readInput() {
+  const k = name => KEYMAP[name].some(code => keys.has(code) || taps.has(code));
+  let left = k('left'), right = k('right'), up = k('up'), down = k('down'), jump = k('jump'), attack = k('attack'), restart = k('restart');
+  for (const pad of navigator.getGamepads ? navigator.getGamepads() : []) {
+    if (!pad || !pad.connected) continue;
+    const b = i => !!(pad.buttons[i] && pad.buttons[i].pressed), ax = pad.axes[0] || 0, ay = pad.axes[1] || 0;
+    left = left || ax < -0.4 || b(14); right = right || ax > 0.4 || b(15);
+    up = up || ay < -0.5 || b(12); down = down || ay > 0.5 || b(13);
+    jump = jump || b(0); attack = attack || b(2) || b(1); restart = restart || b(9);
+    if (!musicGain && (b(0) || b(1) || b(2) || b(9))) audio();    // in case the browser takes a button as a go-ahead for sound
+  }
+  inp.x = (right ? 1 : 0) - (left ? 1 : 0);
+  inp.up = up; inp.down = down; inp.jump = jump;
+  inp.jumpPressed = jump && !held.jump; inp.attackPressed = attack && !held.attack; inp.restartPressed = restart && !held.restart;
+  held.jump = jump; held.attack = attack; held.restart = restart;
+  taps.clear();
+}
+
+// ---- Sound: a few square-wave blips ------------------------------------------------------------
+// The music is an Ogg file carried as text in assets/music/poursuite.js: decoded once and looped by
+// the audio context itself, which leaves no gap at the seam. Browsers only let sound start after a
+// key press or a click.
+const MUSIC_VOLUME = 0.32;
+let ac = null, musicGain = null, musicOn = true, musicAsked = false;
+function audio() {
+  if (!ac) { try { ac = new AudioContext(); } catch { ac = null; return; } }
+  if (ac.state === 'suspended') ac.resume();
+  if (musicAsked || !window.MUSIC_CHASE) return;
+  musicAsked = true;
+  const raw = atob(window.MUSIC_CHASE), bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  ac.decodeAudioData(bytes.buffer).then(buffer => {
+    const source = ac.createBufferSource();
+    source.buffer = buffer; source.loop = true;
+    musicGain = ac.createGain();
+    musicGain.gain.value = musicOn ? MUSIC_VOLUME : 0;
+    source.connect(musicGain).connect(ac.destination);
+    source.start();
+  }).catch(() => { musicAsked = false; });
+}
+function toggleMusic() {
+  musicOn = !musicOn;
+  if (musicGain) musicGain.gain.value = musicOn ? MUSIC_VOLUME : 0;
+  document.getElementById('music').textContent = musicOn ? 'on' : 'off';
+}
+function blip(freq, to, dur, vol = 0.05, type = 'square') {
+  if (!ac || ac.state !== 'running') return;
+  const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+  o.type = type; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+}
+const SFX = {
+  jump: () => blip(280, 560, 0.09), land: () => blip(120, 70, 0.05, 0.03), swing: () => blip(700, 300, 0.05, 0.025),
+  hit: () => { blip(220, 60, 0.12, 0.07, 'sawtooth'); blip(900, 200, 0.05, 0.04); }, hurt: () => blip(400, 90, 0.22, 0.07, 'sawtooth'),
+  ember: () => { blip(880, 1320, 0.07, 0.04); setTimeout(() => blip(1320, 1760, 0.09, 0.04), 60); },
+  door: () => [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => blip(f, f, 0.14, 0.05), i * 90)),
+  ko: () => blip(300, 40, 0.5, 0.07, 'sawtooth'), win: () => [784, 988, 1175, 1568].forEach((f, i) => setTimeout(() => blip(f, f, 0.18, 0.05), i * 110)),
+};
+const sfx = name => SFX[name] && SFX[name]();
+
+// ---- Movement shared by the hero and the pursuers -----------------------------------------------
+function ladderSpan(c, r) { let l = c, rr = c; while (ladderAt(l - 1, r)) l--; while (ladderAt(rr + 1, r)) rr++; return [l * T, (rr + 1) * T]; }
+
+function startClimb(a, c, r, sink) {
+  const [x0, x1] = ladderSpan(c, r);
+  a.x = Math.max(x0, Math.min(x1 - a.w, a.x));
+  a.y += sink; a.climbing = true; a.onGround = false; a.vx = 0; a.vy = 0;
+}
+
+function control(a, c, dt, pace) {
+  const cx = Math.floor((a.x + a.w / 2) / T);
+  const locked = a.hurtT > 0 || a.stun > 0 || a.ko > 0;
+  const busy = a.windup > 0 || a.strike > 0 || a.recover > 0;
+  if (!a.climbing && !locked && a.attackT <= 0 && !busy) {
+    const feet = Math.floor((a.y + a.h - 1) / T), mid = Math.floor((a.y + a.h / 2) / T), under = Math.floor((a.y + a.h) / T);
+    if (c.up && ladderAt(cx, feet)) startClimb(a, cx, feet, 0);
+    else if (c.up && ladderAt(cx, mid)) startClimb(a, cx, mid, 0);
+    else if (c.down && a.onGround && ladderTopAt(cx, under)) startClimb(a, cx, under, 3);
+  }
+  if (a.climbing) {
+    const feetRow = Math.floor((a.y + a.h - 1) / T);
+    a.vx = 0;
+    a.vy = ((c.down ? 1 : 0) - (c.up ? 1 : 0)) * CLIMB * pace;
+    if (a.vy) a.animT += dt;
+    if (locked) { a.climbing = false; a.vy = 0; }
+    else if (c.jumpPressed) { a.climbing = false; a.vy = -JUMP * 0.72; a.vx = c.x * RUN * pace; if (c.x) a.facing = c.x; sfx('jump'); }
+    else if (!ladderAt(cx, feetRow)) {
+      // Off the ladder: over its top (stand on it, whichever way the actor was moving) or under its foot.
+      if (ladderAt(cx, feetRow + 1)) a.y = (feetRow + 1) * T - a.h;
+      a.climbing = false; a.vy = 0;
+    }
+    return;
+  }
+  let want = locked ? 0 : c.x;
+  if ((a.attackT > 0 && !a.attackAir) || busy) want = 0;
+  if (want && !locked) {
+    const target = want * RUN * pace, step = (a.onGround ? ACC : AIR_ACC) * dt, gap = target - a.vx;
+    a.vx += Math.sign(gap) * Math.min(Math.abs(gap), step);
+    if (a.attackT <= 0) a.facing = want;
+  } else if (a.onGround) {
+    const f = FRICTION * dt;
+    a.vx = Math.abs(a.vx) <= f ? 0 : a.vx - Math.sign(a.vx) * f;
+  }
+  a.coyote = a.onGround ? 0.09 : Math.max(0, a.coyote - dt);
+  a.buffer = c.jumpPressed ? 0.11 : Math.max(0, a.buffer - dt);
+  if (!locked && a.buffer > 0 && a.coyote > 0 && !busy && !(a.attackT > 0 && !a.attackAir)) {
+    a.vy = -JUMP; a.onGround = false; a.coyote = 0; a.buffer = 0;
+    sfx('jump'); dust(a.x + a.w / 2, a.y + a.h, 4);
+  }
+  if (a.kind === 'hero' && !c.jump && !locked && a.vy < -JUMP_CUT) a.vy = -JUMP_CUT;
+  a.vy = Math.min(MAX_FALL, a.vy + GRAVITY * dt);
+}
+
+function move(a, dt) {
+  a.x += a.vx * dt;
+  const r0 = Math.floor(a.y / T), r1 = Math.floor((a.y + a.h - 0.01) / T);
+  if (a.vx > 0) {
+    const c = Math.floor((a.x + a.w - 0.01) / T);
+    for (let r = r0; r <= r1; r++) if (solidAt(c, r)) { a.x = c * T - a.w; a.vx = 0; a.blocked = true; break; }
+  } else if (a.vx < 0) {
+    const c = Math.floor(a.x / T);
+    for (let r = r0; r <= r1; r++) if (solidAt(c, r)) { a.x = (c + 1) * T; a.vx = 0; a.blocked = true; break; }
+  }
+  const before = a.y + a.h, wasGround = a.onGround, fall = a.vy;
+  a.y += a.vy * dt;
+  a.onGround = false;
+  const c0 = Math.floor(a.x / T), c1 = Math.floor((a.x + a.w - 0.01) / T);
+  if (a.vy >= 0) {
+    const r = Math.floor((a.y + a.h) / T);
+    for (let c = c0; c <= c1; c++) {
+      if (solidAt(c, r) || (!a.climbing && ladderTopAt(c, r) && before <= r * T + 0.01)) {
+        a.y = r * T - a.h; a.vy = 0; a.onGround = true; a.climbing = false; a.lastFloor = r; break;
+      }
+    }
+  } else {
+    const r = Math.floor(a.y / T);
+    for (let c = c0; c <= c1; c++) if (solidAt(c, r)) { a.y = (r + 1) * T; a.vy = 0; break; }
+  }
+  if (a.onGround && !wasGround && fall > 300) {
+    // A drop from one floor to the next lands hard; a plain jump only raises a little dust.
+    if (fall > 600 && a.kind !== 'ghoul') effect('heavy-landing', a.x + a.w / 2, a.y + a.h); else dust(a.x + a.w / 2, a.y + a.h, 5);
+    if (a.kind === 'hero') sfx('land');
+  }
+}
+
+const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+// ---- Hero ---------------------------------------------------------------------------------------
+function updateHero(dt) {
+  const p = hero;
+  p.attackT = Math.max(0, p.attackT - dt); p.invul = Math.max(0, p.invul - dt); p.hurtT = Math.max(0, p.hurtT - dt);
+  if (p.attackT <= 0) p.sinceAttack += dt;
+  if (inp.attackPressed && p.attackT <= 0 && !p.climbing && p.hurtT <= 0) {
+    p.attackAir = !p.onGround;
+    // On the ground a second strike soon after a punch is a kick.
+    p.attackKind = !p.attackAir && p.attackKind === 'punch' && p.sinceAttack < 0.45 ? 'kick' : 'punch';
+    p.attackT = p.attackAir ? 0.5 : p.attackKind === 'kick' ? KICK_T : PUNCH_T;
+    p.attackHit = false; p.sinceAttack = 0; sfx('swing');
+  }
+  control(p, inp, dt, 1);
+  move(p, dt);
+  if (p.onGround && p.attackAir && p.attackT > 0) p.attackT = 0;      // a flying kick ends on landing
+  if (p.attackT > 0 && !p.attackHit) {
+    const total = p.attackAir ? 0.5 : p.attackKind === 'kick' ? KICK_T : PUNCH_T, since = total - p.attackT;
+    const live = p.attackAir ? since > 0.04 : p.attackKind === 'kick' ? since > 0.1 && since < 0.3 : since > 0.07 && since < 0.26;
+    if (live) {
+      const reach = p.attackAir ? 26 : p.attackKind === 'kick' ? 34 : 36;
+      const box = { x: p.facing > 0 ? p.x + p.w : p.x - reach, w: reach,
+        y: p.y + (p.attackAir ? 14 : p.attackKind === 'kick' ? -4 : 6), h: p.attackAir ? 22 : p.attackKind === 'kick' ? 34 : 20 };
+      if (foe.ko <= 0 && foe.invul <= 0 && overlap(box, foe)) hitFoe(p.attackAir, p.facing, p.attackAir || p.attackKind === 'kick');
+      else if (ghoul.dead <= 0 && ghoul.invul <= 0 && overlap(box, ghoul)) hitGhoul();
+    }
+  }
+  if (Math.abs(p.vx) > 12 && p.onGround) p.animT += dt;
+}
+
+// A one-shot effect with its origin on (x, y): a sheet of FX, or 'death', the pack's explosion.
+function effect(kind, x, y, flip = false) { effects.push({ kind, x, y, t: 0, flip }); }
+
+function hitFoe(air, dir, heavy) {
+  const e = foe;
+  hero.attackHit = true;
+  e.hp--; e.windup = 0; e.strike = 0; e.recover = 0; e.climbing = false;
+  e.vx = dir * (air ? 350 : 230); e.vy = -(air ? 300 : 190); e.onGround = false;
+  e.stun = air ? 1.0 : 0.6; e.cool = 0.9;
+  hitStop = heavy ? 0.1 : 0.06; shake = heavy ? 0.2 : 0.14;
+  effect(heavy ? 'crit-hit' : 'hit-spark', e.x + e.w / 2 - dir * 4, e.y + e.h, dir < 0);
+  if (e.hp <= 0) { e.ko = 3.5; e.stun = 0; e.vx = 0; effect('poof-green', e.x + e.w / 2, e.y + e.h); sfx('ko'); } else sfx('hit');
+}
+
+function hitGhoul() {
+  const e = ghoul;
+  hero.attackHit = true;
+  e.dead = 6; e.vx = 0;
+  hitStop = 0.06; shake = 0.14;
+  effect('death', e.x + e.w / 2, e.y + e.h);
+  sfx('ko');
+}
+
+function hurtHero(dir) {
+  const p = hero;
+  p.hp--; p.invul = 1.2; p.hurtT = 0.3; p.attackT = 0; p.climbing = false;
+  effect('blunt-hit', p.x + p.w / 2, p.y + p.h, dir < 0);
+  p.vx = dir * 280; p.vy = -250; p.onGround = false;
+  hitStop = 0.08; shake = 0.2; sfx('hurt');
+  if (p.hp <= 0) { state = 'lost'; sfx('ko'); }
+}
+
+// ---- The shade: the pursuer that takes the ladders ----------------------------------------------
+// It walks to the hero when they share a floor; otherwise it goes to the ladder that brings it
+// closer, jumps the gaps it can clear and drops off ledges when the hero is below.
+function think(e, p) {
+  const out = { x: 0, up: false, down: false, jump: true, jumpPressed: false };
+  if (e.stun > 0 || e.ko > 0 || e.windup > 0 || e.strike > 0 || e.recover > 0 || state !== 'play') return out;
+  const ecx = e.x + e.w / 2, pcx = p.x + p.w / 2;
+  if (e.climbing) {
+    // Keep the direction chosen at the foot or the top of the ladder, and turn round only when the
+    // hero's floor is clearly on the other side: comparing heights at the ends made it dither there.
+    const goal = p.lastFloor * T, feet = e.y + e.h;
+    if (e.climbDir < 0 && goal > feet + 24) e.climbDir = 1;
+    else if (e.climbDir > 0 && goal < feet - 24) e.climbDir = -1;
+    out.up = e.climbDir < 0; out.down = e.climbDir > 0;
+    return out;
+  }
+  if (!e.onGround) { out.x = e.airDir; return out; }
+  const ef = e.lastFloor, pf = p.lastFloor;
+  let target = pcx, via = null;
+  if (pf !== ef) {
+    let best = Infinity;
+    for (const l of LADDERS) {
+      if (pf < ef ? l.rBot + 1 !== ef : l.rTop !== ef) continue;
+      const cost = Math.abs(ecx - l.x) + Math.abs(l.x - pcx) * 0.6;
+      if (cost < best) { best = cost; via = l; }
+    }
+    if (via) target = via.x;
+  }
+  const d = target - ecx;
+  if (via && Math.abs(d) < 6) { e.climbDir = pf < ef ? -1 : 1; out.up = e.climbDir < 0; out.down = e.climbDir > 0; return out; }
+  if (!via && pf === ef && Math.abs(d) < 34 && Math.abs(p.y - e.y) < 24 && e.cool <= 0 && p.invul <= 0) {
+    e.facing = Math.sign(d) || e.facing; e.windup = 0.3; e.vx = 0;
+    return out;
+  }
+  if (Math.abs(d) > 4) out.x = Math.sign(d);
+  if (out.x) {
+    e.facing = out.x;
+    const ahead = Math.floor((ecx + out.x * 10) / T);
+    if (!floorAt(ahead, ef)) {
+      let lands = false;
+      for (let k = 1; k <= 5; k++) if (floorAt(ahead + out.x * k, ef)) { lands = true; break; }
+      if (lands && (target - (ahead * T + 8)) * out.x > 0 && pf <= ef) out.jumpPressed = true;
+    }
+  }
+  e.airDir = out.x;
+  return out;
+}
+
+function updateFoe(dt) {
+  const e = foe;
+  e.stun = Math.max(0, e.stun - dt); e.cool = Math.max(0, e.cool - dt); e.invul = Math.max(0, e.invul - dt); e.recover = Math.max(0, e.recover - dt);
+  if (e.ko > 0) { e.ko -= dt; if (e.ko <= 0) { e.hp = 3; e.invul = 0.9; e.cool = 0.9; effect('poof-green', e.x + e.w / 2, e.y + e.h); } }
+  control(e, think(e, hero), dt, FOE_PACE);
+  move(e, dt);
+  if (e.windup > 0) {
+    e.windup -= dt;
+    if (e.windup <= 0) { e.strike = STRIKE_T; e.struck = false; sfx('swing'); }
+  } else if (e.strike > 0) {
+    e.strike -= dt;
+    const box = { x: e.facing > 0 ? e.x + e.w : e.x - 32, y: e.y + 6, w: 32, h: 22 };
+    if (!e.struck && hero.invul <= 0 && state === 'play' && overlap(box, hero)) { e.struck = true; hurtHero(e.facing); }
+    if (e.strike <= 0) { e.cool = 0.8; e.recover = 0.14; }
+  }
+  if (Math.abs(e.vx) > 12 && e.onGround) e.animT += dt;
+}
+
+// ---- The burning ghoul: it never leaves the ground floor ----------------------------------------
+function updateGhoul(dt) {
+  const e = ghoul;
+  e.invul = Math.max(0, e.invul - dt);
+  if (e.dead > 0) {
+    e.dead -= dt;
+    if (e.dead <= 0) {            // it lights up again on the side away from the hero
+      e.x = hero.x < W / 2 ? 560 : 60; e.y = 27 * T - e.h; e.vy = 0; e.invul = 1.2; e.facing = e.x > W / 2 ? -1 : 1;
+    }
+    return;
+  }
+  if (state === 'play') {
+    if (hero.lastFloor === 27 && hero.onGround) e.facing = Math.sign(hero.x - e.x) || e.facing;
+    else if (e.blocked || e.x < 40 || e.x > 580) e.facing = e.x > W / 2 ? -1 : 1;
+  }
+  e.blocked = false;
+  e.vx = state === 'play' ? e.facing * GHOUL_SPEED : 0;
+  e.vy = Math.min(MAX_FALL, e.vy + GRAVITY * dt);
+  move(e, dt);
+  e.animT += dt;
+  if (state === 'play' && e.invul <= 0 && hero.invul <= 0 && overlap(e, hero)) hurtHero(Math.sign(hero.x - e.x) || e.facing);
+}
+
+// ---- Particles ----------------------------------------------------------------------------------
+function dust(x, y, n) {
+  for (let i = 0; i < n; i++) particles.push({ x: x + (Math.random() - 0.5) * 12, y: y - 2, vx: (Math.random() - 0.5) * 80, vy: -Math.random() * 50, life: 0.2 + Math.random() * 0.15, color: '#8d7fa8', g: 120 });
+}
+
+// ---- One step of the world ----------------------------------------------------------------------
+function step(dt) {
+  if (hitStop > 0) { hitStop -= dt; return; }
+  shake = Math.max(0, shake - dt); banner = Math.max(0, banner - dt);
+  for (const q of particles) { q.life -= dt; q.vy += q.g * dt; q.x += q.vx * dt; q.y += q.vy * dt; }
+  particles = particles.filter(q => q.life > 0);
+  for (const fx of effects) fx.t += dt;
+  effects = effects.filter(fx => fx.t < (fx.kind === 'death' ? 0.56 : FX[fx.kind].frames / FX[fx.kind].fps));
+  if (state !== 'play') { updateFoe(dt); updateGhoul(dt); return; }
+  clock += dt;
+  updateHero(dt);
+  updateFoe(dt);
+  updateGhoul(dt);
+  for (const m of embers) {
+    if (!m.taken && overlap({ x: m.x - 8, y: m.y - 8, w: 16, h: 16 }, hero)) {
+      m.taken = true; effect('collect-burst', m.x, m.y + 30); sfx('ember');
+      if (embers.every(o => o.taken)) setTimeout(() => sfx('door'), 150);
+    }
+  }
+  if (embers.every(m => m.taken) && overlap(DOOR, hero) && hero.onGround) { state = 'won'; sfx('win'); }
+}
+
+// ---- Pictures -----------------------------------------------------------------------------------
+const screen = document.getElementById('screen');
+const g = screen.getContext('2d');
+g.imageSmoothingEnabled = false;
+const px = (x, y, w, h, color) => { g.fillStyle = color; g.fillRect(Math.round(x), Math.round(y), w, h); };
+const hash = (a, b) => { const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return s - Math.floor(s); };
+
+const MONK = ['idle1', 'idle2', 'idle3', 'idle4', 'walk1', 'walk2', 'walk3', 'walk4', 'walk5', 'walk6', 'jump1', 'jump2', 'fall1', 'fall2',
+  'punch1', 'punch2', 'punch3', 'punch4', 'punch5', 'punch6', 'kick1', 'kick2', 'kick3', 'kick4', 'kick5', 'flying-kick1', 'flying-kick2', 'hurt1', 'hurt2'];
+const img = {};
+function loadImage(key, path) {
+  return new Promise((resolve, reject) => { const i = new Image(); i.onload = () => { img[key] = i; resolve(); }; i.onerror = () => reject(new Error(path)); i.src = path; });
+}
+// A copy of a picture with a colour laid over its opaque pixels: the shade, and the white flashes.
+function washed(source, color) {
+  const c = document.createElement('canvas'); c.width = source.width; c.height = source.height;
+  const k = c.getContext('2d'); k.drawImage(source, 0, 0); k.globalCompositeOperation = 'source-atop'; k.fillStyle = color; k.fillRect(0, 0, c.width, c.height);
+  return c;
+}
+async function loadAll() {
+  const jobs = MONK.map(n => loadImage('monk/' + n, PACK + 'player/' + n + '.png'));
+  for (let i = 1; i <= 8; i++) jobs.push(loadImage('ghoul/' + i, PACK + 'ghoul/burning-ghoul' + i + '.png'));
+  for (let i = 2; i <= 8; i++) jobs.push(loadImage('death/' + i, PACK + 'fx/enemy-death' + i + '.png'));
+  for (let i = 1; i <= 3; i++) jobs.push(loadImage('orb/' + i, PACK + 'fx/fireball' + i + '.png'));
+  jobs.push(loadImage('tiles', PACK + 'environment/tileset.png'), loadImage('back', PACK + 'environment/backgrounds.png'));
+  for (const name of Object.keys(FX)) jobs.push(loadImage('fx/' + name, PFX + name + '.png'));
+  await Promise.all(jobs);
+  for (const n of MONK) {
+    // A spectral green: the one colour that stands out from the purple stone, the hero's blue and the fire.
+    img['shade/' + n] = washed(img['monk/' + n], 'rgba(110,255,165,0.6)');
+    img['monkflash/' + n] = washed(img['monk/' + n], 'rgba(255,255,255,0.85)');
+    img['shadeflash/' + n] = washed(img['monk/' + n], 'rgba(235,225,255,0.9)');
+  }
+}
+
+// Draws a frame with its anchor column on x and its bottom on y, mirrored when asked.
+function sprite(picture, x, y, anchor, mirror) {
+  x = Math.round(x); y = Math.round(y);
+  if (!mirror) { g.drawImage(picture, x - anchor, y - picture.height); return; }
+  g.save(); g.translate(x, 0); g.scale(-1, 1); g.drawImage(picture, -anchor, y - picture.height); g.restore();
+}
+
+const FONT = {
+  A:'010101111101101', B:'110101110101110', C:'011100100100011', D:'110101101101110', E:'111100110100111', F:'111100110100100',
+  G:'011100101101011', H:'101101111101101', I:'111010010010111', J:'001001001101010', K:'101101110101101', L:'100100100100111',
+  M:'101111111101101', N:'110101101101101', O:'010101101101010', P:'110101110100100', Q:'010101101110011', R:'110101110101101',
+  S:'011100010001110', T:'111010010010010', U:'101101101101111', V:'101101101101010', W:'101101111111101', X:'101101010101101',
+  Y:'101101010010010', Z:'111001010100111',
+  0:'111101101101111', 1:'010110010010111', 2:'110001010100111', 3:'110001010001110', 4:'101101111001001', 5:'111100110001110',
+  6:'011100111101111', 7:'111001010010010', 8:'111101111101111', 9:'111101111001110',
+  ':':'000010000010000', '.':'000000000000010', '!':'010010010000010', '/':'001001010100100', '-':'000000111000000', ' ':'000000000000000',
+};
+function text(str, x, y, color, scale = 2) {
+  g.fillStyle = color;
+  for (const ch of str) {
+    const bits = FONT[ch] || FONT[' '];
+    for (let i = 0; i < 15; i++) if (bits[i] === '1') g.fillRect(x + (i % 3) * scale, y + Math.floor(i / 3) * scale, scale, scale);
+    x += 4 * scale;
+  }
+}
+const textWidth = (str, scale = 2) => str.length * 4 * scale - scale;
+const centered = (str, y, color, scale = 2) => text(str, Math.round((W - textWidth(str, scale)) / 2), y, color, scale);
+
+// The room itself never changes: it is painted once, when the pictures are in.
+const backdrop = document.createElement('canvas');
+backdrop.width = W; backdrop.height = H;
+function paintRoom() {
+  const b = backdrop.getContext('2d');
+  b.imageSmoothingEnabled = false;
+  const r = (x, y, w, h, color) => { b.fillStyle = color; b.fillRect(x, y, w, h); };
+  const tile = (sx, sy, sw, sh, dx, dy) => b.drawImage(img.tiles, sx, sy, sw, sh, dx, dy, sw, sh);
+  const back = (sx, sw, dx, dy) => b.drawImage(img.back, sx, 0, sw, 192, dx, dy, sw, 192);
+  r(0, 0, W, H, 'rgb(39,38,56)');
+  // Far wall: the pack's set pieces, then a few wall tiles.
+  back(0, 160, 24, 66);          // great window, top left
+  back(176, 128, 256, 240);      // pillar of skulls, centre
+  back(320, 128, 96, 240);       // altar, ground floor left
+  back(464, 80, 544, -96);       // gargoyle, top right
+  tile(192, 92, 80, 52, 110, 44);    // balustrade on the top floor
+  // Slabs: the top of the floor pieces, with a little of their underside hanging below.
+  const FLOORS = [[64, 167], [128, 167], [0, 168]];
+  for (let row = 0; row < 27; row++) {
+    for (let c = 1; c < COLS - 1; c++) {
+      if (grid[row][c] !== 1) continue;
+      const [sx, sy] = FLOORS[Math.floor(c / 3) % 3], off = (c % 3) * 16;
+      b.drawImage(img.tiles, sx + off, sy, 16, 28, c * T, row * T - 1, 16, 28);
+      if (grid[row][c - 1] !== 1 && grid[row][c - 1] !== 2) r(c * T, row * T + 2, 1, 22, 'rgba(20,10,30,0.55)');
+      if (grid[row][c + 1] !== 1 && grid[row][c + 1] !== 2) r(c * T + 15, row * T + 2, 1, 22, 'rgba(20,10,30,0.55)');
+    }
+  }
+  // Ground: whole floor pieces over a dark fill.
+  r(0, 27 * T + 30, W, 60, 'rgb(34,20,44)');
+  for (let x = 0, i = 0; x < W; x += 48, i++) { const [sx, sy] = FLOORS[i % 3]; b.drawImage(img.tiles, sx, sy, 48, 40, x, 27 * T - 1, 48, 40); }
+  // Side walls: stone blocks.
+  for (let y = 0; y < 27 * T; y += 32) { tile(288, 96, 16, 32, 0, y); tile(304, 96, 16, 32, W - 16, y); }
+  // Ladders, drawn by hand in the colours of the pack.
+  for (let row = 0; row < ROWS; row++) for (let c = 0; c < COLS; c++) {
+    if (grid[row][c] !== 2) continue;
+    const x = c * T, y = row * T, leftRail = !ladderAt(c - 1, row);
+    const rx = leftRail ? x + 2 : x + T - 5, sx = leftRail ? x + 5 : x;
+    r(rx, y, 3, T, '#5a3524'); r(rx, y, 1, T, '#8a5636'); r(rx + 2, y, 1, T, '#3a2018');
+    for (const ry of [3, 11]) { r(sx, y + ry, T - 5, 2, '#a26a3a'); r(sx, y + ry + 2, T - 5, 1, 'rgba(0,0,0,0.35)'); }
+  }
+}
+
+function drawGlows(t) {
+  g.save(); g.globalCompositeOperation = 'lighter';
+  for (const [x, y] of GLOWS) {
+    const flick = 0.75 + 0.25 * Math.sin(t * 11 + x) * Math.sin(t * 7.3 + y);
+    const glow = g.createRadialGradient(x, y, 0, x, y, 54);
+    glow.addColorStop(0, `rgba(255,140,60,${0.16 * flick})`); glow.addColorStop(1, 'rgba(255,110,40,0)');
+    g.fillStyle = glow; g.fillRect(x - 54, y - 54, 108, 108);
+  }
+  g.restore();
+}
+
+// One frame of a pixelfx sheet with its pivot on (x, y).
+function sheetFrame(name, index, x, y, flip) {
+  const f = FX[name], sx = (index % f.cols) * f.w, sy = Math.floor(index / f.cols) * f.h;
+  x = Math.round(x); y = Math.round(y);
+  if (!flip) { g.drawImage(img['fx/' + name], sx, sy, f.w, f.h, x - f.px, y - f.py, f.w, f.h); return; }
+  g.save(); g.translate(x, 0); g.scale(-1, 1); g.drawImage(img['fx/' + name], sx, sy, f.w, f.h, -f.px, y - f.py, f.w, f.h); g.restore();
+}
+
+function drawTorches(t) {
+  TORCHES.forEach(([x, y], i) => sheetFrame('torch', Math.floor(t * 30 + i * 17) % 60, x, y, false));
+}
+
+function drawEffects() {
+  for (const fx of effects) {
+    if (fx.kind === 'death') sprite(img['death/' + (2 + Math.min(6, Math.floor(fx.t / 0.08)))], fx.x, fx.y, 40, false);
+    else sheetFrame(fx.kind, Math.min(FX[fx.kind].frames - 1, Math.floor(fx.t * FX[fx.kind].fps)), fx.x, fx.y, fx.flip);
+  }
+}
+
+function drawDoor(t) {
+  const open = embers.every(m => m.taken), { x, y } = DOOR;
+  g.drawImage(img.tiles, 288, 16, 32, 64, x, y, 32, 64);
+  if (!open) return;
+  g.save(); g.globalCompositeOperation = 'lighter';
+  const inside = g.createLinearGradient(0, y + 10, 0, y + 64);
+  inside.addColorStop(0, 'rgba(255,190,90,0.35)'); inside.addColorStop(1, 'rgba(255,230,160,0.8)');
+  g.fillStyle = inside; g.fillRect(x + 6, y + 14, 20, 50); g.fillRect(x + 9, y + 9, 14, 5);
+  const glow = g.createRadialGradient(x + 16, y + 40, 0, x + 16, y + 40, 80);
+  glow.addColorStop(0, `rgba(255,210,130,${0.3 + 0.08 * Math.sin(t * 5)})`); glow.addColorStop(1, 'rgba(255,190,110,0)');
+  g.fillStyle = glow; g.fillRect(x - 64, y - 40, 160, 160);
+  g.restore();
+}
+
+function drawEmbers(t) {
+  for (const m of embers) {
+    if (m.taken) continue;
+    const y = m.y + Math.round(Math.sin(t * 3 + m.phase) * 3);
+    g.save(); g.globalCompositeOperation = 'lighter';
+    const glow = g.createRadialGradient(m.x, y, 0, m.x, y, 22);
+    glow.addColorStop(0, 'rgba(255,150,50,0.45)'); glow.addColorStop(1, 'rgba(255,110,40,0)');
+    g.fillStyle = glow; g.fillRect(m.x - 22, y - 22, 44, 44); g.restore();
+    g.drawImage(img['orb/' + (1 + Math.floor(t * 8 + m.phase) % 3)], m.x - 13, y - 13);
+  }
+}
+
+function monkFrame(a, t) {
+  if (a.hurtT > 0 || a.stun > 0) return 'hurt' + (1 + Math.floor(t * 10) % 2);
+  if (a.attackT > 0) {
+    if (a.attackAir) return 'flying-kick' + (1 + Math.floor(t * 12) % 2);
+    const kick = a.attackKind === 'kick', n = kick ? 5 : 6, total = kick ? KICK_T : PUNCH_T;
+    return (kick ? 'kick' : 'punch') + (1 + Math.min(n - 1, Math.floor((1 - a.attackT / total) * n)));
+  }
+  if (a.windup > 0) return 'punch1';
+  if (a.strike > 0) return 'punch' + (2 + Math.min(3, Math.floor((1 - a.strike / STRIKE_T) * 4)));
+  if (a.recover > 0) return 'punch6';
+  if (a.climbing) return 'walk' + (1 + Math.floor(a.animT * 9) % 6);
+  if (!a.onGround) return (a.vy < 0 ? 'jump' : 'fall') + (1 + Math.floor(t * 8) % 2);
+  if (Math.abs(a.vx) > 12) return 'walk' + (1 + Math.floor(a.animT * 13) % 6);
+  return 'idle' + (1 + Math.floor(t * 6) % 4);
+}
+
+function drawMonk(a, t) {
+  if (a.ko > 0) return;
+  if (a.invul > 0 && Math.floor(t * 20) % 2) return;
+  const flash = a.kind === 'foe' ? a.stun > 0.45 : a.hurtT > 0.15;
+  const set = a.kind === 'foe' ? (flash ? 'shadeflash/' : 'shade/') : (flash ? 'monkflash/' : 'monk/');
+  const cx = a.x + a.w / 2, feet = a.y + a.h;
+  g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(Math.round(cx - 9), Math.round(feet), 18, 2);
+  if (a.kind === 'foe') {
+    g.save(); g.globalCompositeOperation = 'lighter';
+    const glow = g.createRadialGradient(cx, a.y + 16, 0, cx, a.y + 16, 36);
+    glow.addColorStop(0, 'rgba(90,255,150,0.22)'); glow.addColorStop(1, 'rgba(90,255,150,0)');
+    g.fillStyle = glow; g.fillRect(cx - 36, a.y - 20, 72, 72); g.restore();
+  }
+  sprite(img[set + monkFrame(a, t)], cx, feet, 40, a.facing < 0);
+  if (a.kind === 'foe' && a.windup > 0 && Math.floor(t * 24) % 2) px(cx - 2, a.y - 14, 4, 8, '#ffffff');
+}
+
+function drawGhoul(t) {
+  const e = ghoul;
+  if (e.dead > 0 || (e.invul > 0 && Math.floor(t * 20) % 2)) return;
+  const cx = e.x + e.w / 2, feet = e.y + e.h;
+  g.save(); g.globalCompositeOperation = 'lighter';
+  const glow = g.createRadialGradient(cx, e.y + 6, 0, cx, e.y + 6, 40);
+  glow.addColorStop(0, 'rgba(255,140,50,0.35)'); glow.addColorStop(1, 'rgba(255,110,40,0)');
+  g.fillStyle = glow; g.fillRect(cx - 40, e.y - 34, 80, 80); g.restore();
+  sprite(img['ghoul/' + (1 + Math.floor(e.animT * 12) % 8)], cx, feet, 28, e.facing > 0);
+}
+
+function drawHud() {
+  for (let i = 0; i < 3; i++) {
+    const x = 24 + i * 20, y = 456, on = i < hero.hp, c = on ? '#ff5a5a' : '#2a1836';
+    px(x, y, 6, 6, c); px(x + 8, y, 6, 6, c); px(x, y + 4, 14, 4, c); px(x + 2, y + 8, 10, 2, c); px(x + 4, y + 10, 6, 2, c); px(x + 6, y + 12, 2, 2, c);
+    if (on) px(x + 2, y + 2, 2, 2, '#ffc0c0');
+  }
+  const got = embers.filter(m => m.taken).length;
+  centered(`EMBERS ${got}/${embers.length}`, 458, got === embers.length ? '#ffe27a' : '#e2d8f0');
+  const s = Math.floor(clock), label = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  text(label, W - 24 - textWidth(label), 458, '#e2d8f0');
+}
+
+function panel(lines) {
+  const h = 44 + lines.length * 24;
+  px(120, 190, 400, h, 'rgba(10,8,20,0.88)'); g.strokeStyle = '#9a8fc0'; g.lineWidth = 2; g.strokeRect(121, 191, 398, h - 2);
+  lines.forEach(([str, color, scale], i) => centered(str, 210 + i * 26, color, scale || 2));
+}
+
+function draw(t) {
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  if (shake > 0) g.translate(Math.round((Math.random() - 0.5) * 6), Math.round((Math.random() - 0.5) * 6));
+  g.drawImage(backdrop, 0, 0);
+  drawGlows(t);
+  drawTorches(t);
+  drawDoor(t);
+  drawEmbers(t);
+  drawGhoul(t);
+  drawMonk(foe, t);
+  drawMonk(hero, t);
+  drawEffects();
+  for (const q of particles) px(q.x, q.y, 2, 2, q.color);
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  drawHud();
+  if (state === 'play' && banner > 0) {
+    centered('COLLECT THE EMBERS', 12, '#ffe27a'); centered('THEN REACH THE DOOR', 28, '#e2d8f0');
+  } else if (state === 'play' && embers.every(m => m.taken) && Math.floor(t * 2) % 2) {
+    centered('THE DOOR IS OPEN', 12, '#ffe27a');
+  }
+  if (state === 'won') { const s = Math.floor(clock); panel([['ROOM CLEARED', '#ffe27a', 4], [`TIME ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, '#e2d8f0'], ['PRESS JUMP TO PLAY AGAIN', '#9d93b8']]); }
+  if (state === 'lost') panel([['KNOCKED OUT', '#ff7a6a', 4], ['PRESS JUMP TO TRY AGAIN', '#9d93b8']]);
+}
+
+// ---- Loop ---------------------------------------------------------------------------------------
+// Whole multiples of the device's own pixels, so that the picture stays sharp on a scaled display.
+function fit() {
+  const help = document.getElementById('help').offsetHeight + 30, dpr = devicePixelRatio || 1;
+  const scale = Math.max(1, Math.floor(Math.min(innerWidth * dpr / W, (innerHeight - help) * dpr / H))) / dpr;
+  screen.style.width = W * scale + 'px'; screen.style.height = H * scale + 'px';
+}
+addEventListener('resize', fit);
+
+let last = 0, bank = 0, ready = false;
+function advance(seconds) {
+  bank += seconds;
+  let first = true;
+  while (bank >= STEP) {
+    step(STEP);
+    bank -= STEP;
+    if (first) { inp.jumpPressed = false; inp.attackPressed = false; first = false; }
+  }
+}
+function tick(now) {
+  const dt = Math.min(0.05, (now - last) / 1000 || 0);
+  last = now; frameT += dt;
+  readInput();
+  if (inp.restartPressed || (state !== 'play' && inp.jumpPressed)) { reset(); inp.jumpPressed = false; }
+  advance(dt);
+  draw(frameT);
+  requestAnimationFrame(tick);
+}
+
+reset();
+fit();
+g.fillStyle = '#0a0814'; g.fillRect(0, 0, W, H);
+loadAll().then(() => { paintRoom(); ready = true; requestAnimationFrame(tick); })
+  .catch(err => { centered('MISSING PICTURE', 220, '#ff7a6a'); document.getElementById('pad').textContent = 'could not load ' + err.message + ' — keep the "assets" folder next to this file'; });
+
+// For checks from outside the page: the live objects and a way to run the world by hand.
+window.__room = {
+  get hero() { return hero; }, get foe() { return foe; }, get ghoul() { return ghoul; }, get state() { return state; }, get embers() { return embers; },
+  get ready() { return ready; }, get music() { return { asked: musicAsked, playing: !!musicGain, on: musicOn, seconds: ac ? ac.currentTime : 0, state: ac ? ac.state : 'none' }; }, input: inp, reset, run(seconds) { for (let i = 0; i < seconds / STEP; i++) step(STEP); },
+};
+})();
+</script>
+</body>
+</html>

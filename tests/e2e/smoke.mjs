@@ -1,0 +1,78 @@
+// The whole game in a real browser, opened as a file the way a double-click does.
+// usage: npm run build && npm run test:e2e
+import { mkdirSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { chromium } from 'playwright-core';
+
+mkdirSync('tests/e2e/out', { recursive: true });
+const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--mute-audio'] });
+const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+const errors = [];
+page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+page.on('pageerror', e => errors.push(String(e)));
+page.on('requestfailed', r => errors.push('request failed: ' + r.url()));
+
+const results = [];
+const check = (name, ok, detail = '') => { results.push(ok); console.log((ok ? 'ok   ' : 'FAIL ') + name + (detail ? '  ' + detail : '')); };
+const game = fn => page.evaluate(fn);
+
+await page.goto(pathToFileURL('index.html').href);
+await page.waitForFunction(() => window.__game, null, { timeout: 15000 }).catch(() => {});
+check('the game starts', await game(() => !!window.__game), await page.locator('#status').textContent());
+await page.waitForTimeout(400);
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/start.png' });
+
+const size = await game(() => { const c = document.getElementById('screen'); return [c.width, c.height, c.getBoundingClientRect().width]; });
+check('the picture is 640 x 360, shown at a whole scale', size[0] === 640 && size[1] === 360 && size[2] % 640 === 0, size.join(' '));
+
+const x0 = await game(() => __game.world.hero.x);
+await page.keyboard.down('ArrowRight'); await page.waitForTimeout(600); await page.keyboard.up('ArrowRight');
+const x1 = await game(() => __game.world.hero.x);
+check('the right arrow runs the hero right', x1 > x0 + 50, `${x0.toFixed(0)} -> ${x1.toFixed(0)}`);
+
+await page.keyboard.down('Space'); await page.waitForTimeout(120);
+check('space jumps', await game(() => !__game.world.hero.onGround));
+await page.keyboard.up('Space');
+await page.waitForTimeout(700);
+
+await page.waitForFunction(() => __game.sound.musicPlaying, null, { timeout: 8000 }).catch(() => {});
+check('the music plays after a key press', await game(() => __game.sound.musicPlaying));
+
+await page.keyboard.press('KeyP');
+await page.waitForTimeout(150);
+const frozen = await game(() => ({ paused: __game.paused, clock: __game.world.clock }));
+await page.waitForTimeout(300);
+check('P pauses the game', frozen.paused && (await game(() => __game.world.clock)) === frozen.clock);
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/paused.png' });
+await page.keyboard.press('KeyP');
+await page.waitForTimeout(200);
+check('P again goes on', await game(() => !__game.paused && __game.world.clock > 0));
+
+// The camera follows the hero up the room.
+await game(() => { const h = __game.world.hero; Object.assign(h, { x: 60, y: 96 - h.h, vx: 0, vy: 0, onGround: true, lastFloor: 6 }); });
+await page.waitForTimeout(1200);
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/top.png' });
+await page.screenshot({ path: 'tests/e2e/out/page.png' });
+
+// The door of a level leads to the next one.
+const first = await game(() => __game.world.level.settings.name);
+await game(() => {
+  const w = __game.world, h = w.hero, d = w.door;
+  for (const f of w.foes) { f.cool = 99; f.stun = 99; f.dead = 99; }
+  for (const m of w.embers) m.taken = true;
+  Object.assign(h, { x: d.x + 9, y: d.y + d.h - h.h, vx: 0, vy: 0, onGround: true });
+});
+await page.waitForFunction(() => __game.world.state === 'won', null, { timeout: 4000 }).catch(() => {});
+check('reaching the open door wins the level', await game(() => __game.world.state === 'won'));
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/won.png' });
+await page.keyboard.press('Space');
+await page.waitForTimeout(600);
+const second = await game(() => ({ index: __game.level, name: __game.world.level.settings.name, state: __game.world.state }));
+check('jump then starts the next level', second.index === 1 && second.name !== first && second.state === 'play', JSON.stringify(second));
+await page.waitForTimeout(600);
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/second.png' });
+
+check('no error in the console, no file missing', errors.length === 0, errors.join(' | '));
+console.log(results.every(Boolean) ? `ALL ${results.length} CHECKS PASS` : `${results.filter(v => !v).length} of ${results.length} CHECKS FAIL`);
+await browser.close();
+process.exit(results.every(Boolean) ? 0 : 1);

@@ -1,0 +1,20 @@
+{
+  "name": "the-unextinguished",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "dev": "node tools/build.mjs --watch",
+    "test": "vitest run",
+    "check": "tsc --noEmit -p .",
+    "test:e2e": "node tests/e2e/smoke.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.7",
+    "esbuild": "^0.28.2",
+    "playwright-core": "^1.65.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  }
+}

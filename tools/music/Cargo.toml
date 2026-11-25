@@ -1,0 +1,12 @@
+[package]
+name = "music"
+version = "0.0.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+dsp-core = { path = "E:/CODEX/NoobSynth3/crates/dsp-core" }
+
+[profile.dev]
+opt-level = 2

@@ -1,0 +1,421 @@
+// The stage: everything that is seen of a world. It keeps what only the eye needs (effects in
+// flight, particles, the camera) and draws a frame, plane by plane, through the camera.
+
+import { EFFECTS, effectDuration, KINDS, SHEETS } from '../level/kinds';
+import type { Actor } from '../sim/actor';
+import type { GameEvent } from '../sim/events';
+import { TILE } from '../sim/grid';
+import type { World } from '../sim/world';
+import type { Assets } from './assets';
+import { Blood, BLOOD_COLORS } from './blood';
+import { Lens } from './lens';
+import { Camera, VIEW_H, VIEW_W } from './camera';
+import { type Caster, type Light, LightSheet, shaftPath, shafts } from './lighting';
+import { rimOffset } from './shading';
+import { groundLine, paintBackdrop } from './scene';
+import type { Words } from '../campaign';
+import { Hud } from './hud';
+import { text, textWidth } from './text';
+
+interface Particle { x: number; y: number; vx: number; vy: number; life: number; color: string; g: number }
+interface Playing { kind: string; x: number; y: number; t: number; flip: boolean }
+interface Loop { sheet: string; x: number; y: number; phase: number; front: boolean }
+
+// The hero's strikes last this long (the frames of the animation are spread over them).
+const PUNCH_T = 0.36, KICK_T = 0.42, SHADE_STRIKE_T = 0.16;
+const MONK_ANCHOR = 40, GHOUL_ANCHOR = 28;
+// The picture closes in on a finishing blow: how far, and when (seconds: in, held until, back out by).
+const ZOOM = 1.5, ZOOM_IN = 0.1, ZOOM_HOLD = 0.42, ZOOM_OUT = 0.7;
+const hash = (a: number, b: number): number => { const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return s - Math.floor(s); };
+
+export class Stage {
+  readonly camera: Camera;
+  private readonly backdrop: HTMLCanvasElement;
+  private readonly lights: LightSheet;
+  private readonly beams: { x: number; y: number }[];
+  private readonly ground: number;
+  private readonly loops: Loop[] = [];
+  private readonly blood: Blood;
+  private readonly lens = new Lens(VIEW_W, VIEW_H);     // blood thrown at the screen
+  private readonly stains: HTMLCanvasElement;          // the blood that has landed: it stays for the whole game
+  private effects: Playing[] = [];
+  private particles: Particle[] = [];
+  private readonly hud: Hud;
+  private punch: { x: number; y: number; t: number } | null = null;     // where the picture closes in, and since when
+  private fell = false;
+  private readonly own = new Map<Actor, Light>();       // the light each body carries: it casts no shadow of that body
+  private readonly bench = [document.createElement('canvas'), document.createElement('canvas')];     // where a sprite is lit before it is drawn
+
+  constructor(private readonly world: World, private readonly assets: Assets, opening: string[], private readonly won: Words) {
+    const level = world.level;
+    this.hud = new Hud(world, opening);
+    this.camera = new Camera(level.width, level.height);
+    this.backdrop = paintBackdrop(level, assets);
+    this.lights = new LightSheet(level);
+    this.beams = shafts(level);
+    this.ground = groundLine(level.grid);
+    this.blood = new Blood(level.grid);
+    this.stains = document.createElement('canvas');
+    this.stains.width = level.width; this.stains.height = level.height;
+    level.objects.forEach((o, i) => {
+      const kind = KINDS[o.kind];
+      if (kind && kind.role === 'decor' && 'sheet' in kind) this.loops.push({ sheet: kind.sheet, x: o.x, y: o.y, phase: i * 17, front: kind.plane === 'front' });
+    });
+    const [fx, fy] = this.focus();
+    this.camera.follow(fx, fy);
+  }
+
+  // Where the camera looks: the hero, at chest height; a jump does not lift it, a fall takes it down.
+  private focus(): [number, number] {
+    const p = this.world.hero, feet = p.y + p.h;
+    const y = p.onGround || p.climbing ? feet : Math.max(feet, p.lastFloor * TILE);
+    return [p.x + p.w / 2, y - 60];
+  }
+
+  /** Takes in what the world reported: effects start playing, dust becomes particles. */
+  apply(events: readonly GameEvent[]): void {
+    for (const e of events) {
+      if (e.type === 'effect') { if (EFFECTS[e.kind]) this.effects.push({ kind: e.kind, x: e.x, y: e.y, t: 0, flip: e.flip }); }
+      else if (e.type === 'blood') {
+        this.blood.spurt(e.x, e.y, e.dir, e.amount, e.chunks);
+        // A heavy blow throws some of it at the screen; a finishing blow a lot.
+        if (e.amount >= 50) this.lens.splash(e.x - this.camera.x, e.y - this.camera.y, e.amount >= 100 ? 9 : 3);
+      }
+      else if (e.type === 'finisher') { this.punch = { x: e.x, y: e.y, t: 0 }; this.hud.finisher(); }
+      else if (e.type === 'dust') {
+        for (let i = 0; i < e.count; i++) this.particles.push({ x: e.x + (Math.random() - 0.5) * 12, y: e.y - 2, vx: (Math.random() - 0.5) * 80, vy: -Math.random() * 50, life: 0.2 + Math.random() * 0.15, color: '#8d7fa8', g: 120 });
+      }
+    }
+    const p = this.world.hero;
+    if (this.world.state === 'lost' && !this.fell) { this.fell = true; this.punch = { x: p.x + p.w / 2, y: p.y + 12, t: 0 }; }
+  }
+
+  /** Lets the effects, the particles and the camera live for dt seconds. Frozen with the world on a hit. */
+  update(dt: number): void {
+    if (this.punch) { this.punch.t += dt; if (this.punch.t >= ZOOM_OUT) this.punch = null; }
+    if (this.world.hitStop > 0) return;
+    this.hud.update(dt);
+    for (const fx of this.effects) fx.t += dt;
+    this.effects = this.effects.filter(fx => fx.t < effectDuration(fx.kind));
+    for (const q of this.particles) { q.life -= dt; q.vy += q.g * dt; q.x += q.vx * dt; q.y += q.vy * dt; }
+    this.particles = this.particles.filter(q => q.life > 0);
+    const marks = this.blood.update(dt);
+    if (marks.length) {
+      const k = this.stains.getContext('2d')!;
+      for (const m of marks) {
+        k.fillStyle = BLOOD_COLORS[m.shade]; k.fillRect(m.x, m.y, m.w, m.h);
+        // Now and then it runs down the face of the stone, in front.
+        if (m.w >= 3 && Math.random() < 0.45) { k.fillStyle = BLOOD_COLORS[Math.max(0, m.shade - 1)]; k.fillRect(m.x + Math.floor(Math.random() * m.w), m.y + m.h, 1, 3 + Math.floor(Math.random() * 14)); }
+      }
+    }
+    this.lens.update(dt);
+    const [fx, fy] = this.focus();
+    this.camera.ease(fx, fy, dt);
+  }
+
+  draw(g: CanvasRenderingContext2D, t: number, paused: boolean): void {
+    const w = this.world, level = w.level;
+    const jolt = w.shake > 0 ? [Math.round((Math.random() - 0.5) * 6), Math.round((Math.random() - 0.5) * 6)] : [0, 0];
+    const cx = this.camera.x - jolt[0], cy = this.camera.y - jolt[1];
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.imageSmoothingEnabled = false;
+    g.fillStyle = '#0a0814'; g.fillRect(0, 0, VIEW_W, VIEW_H);
+    g.drawImage(this.backdrop, -cx, -cy);
+    g.drawImage(this.stains, -cx, -cy);
+
+    g.translate(-cx, -cy);
+    this.drawRuns(g);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+
+    g.translate(-cx, -cy);
+    this.drawLoops(g, t, false);
+    for (let i = 0; i < level.settings.bats; i++) {
+      const x = ((t * (38 + i * 9) + i * 390) % (level.width + 200)) - 100, y = 34 + i * 96 + 12 * Math.sin(t * 0.9 + i * 2);
+      this.sheetFrame(g, 'bat', Math.floor(t * 30 + i * 20) % SHEETS.bat.frames, x, y, i % 2 === 1);
+    }
+    this.drawDoor(g, t);
+    this.drawLoops(g, t, true);
+    for (const o of level.objects) {
+      const kind = KINDS[o.kind];
+      if (kind && kind.role === 'decor' && kind.plane === 'front' && 'image' in kind) { const [sx, sy, sw, sh] = kind.src; g.drawImage(this.assets.image(kind.image), sx, sy, sw, sh, o.x - kind.anchor[0], o.y - kind.anchor[1], sw, sh); }
+    }
+    g.setTransform(1, 0, 0, 1, 0, 0);
+
+    // The light falls on the wall and on what hangs on it; the bodies throw their shadows there.
+    const moving = this.movingLights();
+    this.lights.draw(g, cx, cy, level.settings.darkness, this.restingLights(), moving, t, this.casters(t));
+
+    // What burns or glows is not darkened; the hero takes the light of where he stands.
+    g.translate(-cx, -cy);
+    this.drawEmbers(g, t);
+    for (const f of w.foes) if (f.kind === 'ghoul') this.drawGhoul(g, f, t);
+    for (const f of w.foes) if (f.kind === 'shade') this.drawMonk(g, f, t);
+    this.drawMonk(g, w.hero, t);
+    for (const fx of this.effects) this.drawEffect(g, fx);
+    for (const q of this.particles) { g.fillStyle = q.color; g.fillRect(Math.round(q.x), Math.round(q.y), 2, 2); }
+    for (const d of this.blood.drops) { g.fillStyle = BLOOD_COLORS[d.shade]; g.fillRect(Math.round(d.x), Math.round(d.y), d.size, d.size); }
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    this.lights.haze(g);
+
+    g.translate(-cx, -cy);
+    this.drawAir(g, t);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    this.closeIn(g, cx, cy);
+    this.drawLens(g);
+    this.hud.draw(g, t, paused, this.won);
+  }
+
+  // Closes in on a finishing blow: the picture drawn so far is enlarged round the place of the blow.
+  private closeIn(g: CanvasRenderingContext2D, cx: number, cy: number): void {
+    const z = this.punch;
+    if (!z) return;
+    const k = z.t < ZOOM_IN ? z.t / ZOOM_IN : z.t < ZOOM_HOLD ? 1 : 1 - (z.t - ZOOM_HOLD) / (ZOOM_OUT - ZOOM_HOLD);
+    const zoom = 1 + (ZOOM - 1) * k * (2 - k);
+    const sw = VIEW_W / zoom, sh = VIEW_H / zoom;
+    const sx = Math.max(0, Math.min(VIEW_W - sw, z.x - cx - sw / 2)), sy = Math.max(0, Math.min(VIEW_H - sh, z.y - cy - sh / 2));
+    g.drawImage(g.canvas, sx, sy, sw, sh, 0, 0, VIEW_W, VIEW_H);
+  }
+
+  // ---- lights that are not part of the level file ---------------------------------------------------
+
+  private restingLights(): Light[] {
+    const w = this.world, out: Light[] = [];
+    for (const m of w.embers) if (!m.taken) out.push({ x: m.x, y: m.y, radius: 54, strength: 0.75, flicker: 0, color: [255, 150, 70] });
+    if (w.door && w.doorOpen) out.push({ x: w.door.x + 16, y: w.door.y + 36, radius: 140, strength: 1, flicker: 0, color: [255, 215, 140] });
+    return out;
+  }
+
+  private movingLights(): Light[] {
+    const w = this.world, p = w.hero;
+    const out: Light[] = [];
+    this.own.clear();
+    const carry = (a: Actor, l: Light): void => { this.own.set(a, l); out.push(l); };
+    // The hero is never quite in the dark: a pale light goes with him.
+    carry(p, { x: p.x + 7, y: p.y + 18, radius: 80, strength: 0.3, flicker: 0, color: [200, 205, 255] });
+    for (const f of w.foes) {
+      if (f.kind === 'shade' && f.ko <= 0) carry(f, { x: f.x + 7, y: f.y + 18, radius: 78, strength: 0.7, flicker: 0, color: [90, 255, 150] });
+      if (f.kind === 'ghoul' && f.dead <= 0) carry(f, { x: f.x + 7, y: f.y + 8, radius: 104, strength: 0.95, flicker: 0, color: [255, 140, 60] });
+    }
+    for (const fx of this.effects) if (fx.t < 0.35) out.push({ x: fx.x, y: fx.y - 26, radius: 130, strength: 1 - fx.t / 0.35, flicker: 0, color: [255, 236, 200] });
+    return out;
+  }
+
+  // The bodies that throw a shadow on the wall: each gives its outline, in black.
+  private casters(t: number): Caster[] {
+    const w = this.world, out: Caster[] = [];
+    const monk = (a: Actor): void => {
+      if (a.ko > 0) return;
+      const cx = a.x + a.w / 2, feet = a.y + a.h, key = 'shadow/' + this.monkFrame(a, t);
+      out.push({ x: cx, y: a.y + a.h / 2, own: this.own.get(a) ?? null, draw: k => this.sprite(k, key, cx, feet, MONK_ANCHOR, a.facing < 0) });
+    };
+    monk(w.hero);
+    for (const f of w.foes) {
+      if (f.kind === 'shade') monk(f);
+      else if (f.dead <= 0) {
+        const cx = f.x + f.w / 2, feet = f.y + f.h, key = 'shadow-ghoul/' + (1 + Math.floor(f.animT * 12) % 8);
+        out.push({ x: cx, y: f.y + f.h / 2, own: this.own.get(f) ?? null, draw: k => this.sprite(k, key, cx, feet, GHOUL_ANCHOR, f.facing > 0) });
+      }
+    }
+    return out;
+  }
+
+  // ---- pieces of the picture ------------------------------------------------------------------------
+
+  // One frame of a sheet with its pivot on (x, y).
+  private sheetFrame(g: CanvasRenderingContext2D, name: string, index: number, x: number, y: number, flip: boolean): void {
+    const s = SHEETS[name], sx = (index % s.cols) * s.w, sy = Math.floor(index / s.cols) * s.h, pic = this.assets.sheet(name);
+    x = Math.round(x); y = Math.round(y);
+    if (!flip) { g.drawImage(pic, sx, sy, s.w, s.h, x - s.px, y - s.py, s.w, s.h); return; }
+    g.save(); g.translate(x, 0); g.scale(-1, 1); g.drawImage(pic, sx, sy, s.w, s.h, -s.px, y - s.py, s.w, s.h); g.restore();
+  }
+
+  // A picture with a column of it on x and its bottom on y, mirrored when asked.
+  private sprite(g: CanvasRenderingContext2D, key: string, x: number, y: number, anchor: number, mirror: boolean): void {
+    this.picture(g, this.assets.image(key) as HTMLImageElement, x, y, anchor, mirror);
+  }
+
+  private picture(g: CanvasRenderingContext2D, pic: HTMLImageElement | HTMLCanvasElement, x: number, y: number, anchor: number, mirror: boolean): void {
+    x = Math.round(x); y = Math.round(y);
+    if (!mirror) { g.drawImage(pic, x - anchor, y - pic.height); return; }
+    g.save(); g.translate(x, 0); g.scale(-1, 1); g.drawImage(pic, -anchor, y - pic.height); g.restore();
+  }
+
+  // Blood running down the walls: a blot where it struck, its trail, a brighter bead at its head.
+  private drawRuns(g: CanvasRenderingContext2D): void {
+    for (const run of this.blood.runs) {
+      g.globalAlpha = run.alpha;
+      g.fillStyle = BLOOD_COLORS[Math.max(0, run.shade - 1)];
+      g.fillRect(run.x - 1, run.y - 1, run.width + 2, 2);
+      g.fillRect(run.x, run.y + 1, run.width, Math.ceil(run.len));
+      if (!run.done) { g.fillStyle = BLOOD_COLORS[Math.min(3, run.shade + 1)]; g.fillRect(run.x, Math.round(run.y + run.len), run.width, 2); }
+    }
+    g.globalAlpha = 1;
+  }
+
+  // Blood on the screen: a blot of pixels, the drip under it, a bead at its end.
+  private drawLens(g: CanvasRenderingContext2D): void {
+    for (const s of this.lens.splats) {
+      g.globalAlpha = 0.88 * s.alpha;
+      g.fillStyle = BLOOD_COLORS[s.shade];
+      const rad = Math.round(s.r), x = Math.round(s.x), y = Math.round(s.y);
+      for (let dy = -rad; dy <= rad; dy++) { const half = Math.round(Math.sqrt(rad * rad - dy * dy)); g.fillRect(x - half, y + dy, half * 2, 1); }
+      const w = rad > 6 ? 3 : 2;
+      g.fillRect(x - 1, y, w, Math.ceil(s.len) + rad);
+      g.fillStyle = BLOOD_COLORS[Math.min(3, s.shade + 1)];
+      g.fillRect(x - 1, y + rad + Math.ceil(s.len), w, 2);
+    }
+    g.globalAlpha = 1;
+  }
+
+  private drawLoops(g: CanvasRenderingContext2D, t: number, front: boolean): void {
+    for (const l of this.loops) {
+      if (l.front !== front) continue;
+      const s = SHEETS[l.sheet];
+      this.sheetFrame(g, l.sheet, Math.floor(t * s.fps + l.phase) % s.frames, l.x, l.y, false);
+    }
+  }
+
+  private drawEffect(g: CanvasRenderingContext2D, fx: Playing): void {
+    const e = EFFECTS[fx.kind];
+    if ('sheet' in e) { const s = SHEETS[e.sheet]; this.sheetFrame(g, e.sheet, Math.min(s.frames - 1, Math.floor(fx.t * s.fps)), fx.x, fx.y, fx.flip); }
+    else this.sprite(g, e.frames[Math.min(e.frames.length - 1, Math.floor(fx.t / e.frameTime))], fx.x, fx.y, e.anchorX, false);
+  }
+
+  private glow(g: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string): void {
+    g.save(); g.globalCompositeOperation = 'lighter';
+    const gr = g.createRadialGradient(x, y, 0, x, y, radius);
+    gr.addColorStop(0, color); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    g.restore();
+  }
+
+  private drawDoor(g: CanvasRenderingContext2D, t: number): void {
+    const d = this.world.door;
+    if (!d) return;
+    g.drawImage(this.assets.image('tiles'), 288, 16, 32, 64, d.x, d.y, 32, 64);
+    if (!this.world.doorOpen) return;
+    g.save(); g.globalCompositeOperation = 'lighter';
+    const inside = g.createLinearGradient(0, d.y + 10, 0, d.y + 64);
+    inside.addColorStop(0, 'rgba(255,190,90,0.35)'); inside.addColorStop(1, 'rgba(255,230,160,0.8)');
+    g.fillStyle = inside; g.fillRect(d.x + 6, d.y + 14, 20, 50); g.fillRect(d.x + 9, d.y + 9, 14, 5);
+    g.restore();
+    this.glow(g, d.x + 16, d.y + 40, 80, `rgba(255,210,130,${0.3 + 0.08 * Math.sin(t * 5)})`);
+  }
+
+  private drawEmbers(g: CanvasRenderingContext2D, t: number): void {
+    this.world.embers.forEach((m, i) => {
+      if (m.taken) return;
+      const phase = i * 0.7, y = m.y + Math.round(Math.sin(t * 3 + phase) * 3);
+      this.glow(g, m.x, y, 22, 'rgba(255,150,50,0.45)');
+      g.drawImage(this.assets.image('orb/' + (1 + Math.floor(t * 8 + phase) % 3)), m.x - 13, y - 13);
+    });
+  }
+
+  private monkFrame(a: Actor, t: number): string {
+    if (a.dazed > 0) return 'hurt' + (1 + Math.floor(t * 3) % 2);
+    if (a.hurtT > 0 || a.stun > 0) return 'hurt' + (1 + Math.floor(t * 10) % 2);
+    if (a.attackT > 0) {
+      if (a.attackAir) return 'flying-kick' + (1 + Math.floor(t * 12) % 2);
+      const kick = a.attackKind === 'kick', n = kick ? 5 : 6, total = kick ? KICK_T : PUNCH_T;
+      return (kick ? 'kick' : 'punch') + (1 + Math.min(n - 1, Math.floor((1 - a.attackT / total) * n)));
+    }
+    if (a.windup > 0) return 'punch1';
+    if (a.strike > 0) return 'punch' + (2 + Math.min(3, Math.floor((1 - a.strike / SHADE_STRIKE_T) * 4)));
+    if (a.recover > 0) return 'punch6';
+    if (a.climbing) return 'walk' + (1 + Math.floor(a.animT * 9) % 6);
+    if (!a.onGround) return (a.vy < 0 ? 'jump' : 'fall') + (1 + Math.floor(t * 8) % 2);
+    if (Math.abs(a.vx) > 12) return 'walk' + (1 + Math.floor(a.animT * 13) % 6);
+    return 'idle' + (1 + Math.floor(t * 6) % 4);
+  }
+
+  private drawMonk(g: CanvasRenderingContext2D, a: Actor, t: number): void {
+    if (a.ko > 0) return;
+    if (a.invul > 0 && Math.floor(t * 20) % 2) return;
+    const shade = a.kind === 'shade';
+    const flash = shade ? a.stun > 0.45 : a.hurtT > 0.15;
+    const set = shade ? (flash ? 'shadeflash/' : 'shade/') : (flash ? 'monkflash/' : 'monk/');
+    const dazed = a.dazed > 0;
+    const cx = a.x + a.w / 2 + (dazed ? Math.round(Math.sin(t * 5) * 2) : 0), feet = a.y + a.h;
+    g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(Math.round(cx - 9), Math.round(feet), 18, 2);
+    if (shade) this.glow(g, cx, a.y + 16, 36, 'rgba(90,255,150,0.22)');
+    const frame = this.monkFrame(a, t);
+    if (shade || flash) this.sprite(g, set + frame, cx, feet, MONK_ANCHOR, a.facing < 0);
+    else this.picture(g, this.litSprite(set + frame, cx, a.y + 18, a.facing < 0, this.own.get(a) ?? null), cx, feet, MONK_ANCHOR, a.facing < 0);
+    if (a.gore > 0 && !flash) { g.globalAlpha = Math.min(1, a.gore * 1.2); this.sprite(g, 'gore/' + frame, cx, feet, MONK_ANCHOR, a.facing < 0); g.globalAlpha = 1; }
+    if (dazed) {
+      // Sparks turn over its head, and the word that says what to do with it.
+      for (let i = 0; i < 3; i++) { const u = t * 6 + i * 2.1; g.fillStyle = i === 1 ? '#ffffff' : '#ffe27a'; g.fillRect(Math.round(cx + Math.cos(u) * 9), Math.round(a.y - 6 + Math.sin(u) * 3), 2, 2); }
+      if (Math.floor(t * 5) % 2) { const words = 'SNUFF IT!'; text(g, words, Math.round(cx - textWidth(words) / 2) + 1, Math.round(a.y - 25), '#1a0308'); text(g, words, Math.round(cx - textWidth(words) / 2), Math.round(a.y - 26), '#ff5a3a'); }
+    }
+    if (shade && a.windup > 0 && Math.floor(t * 24) % 2) { g.fillStyle = '#ffffff'; g.fillRect(Math.round(cx - 2), Math.round(a.y - 14), 4, 8); }
+  }
+
+  // A sprite as the light of its place makes it: tinted by the colour of that light, and with a
+  // bright edge, one pixel wide, on the side of the lamp that lights it most.
+  private litSprite(key: string, x: number, y: number, mirror: boolean, own: Light | null): HTMLCanvasElement {
+    const pic = this.assets.image(key) as HTMLImageElement, [out, edge] = this.bench;
+    const { color, key: lamp } = this.lights.sample(x, y, own);
+    const floor = 96;                                  // he is never darker than this: he must be seen
+    out.width = pic.width; out.height = pic.height;
+    const k = out.getContext('2d')!;
+    k.drawImage(pic, 0, 0);
+    k.globalCompositeOperation = 'multiply';
+    k.fillStyle = `rgb(${Math.max(floor, color[0])},${Math.max(floor, color[1])},${Math.max(floor + 14, color[2])})`;
+    k.fillRect(0, 0, out.width, out.height);
+    k.globalCompositeOperation = 'destination-in';
+    k.drawImage(pic, 0, 0);
+    if (lamp) {
+      const [dx, dy] = rimOffset(lamp, x, y), sx = mirror ? -dx : dx;      // the picture is turned over when he faces left
+      if (sx || dy) {
+        edge.width = pic.width; edge.height = pic.height;
+        const e = edge.getContext('2d')!;
+        e.drawImage(pic, 0, 0);
+        e.globalCompositeOperation = 'destination-out';
+        e.drawImage(pic, -sx, -dy);                     // what is left: the pixels with nothing between them and the lamp
+        e.globalCompositeOperation = 'source-in';
+        e.fillStyle = `rgb(${lamp.color[0]},${lamp.color[1]},${lamp.color[2]})`;
+        e.fillRect(0, 0, edge.width, edge.height);
+        const near = 1 - Math.hypot(lamp.x - x, lamp.y - y) / lamp.radius;
+        k.globalCompositeOperation = 'lighter';
+        k.globalAlpha = Math.min(0.9, 0.25 + lamp.strength * near);
+        k.drawImage(edge, 0, 0);
+      }
+    }
+    return out;
+  }
+
+  private drawGhoul(g: CanvasRenderingContext2D, e: Actor, t: number): void {
+    if (e.dead > 0 || (e.invul > 0 && Math.floor(t * 20) % 2)) return;
+    const cx = e.x + e.w / 2;
+    this.glow(g, cx, e.y + 6, 40, 'rgba(255,140,50,0.35)');
+    this.sprite(g, 'ghoul/' + (1 + Math.floor(e.animT * 12) % 8), cx, e.y + e.h, GHOUL_ANCHOR, e.facing > 0);     // the pictures face left
+  }
+
+  // Moonlight under the windows, dust in it, mist on the ground.
+  private drawAir(g: CanvasRenderingContext2D, t: number): void {
+    const level = this.world.level;
+    g.save(); g.globalCompositeOperation = 'lighter';
+    this.beams.forEach((b, w) => {
+      const breath = 0.075 + 0.02 * Math.sin(t * 0.5 + w * 2);
+      const beam = g.createLinearGradient(b.x + 80, b.y + 62, b.x + 186, b.y + 300);
+      beam.addColorStop(0, `rgba(150,170,255,${breath})`); beam.addColorStop(1, 'rgba(150,170,255,0)');
+      g.fillStyle = beam; shaftPath(g, b.x, b.y); g.fill();
+      for (let i = 0; i < 22; i++) {
+        const u = (hash(i, w + 1) + t * (0.012 + 0.01 * hash(w + 2, i))) % 1, v = hash(i + 7, w + 3);
+        const x = b.x + 56 + v * 48 + u * 130 + 5 * Math.sin(t * 0.7 + i), y = b.y + 64 + u * 232;
+        const twinkle = 0.5 + 0.5 * Math.sin(t * 2.3 + i * 1.7);
+        g.fillStyle = `rgba(205,218,255,${(0.75 * (1 - u) * twinkle).toFixed(3)})`;
+        g.fillRect(Math.round(x), Math.round(y), 1, 1);
+      }
+    });
+    if (level.settings.mist) {
+      const banks = Math.ceil(level.width / 58);
+      for (let i = 0; i < banks; i++) {
+        const x = ((i * 97 + t * (5 + (i % 3) * 3.5)) % (level.width + 280)) - 140, y = this.ground - 8 + 5 * Math.sin(t * 0.3 + i);
+        g.fillStyle = 'rgba(110,120,200,0.05)';
+        g.beginPath(); g.ellipse(x, y, 78 + (i % 4) * 16, 9 + (i % 3) * 3, 0, 0, Math.PI * 2); g.fill();
+      }
+    }
+    g.restore();
+  }
+}

@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Unextinguished — playable room</title>
+<style>
+  html, body { margin:0; height:100%; background:#07080c; color:#8f96a6; font:13px/1.5 "Segoe UI", system-ui, sans-serif; overflow:hidden; }
+  #wrap { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; }
+  canvas { display:block; background:#000; image-rendering:pixelated; }
+  #help { text-align:center; }
+  kbd { display:inline-block; min-width:1.2em; padding:0 5px; border:1px solid #3a4152; border-radius:3px; background:#141821; color:#d5d8e0; font:12px/1.5 Consolas, monospace; }
+  #pad { color:#e8a33a; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="screen" width="320" height="240"></canvas>
+  <div id="help">
+    <div><b>Keyboard</b> — move <kbd>←</kbd><kbd>→</kbd> or <kbd>Q</kbd><kbd>D</kbd> · climb <kbd>↑</kbd><kbd>↓</kbd> or <kbd>Z</kbd><kbd>S</kbd> · jump <kbd>Space</kbd> · strike <kbd>X</kbd> or <kbd>Ctrl</kbd> · restart <kbd>R</kbd></div>
+    <div><b>Gamepad</b> — stick or d-pad · jump <kbd>A</kbd> · strike <kbd>X</kbd> or <kbd>B</kbd> · restart <kbd>Start</kbd> · <span id="pad">no gamepad seen yet: press a button on it</span></div>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+// Throwaway trial room. The simulation runs at a fixed step in a 320x240 world of 8-pixel tiles;
+// the drawing is all rectangles, placeholders for real sprites.
+
+const W = 320, H = 240, T = 8, COLS = 40, ROWS = 30;
+const STEP = 1 / 120;
+const RUN = 86, ACC = 1000, AIR_ACC = 650, FRICTION = 1200, GRAVITY = 880, JUMP = 246, JUMP_CUT = 85, MAX_FALL = 420, CLIMB = 62;
+const FOE_PACE = 0.84;
+
+// ---- Room ---------------------------------------------------------------------------------------
+const grid = Array.from({ length: ROWS }, () => new Array(COLS).fill(0));   // 0 air, 1 stone, 2 ladder
+const LADDERS = [];
+function stone(c0, c1, r0, r1 = r0) { for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) grid[r][c] = 1; }
+function ladder(c, rTop, rBot) { for (let r = rTop; r <= rBot; r++) { grid[r][c] = 2; grid[r][c + 1] = 2; } LADDERS.push({ c, rTop, rBot, x: (c + 1) * T }); }
+
+// No ceiling: the top floor needs the full height of a jump above it to clear its gaps.
+stone(0, 0, 0, 29); stone(39, 39, 0, 29); stone(0, 39, 27, 29);                       // walls and ground
+stone(1, 12, 20); stone(16, 27, 20); stone(31, 38, 20);                              // first floor
+stone(5, 17, 13); stone(22, 34, 13);                                                  // second floor
+stone(1, 14, 6); stone(18, 20, 6); stone(24, 38, 6);                                  // third floor
+ladder(3, 20, 26); ladder(33, 20, 26);
+ladder(10, 13, 19); ladder(24, 13, 19);
+ladder(12, 6, 12); ladder(30, 6, 12);
+
+const solidAt = (c, r) => c < 0 || c >= COLS || r < 0 || r >= ROWS || grid[r][c] === 1;
+const ladderAt = (c, r) => c >= 0 && c < COLS && r >= 0 && r < ROWS && grid[r][c] === 2;
+const ladderTopAt = (c, r) => ladderAt(c, r) && !ladderAt(c, r - 1);
+const floorAt = (c, r) => solidAt(c, r) || ladderTopAt(c, r);
+
+const EMBER_SPOTS = [[3, 4], [19, 4], [36, 4], [7, 11], [19.5, 8], [33, 11], [20, 18], [37, 18], [20, 25]];
+const DOOR = { x: 36 * T, y: 24 * T, w: 16, h: 24 };
+const TORCHES = [[70, 150], [250, 150], [160, 78], [28, 30], [292, 30], [130, 200], [226, 200]];
+
+// ---- State --------------------------------------------------------------------------------------
+let hero, foe, embers, particles, state, clock, hitStop, shake, banner, frameT = 0;
+
+function actor(kind, x, floorRow) {
+  return { kind, x, y: floorRow * T - 16, w: 8, h: 16, vx: 0, vy: 0, facing: 1, onGround: true, climbing: false, lastFloor: floorRow,
+    animT: 0, attackT: 0, attackAir: false, attackHit: false, invul: 0, hurtT: 0, hp: 3, coyote: 0, buffer: 0,
+    stun: 0, ko: 0, windup: 0, strike: 0, struck: false, cool: 0, airDir: 0, climbDir: 1 };
+}
+
+function reset() {
+  hero = actor('hero', 14, 27);
+  foe = actor('foe', 35 * T, 6);
+  foe.facing = -1; foe.cool = 1.5;
+  embers = EMBER_SPOTS.map(([c, r], i) => ({ x: c * T + 4, y: r * T + 4, taken: false, phase: i * 0.7 }));
+  particles = [];
+  state = 'play'; clock = 0; hitStop = 0; shake = 0; banner = 3.5;
+}
+
+// ---- Input --------------------------------------------------------------------------------------
+const keys = new Set();
+const KEYMAP = {
+  left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'], up: ['ArrowUp', 'KeyW'], down: ['ArrowDown', 'KeyS'],
+  jump: ['Space', 'KeyK'], attack: ['KeyX', 'KeyJ', 'ControlLeft', 'ControlRight'], restart: ['KeyR', 'Enter'],
+};
+const taps = new Set();          // keys pressed since the last frame: a tap shorter than a frame still counts
+addEventListener('keydown', e => { keys.add(e.code); if (!e.repeat) taps.add(e.code); audio(); if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault(); });
+addEventListener('keyup', e => keys.delete(e.code));
+addEventListener('blur', () => keys.clear());
+addEventListener('pointerdown', audio);
+const padLabel = document.getElementById('pad');
+addEventListener('gamepadconnected', e => { padLabel.textContent = 'gamepad: ' + e.gamepad.id.replace(/\s*\(.*\)\s*/g, ''); });
+addEventListener('gamepaddisconnected', () => { padLabel.textContent = 'gamepad unplugged'; });
+
+const inp = { x: 0, up: false, down: false, jump: false, jumpPressed: false, attackPressed: false, restartPressed: false };
+const held = { jump: false, attack: false, restart: false };
+
+function readInput() {
+  const k = name => KEYMAP[name].some(code => keys.has(code) || taps.has(code));
+  let left = k('left'), right = k('right'), up = k('up'), down = k('down'), jump = k('jump'), attack = k('attack'), restart = k('restart');
+  for (const pad of navigator.getGamepads ? navigator.getGamepads() : []) {
+    if (!pad || !pad.connected) continue;
+    const b = i => !!(pad.buttons[i] && pad.buttons[i].pressed), ax = pad.axes[0] || 0, ay = pad.axes[1] || 0;
+    left = left || ax < -0.4 || b(14); right = right || ax > 0.4 || b(15);
+    up = up || ay < -0.5 || b(12); down = down || ay > 0.5 || b(13);
+    jump = jump || b(0); attack = attack || b(2) || b(1); restart = restart || b(9);
+  }
+  inp.x = (right ? 1 : 0) - (left ? 1 : 0);
+  inp.up = up; inp.down = down; inp.jump = jump;
+  inp.jumpPressed = jump && !held.jump; inp.attackPressed = attack && !held.attack; inp.restartPressed = restart && !held.restart;
+  held.jump = jump; held.attack = attack; held.restart = restart;
+  taps.clear();
+}
+
+// ---- Sound: a few square-wave blips ------------------------------------------------------------
+let ac = null;
+function audio() { if (!ac) { try { ac = new AudioContext(); } catch { ac = null; } } else if (ac.state === 'suspended') ac.resume(); }
+function blip(freq, to, dur, vol = 0.05, type = 'square') {
+  if (!ac || ac.state !== 'running') return;
+  const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+  o.type = type; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+}
+const SFX = {
+  jump: () => blip(280, 560, 0.09), land: () => blip(120, 70, 0.05, 0.03), swing: () => blip(700, 300, 0.05, 0.025),
+  hit: () => { blip(220, 60, 0.12, 0.07, 'sawtooth'); blip(900, 200, 0.05, 0.04); }, hurt: () => blip(400, 90, 0.22, 0.07, 'sawtooth'),
+  ember: () => { blip(880, 1320, 0.07, 0.04); setTimeout(() => blip(1320, 1760, 0.09, 0.04), 60); },
+  door: () => [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => blip(f, f, 0.14, 0.05), i * 90)),
+  ko: () => blip(300, 40, 0.5, 0.07, 'sawtooth'), win: () => [784, 988, 1175, 1568].forEach((f, i) => setTimeout(() => blip(f, f, 0.18, 0.05), i * 110)),
+};
+const sfx = name => SFX[name] && SFX[name]();
+
+// ---- Movement shared by the hero and the pursuer ------------------------------------------------
+function ladderSpan(c, r) { let l = c, rr = c; while (ladderAt(l - 1, r)) l--; while (ladderAt(rr + 1, r)) rr++; return [l * T, (rr + 1) * T]; }
+
+function startClimb(a, c, r, sink) {
+  const [x0, x1] = ladderSpan(c, r);
+  a.x = Math.max(x0, Math.min(x1 - a.w, a.x));
+  a.y += sink; a.climbing = true; a.onGround = false; a.vx = 0; a.vy = 0;
+}
+
+function control(a, c, dt, pace) {
+  const cx = Math.floor((a.x + a.w / 2) / T);
+  const locked = a.hurtT > 0 || a.stun > 0 || a.ko > 0;
+  if (!a.climbing && !locked && a.attackT <= 0 && a.windup <= 0 && a.strike <= 0) {
+    const feet = Math.floor((a.y + a.h - 1) / T), mid = Math.floor((a.y + a.h / 2) / T), under = Math.floor((a.y + a.h) / T);
+    if (c.up && ladderAt(cx, feet)) startClimb(a, cx, feet, 0);
+    else if (c.up && ladderAt(cx, mid)) startClimb(a, cx, mid, 0);
+    else if (c.down && a.onGround && ladderTopAt(cx, under)) startClimb(a, cx, under, 2);
+  }
+  if (a.climbing) {
+    const feetRow = Math.floor((a.y + a.h - 1) / T);
+    a.vx = 0;
+    a.vy = ((c.down ? 1 : 0) - (c.up ? 1 : 0)) * CLIMB * pace;
+    if (a.vy) a.animT += dt;
+    if (locked) { a.climbing = false; a.vy = 0; }
+    else if (c.jumpPressed) { a.climbing = false; a.vy = -JUMP * 0.72; a.vx = c.x * RUN * pace; if (c.x) a.facing = c.x; sfx('jump'); }
+    else if (!ladderAt(cx, feetRow)) {
+      // Off the ladder: over its top (stand on it, whichever way the actor was moving) or under its foot.
+      if (ladderAt(cx, feetRow + 1)) a.y = (feetRow + 1) * T - a.h;
+      a.climbing = false; a.vy = 0;
+    }
+    return;
+  }
+  let want = locked ? 0 : c.x;
+  if ((a.attackT > 0 && a.onGround && !a.attackAir) || a.windup > 0 || a.strike > 0) want = 0;
+  if (want && !locked) {
+    const target = want * RUN * pace, step = (a.onGround ? ACC : AIR_ACC) * dt, gap = target - a.vx;
+    a.vx += Math.sign(gap) * Math.min(Math.abs(gap), step);
+    if (a.attackT <= 0) a.facing = want;
+  } else if (a.onGround) {
+    const f = FRICTION * dt;
+    a.vx = Math.abs(a.vx) <= f ? 0 : a.vx - Math.sign(a.vx) * f;
+  }
+  a.coyote = a.onGround ? 0.09 : Math.max(0, a.coyote - dt);
+  a.buffer = c.jumpPressed ? 0.11 : Math.max(0, a.buffer - dt);
+  if (!locked && a.buffer > 0 && a.coyote > 0 && a.windup <= 0 && a.strike <= 0) {
+    a.vy = -JUMP; a.onGround = false; a.coyote = 0; a.buffer = 0;
+    sfx('jump'); dust(a.x + 4, a.y + a.h, 4);
+  }
+  if (a.kind === 'hero' && !c.jump && !locked && a.vy < -JUMP_CUT) a.vy = -JUMP_CUT;
+  a.vy = Math.min(MAX_FALL, a.vy + GRAVITY * dt);
+}
+
+function move(a, dt) {
+  a.x += a.vx * dt;
+  const r0 = Math.floor(a.y / T), r1 = Math.floor((a.y + a.h - 0.01) / T);
+  if (a.vx > 0) {
+    const c = Math.floor((a.x + a.w - 0.01) / T);
+    for (let r = r0; r <= r1; r++) if (solidAt(c, r)) { a.x = c * T - a.w; a.vx = 0; break; }
+  } else if (a.vx < 0) {
+    const c = Math.floor(a.x / T);
+    for (let r = r0; r <= r1; r++) if (solidAt(c, r)) { a.x = (c + 1) * T; a.vx = 0; break; }
+  }
+  const before = a.y + a.h, wasGround = a.onGround, fall = a.vy;
+  a.y += a.vy * dt;
+  a.onGround = false;
+  const c0 = Math.floor(a.x / T), c1 = Math.floor((a.x + a.w - 0.01) / T);
+  if (a.vy >= 0) {
+    const r = Math.floor((a.y + a.h) / T);
+    for (let c = c0; c <= c1; c++) {
+      if (solidAt(c, r) || (!a.climbing && ladderTopAt(c, r) && before <= r * T + 0.01)) {
+        a.y = r * T - a.h; a.vy = 0; a.onGround = true; a.climbing = false; a.lastFloor = r; break;
+      }
+    }
+  } else {
+    const r = Math.floor(a.y / T);
+    for (let c = c0; c <= c1; c++) if (solidAt(c, r)) { a.y = (r + 1) * T; a.vy = 0; break; }
+  }
+  if (a.onGround && !wasGround && fall > 150) { dust(a.x + 4, a.y + a.h, 5); if (a.kind === 'hero') sfx('land'); }
+}
+
+const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+// ---- Hero ---------------------------------------------------------------------------------------
+function updateHero(dt) {
+  const p = hero;
+  p.attackT = Math.max(0, p.attackT - dt); p.invul = Math.max(0, p.invul - dt); p.hurtT = Math.max(0, p.hurtT - dt);
+  if (inp.attackPressed && p.attackT <= 0 && !p.climbing && p.hurtT <= 0) {
+    p.attackT = 0.26; p.attackAir = !p.onGround; p.attackHit = false; sfx('swing');
+  }
+  control(p, inp, dt, 1);
+  move(p, dt);
+  if (p.onGround && p.attackAir && p.attackT > 0) p.attackT = 0;      // a flying kick ends on landing
+  const since = 0.26 - p.attackT;
+  if (p.attackT > 0 && since > 0.05 && since < 0.18 && !p.attackHit && foe.ko <= 0 && foe.invul <= 0) {
+    const reach = p.attackAir ? 13 : 12;
+    const box = { x: p.facing > 0 ? p.x + p.w : p.x - reach, y: p.y + (p.attackAir ? 8 : 3), w: reach, h: 8 };
+    if (overlap(box, foe)) hitFoe(p.attackAir, p.facing);
+  }
+  if (Math.abs(p.vx) > 5 && p.onGround) p.animT += dt; else if (!p.climbing) p.animT += dt * 0.25;
+}
+
+function hitFoe(air, dir) {
+  const e = foe;
+  hero.attackHit = true;
+  e.hp--; e.windup = 0; e.strike = 0; e.climbing = false;
+  e.vx = dir * (air ? 175 : 115); e.vy = -(air ? 150 : 95); e.onGround = false;
+  e.stun = air ? 1.0 : 0.6; e.cool = 0.9;
+  hitStop = 0.06; shake = 0.14;
+  sparks(e.x + 4, e.y + 6, 9, '#fff3b0');
+  if (e.hp <= 0) { e.ko = 3.5; e.stun = 0; sfx('ko'); } else sfx('hit');
+}
+
+function hurtHero(dir) {
+  const p = hero;
+  p.hp--; p.invul = 1.2; p.hurtT = 0.3; p.attackT = 0; p.climbing = false;
+  p.vx = dir * 140; p.vy = -125; p.onGround = false;
+  hitStop = 0.08; shake = 0.2; sfx('hurt');
+  sparks(p.x + 4, p.y + 6, 7, '#ff8a70');
+  if (p.hp <= 0) { state = 'lost'; sfx('ko'); }
+}
+
+// ---- Pursuer ------------------------------------------------------------------------------------
+// It walks to the hero when they share a floor; otherwise it goes to the ladder that brings it
+// closer, jumps the gaps it can clear and drops off ledges when the hero is below.
+function think(e, p) {
+  const out = { x: 0, up: false, down: false, jump: true, jumpPressed: false };
+  if (e.stun > 0 || e.ko > 0 || e.windup > 0 || e.strike > 0 || state !== 'play') return out;
+  const ecx = e.x + e.w / 2, pcx = p.x + p.w / 2;
+  if (e.climbing) {
+    // Keep the direction chosen at the foot or the top of the ladder, and turn round only when the
+    // hero's floor is clearly on the other side: comparing heights at the ends made it dither there.
+    const goal = p.lastFloor * T, feet = e.y + e.h;
+    if (e.climbDir < 0 && goal > feet + 12) e.climbDir = 1;
+    else if (e.climbDir > 0 && goal < feet - 12) e.climbDir = -1;
+    out.up = e.climbDir < 0; out.down = e.climbDir > 0;
+    return out;
+  }
+  if (!e.onGround) { out.x = e.airDir; return out; }
+  const ef = e.lastFloor, pf = p.lastFloor;
+  let target = pcx, via = null;
+  if (pf !== ef) {
+    let best = Infinity;
+    for (const l of LADDERS) {
+      if (pf < ef ? l.rBot + 1 !== ef : l.rTop !== ef) continue;
+      const cost = Math.abs(ecx - l.x) + Math.abs(l.x - pcx) * 0.6;
+      if (cost < best) { best = cost; via = l; }
+    }
+    if (via) target = via.x;
+  }
+  const d = target - ecx;
+  if (via && Math.abs(d) < 3) { e.climbDir = pf < ef ? -1 : 1; out.up = e.climbDir < 0; out.down = e.climbDir > 0; return out; }
+  if (!via && pf === ef && Math.abs(d) < 15 && Math.abs(p.y - e.y) < 12 && e.cool <= 0 && p.invul <= 0) {
+    e.facing = Math.sign(d) || e.facing; e.windup = 0.3; e.vx = 0;
+    return out;
+  }
+  if (Math.abs(d) > 2) out.x = Math.sign(d);
+  if (out.x) {
+    e.facing = out.x;
+    const ahead = Math.floor((ecx + out.x * 5) / T);
+    if (!floorAt(ahead, ef)) {
+      let lands = false;
+      for (let k = 1; k <= 5; k++) if (floorAt(ahead + out.x * k, ef)) { lands = true; break; }
+      if (lands && (target - (ahead * T + 4)) * out.x > 0 && pf <= ef) out.jumpPressed = true;
+    }
+  }
+  e.airDir = out.x;
+  return out;
+}
+
+function updateFoe(dt) {
+  const e = foe;
+  e.stun = Math.max(0, e.stun - dt); e.cool = Math.max(0, e.cool - dt); e.invul = Math.max(0, e.invul - dt);
+  if (e.ko > 0) { e.ko -= dt; if (e.ko <= 0) { e.hp = 3; e.invul = 0.8; e.cool = 0.8; } }
+  control(e, think(e, hero), dt, FOE_PACE);
+  move(e, dt);
+  if (e.windup > 0) {
+    e.windup -= dt;
+    if (e.windup <= 0) { e.strike = 0.12; e.struck = false; sfx('swing'); }
+  } else if (e.strike > 0) {
+    e.strike -= dt;
+    const box = { x: e.facing > 0 ? e.x + e.w : e.x - 13, y: e.y + 3, w: 13, h: 9 };
+    if (!e.struck && hero.invul <= 0 && state === 'play' && overlap(box, hero)) { e.struck = true; hurtHero(e.facing); }
+    if (e.strike <= 0) e.cool = 0.8;
+  }
+  if (Math.abs(e.vx) > 5 && e.onGround) e.animT += dt;
+}
+
+// ---- Particles ----------------------------------------------------------------------------------
+function sparks(x, y, n, color) {
+  for (let i = 0; i < n; i++) { const a = Math.random() * 6.283, s = 40 + Math.random() * 90; particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 30, life: 0.25 + Math.random() * 0.2, color, g: 300 }); }
+}
+function dust(x, y, n) {
+  for (let i = 0; i < n; i++) particles.push({ x: x + (Math.random() - 0.5) * 6, y: y - 1, vx: (Math.random() - 0.5) * 40, vy: -Math.random() * 25, life: 0.2 + Math.random() * 0.15, color: '#8d87a6', g: 60 });
+}
+
+// ---- One step of the world ----------------------------------------------------------------------
+function step(dt) {
+  if (hitStop > 0) { hitStop -= dt; return; }
+  shake = Math.max(0, shake - dt); banner = Math.max(0, banner - dt);
+  for (const q of particles) { q.life -= dt; q.vy += q.g * dt; q.x += q.vx * dt; q.y += q.vy * dt; }
+  particles = particles.filter(q => q.life > 0);
+  if (state !== 'play') { updateFoe(dt); return; }
+  clock += dt;
+  updateHero(dt);
+  updateFoe(dt);
+  for (const m of embers) {
+    if (!m.taken && overlap({ x: m.x - 4, y: m.y - 4, w: 8, h: 8 }, hero)) {
+      m.taken = true; sparks(m.x, m.y, 8, '#ffd76a'); sfx('ember');
+      if (embers.every(o => o.taken)) setTimeout(() => sfx('door'), 150);
+    }
+  }
+  if (embers.every(m => m.taken) && overlap(DOOR, hero) && hero.onGround) { state = 'won'; sfx('win'); }
+}
+
+// ---- Drawing ------------------------------------------------------------------------------------
+const screen = document.getElementById('screen');
+const g = screen.getContext('2d');
+const px = (x, y, w, h, color) => { g.fillStyle = color; g.fillRect(Math.round(x), Math.round(y), w, h); };
+const hash = (a, b) => { const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return s - Math.floor(s); };
+
+const FONT = {
+  A:'010101111101101', B:'110101110101110', C:'011100100100011', D:'110101101101110', E:'111100110100111', F:'111100110100100',
+  G:'011100101101011', H:'101101111101101', I:'111010010010111', J:'001001001101010', K:'101101110101101', L:'100100100100111',
+  M:'101111111101101', N:'110101101101101', O:'010101101101010', P:'110101110100100', Q:'010101101110011', R:'110101110101101',
+  S:'011100010001110', T:'111010010010010', U:'101101101101111', V:'101101101101010', W:'101101111111101', X:'101101010101101',
+  Y:'101101010010010', Z:'111001010100111',
+  0:'111101101101111', 1:'010110010010111', 2:'110001010100111', 3:'110001010001110', 4:'101101111001001', 5:'111100110001110',
+  6:'011100111101111', 7:'111001010010010', 8:'111101111101111', 9:'111101111001110',
+  ':':'000010000010000', '.':'000000000000010', '!':'010010010000010', '/':'001001010100100', '-':'000000111000000', ' ':'000000000000000',
+};
+function text(str, x, y, color, scale = 1) {
+  g.fillStyle = color;
+  for (const ch of str) {
+    const bits = FONT[ch] || FONT[' '];
+    for (let i = 0; i < 15; i++) if (bits[i] === '1') g.fillRect(x + (i % 3) * scale, y + Math.floor(i / 3) * scale, scale, scale);
+    x += 4 * scale;
+  }
+}
+const textWidth = (str, scale = 1) => str.length * 4 * scale - scale;
+const centered = (str, y, color, scale = 1) => text(str, Math.round((W - textWidth(str, scale)) / 2), y, color, scale);
+
+// The room itself never changes: it is painted once.
+const backdrop = document.createElement('canvas');
+backdrop.width = W; backdrop.height = H;
+(function paintRoom() {
+  const b = backdrop.getContext('2d');
+  const r = (x, y, w, h, color) => { b.fillStyle = color; b.fillRect(x, y, w, h); };
+  // Wall: a dark gradient with courses of brick barely lighter.
+  for (let y = 0; y < H; y++) { const k = y / H; r(0, y, W, 1, `rgb(${22 + k * 14 | 0},${20 + k * 10 | 0},${42 + k * 14 | 0})`); }
+  for (let row = 0; row < ROWS * 2; row++) {
+    r(0, row * 4, W, 1, 'rgba(0,0,0,0.16)');
+    for (let x = (row % 2) * 8; x < W; x += 16) r(x, row * 4, 1, 4, 'rgba(0,0,0,0.13)');
+    for (let x = 0; x < W; x += 8) if (hash(x, row) > 0.86) r(x + 1, row * 4 + 1, 7, 3, 'rgba(120,110,170,0.07)');
+  }
+  // Two arched windows on a dusk sky.
+  for (const wx of [56, 204]) {
+    const wy = 62, ww = 22, wh = 32;
+    for (let y = 0; y < wh; y++) {
+      const inset = y < 6 ? [7, 4, 3, 2, 1, 0][y] : 0, k = y / wh;
+      r(wx + inset, wy + y, ww - inset * 2, 1, `rgb(${48 + k * 190 | 0},${50 + k * 80 | 0},${110 - k * 20 | 0})`);
+    }
+    for (let i = 0; i < 7; i++) r(wx + 3 + Math.floor(hash(i, wx) * 16), wy + 3 + Math.floor(hash(wx, i) * 10), 1, 1, '#dfe3ff');
+    for (let x = 0; x < ww; x++) { const hgt = 4 + Math.round(3 * Math.sin((x + wx) * 0.5) + 2 * Math.sin(x * 1.3)); r(wx + x, wy + wh - hgt, 1, hgt, '#161228'); }
+    r(wx + 10, wy, 2, wh, '#2c2740'); r(wx, wy + 16, ww, 1, '#2c2740');
+    r(wx - 2, wy + wh, ww + 4, 2, '#5d5878'); r(wx - 1, wy + 6, 1, wh - 6, '#3a3552'); r(wx + ww, wy + 6, 1, wh - 6, '#3a3552');
+  }
+  // Soft shadow under every slab, then the stone and the ladders.
+  for (let row = 2; row < ROWS; row++) for (let c = 1; c < COLS - 1; c++) if (grid[row][c] === 1 && grid[row + 1] && grid[row + 1][c] !== 1) { r(c * T, (row + 1) * T, T, 3, 'rgba(0,0,0,0.3)'); r(c * T, (row + 1) * T + 3, T, 2, 'rgba(0,0,0,0.14)'); }
+  for (let row = 0; row < ROWS; row++) for (let c = 0; c < COLS; c++) {
+    const x = c * T, y = row * T;
+    if (grid[row][c] === 1) {
+      const v = hash(c, row);
+      r(x, y, T, T, v > 0.6 ? '#4a4664' : v > 0.3 ? '#444060' : '#3e3a58');
+      if (hash(c * 3, row * 7) > 0.5) r(x + (row % 2 ? 0 : 4), y, 1, T, '#353150');
+      if (!solidAt(c, row - 1)) { r(x, y, T, 1, '#9a94b8'); r(x, y + 1, T, 1, '#6c6790'); if (v > 0.7) r(x + 2, y, 3, 1, '#b9b3d4'); }
+      if (!solidAt(c, row + 1)) r(x, y + T - 1, T, 1, '#262238');
+      if (!solidAt(c - 1, row)) r(x, y, 1, T, '#5a5578');
+      if (!solidAt(c + 1, row)) r(x + T - 1, y, 1, T, '#2c2842');
+    } else if (grid[row][c] === 2) {
+      const leftRail = !ladderAt(c - 1, row);
+      r(leftRail ? x + 1 : x + T - 3, y, 2, T, '#8a5a2c'); r(leftRail ? x + 1 : x + T - 3, y, 1, T, '#b27a3c');
+      r(leftRail ? x + 3 : x, y + 2, T - 3, 1, '#c79045'); r(leftRail ? x + 3 : x, y + 6, T - 3, 1, '#c79045');
+      r(leftRail ? x + 3 : x, y + 3, T - 3, 1, 'rgba(0,0,0,0.25)'); r(leftRail ? x + 3 : x, y + 7, T - 3, 1, 'rgba(0,0,0,0.25)');
+    }
+  }
+  for (const [tx, ty] of TORCHES) { r(tx - 1, ty, 3, 5, '#6b4a2a'); r(tx - 2, ty, 5, 1, '#8d6a3c'); }
+})();
+
+function drawTorches(t) {
+  g.save(); g.globalCompositeOperation = 'lighter';
+  for (const [tx, ty] of TORCHES) {
+    const flick = 0.75 + 0.25 * Math.sin(t * 11 + tx) * Math.sin(t * 7.3 + ty);
+    const glow = g.createRadialGradient(tx, ty - 3, 0, tx, ty - 3, 34);
+    glow.addColorStop(0, `rgba(255,150,60,${0.2 * flick})`); glow.addColorStop(1, 'rgba(255,120,40,0)');
+    g.fillStyle = glow; g.fillRect(tx - 34, ty - 37, 68, 68);
+  }
+  g.restore();
+  for (const [tx, ty] of TORCHES) {
+    const f = Math.floor(t * 9 + tx) % 3;
+    px(tx - 1, ty - 4 - (f === 1 ? 1 : 0), 3, 4 + (f === 1 ? 1 : 0), '#ff8a2a');
+    px(tx - (f === 2 ? 1 : 0), ty - 6 - (f === 0 ? 1 : 0), 1 + (f === 2 ? 1 : 0), 3, '#ffd24a');
+    px(tx, ty - 2, 1, 2, '#fff3b8');
+  }
+}
+
+function drawDoor(t) {
+  const open = embers.every(m => m.taken), { x, y, w, h } = DOOR;
+  px(x - 2, y - 2, w + 4, h + 2, '#6c6790'); px(x - 2, y - 2, w + 4, 1, '#9a94b8');
+  if (open) {
+    for (let i = 0; i < h; i++) px(x, y + i, w, 1, `rgb(255,${200 + 40 * i / h | 0},${120 + 60 * i / h | 0})`);
+    g.save(); g.globalCompositeOperation = 'lighter';
+    const glow = g.createRadialGradient(x + 8, y + 14, 0, x + 8, y + 14, 46);
+    glow.addColorStop(0, `rgba(255,220,140,${0.3 + 0.08 * Math.sin(t * 5)})`); glow.addColorStop(1, 'rgba(255,200,120,0)');
+    g.fillStyle = glow; g.fillRect(x - 40, y - 34, 96, 96); g.restore();
+  } else {
+    px(x, y, w, h, '#4a2f22'); px(x + 5, y, 1, h, '#33201a'); px(x + 10, y, 1, h, '#33201a');
+    px(x, y + 5, w, 2, '#777190'); px(x, y + 17, w, 2, '#777190'); px(x + 12, y + 11, 2, 3, '#c9a24a');
+  }
+}
+
+function drawEmbers(t) {
+  for (const m of embers) {
+    if (m.taken) continue;
+    const y = m.y + Math.round(Math.sin(t * 3 + m.phase) * 1.5), pulse = Math.floor(t * 6 + m.phase) % 2;
+    g.save(); g.globalCompositeOperation = 'lighter';
+    const glow = g.createRadialGradient(m.x, y, 0, m.x, y, 11);
+    glow.addColorStop(0, 'rgba(255,170,60,0.4)'); glow.addColorStop(1, 'rgba(255,120,40,0)');
+    g.fillStyle = glow; g.fillRect(m.x - 11, y - 11, 22, 22); g.restore();
+    px(m.x - 2, y - 1, 4, 2, '#ff8a2a'); px(m.x - 1, y - 2, 2, 4, '#ff8a2a');
+    px(m.x - 1, y - 1, 2, 2, '#ffe27a'); px(m.x - 1 + pulse, y - 1, 1, 1, '#ffffff');
+    if (pulse) px(m.x, y - 4, 1, 1, '#ffb347');
+  }
+}
+
+const LOOKS = {
+  hero: { skin: '#f0c090', hair: '#3a2a22', top: '#2aa198', topDark: '#1c7a74', legs: '#2b3a67', trim: '#ff8a2a', bulk: 0 },
+  foe:  { skin: '#c8b8a8', hair: '#15131c', top: '#8b1e2d', topDark: '#5e1420', legs: '#1d1a26', trim: '#d8d2c4', bulk: 1 },
+};
+
+function drawActor(a, t) {
+  const L = LOOKS[a.kind], f = a.facing, x = Math.round(a.x), y = Math.round(a.y), cx = x + 4;
+  if (a.invul > 0 && Math.floor(t * 20) % 2) return;
+  const flash = a.kind === 'foe' ? a.stun > 0.45 : a.hurtT > 0.15;
+  const col = c => flash ? '#ffffff' : c;
+  if (a.ko > 0) {                                  // lying down
+    px(cx - 8, y + 12, 12, 4, col(L.top)); px(cx + 4, y + 12, 4, 4, col(L.skin)); px(cx - 9, y + 13, 3, 3, col(L.legs));
+    return;
+  }
+  px(cx - 4, y + 16, 8, 1, 'rgba(0,0,0,0.28)');
+  const wide = L.bulk, run = Math.abs(a.vx) > 5 && a.onGround, phase = Math.floor(a.animT * 11) % 4;
+  const kick = a.kind === 'hero' && a.attackT > 0 && a.attackAir;
+  const punch = (a.kind === 'hero' && a.attackT > 0 && !a.attackAir) || a.strike > 0;
+  const bob = !run && !a.climbing && a.onGround && Math.floor(t * 2.5) % 2 ? 1 : 0;
+  // legs
+  if (kick) {
+    px(f > 0 ? cx + 1 : cx - 9, y + 11, 8, 2, col(L.legs)); px(f > 0 ? cx + 8 : cx - 10, y + 10, 2, 3, col(L.skin));
+    px(cx - 2, y + 10, 3, 3, col(L.legs));
+  } else if (a.climbing) {
+    const s = Math.floor(a.animT * 7) % 2;
+    px(cx - 3, y + 10, 2, 5 + s, col(L.legs)); px(cx + 1, y + 10, 2, 6 - s, col(L.legs));
+  } else if (!a.onGround) {
+    px(cx - 3, y + 10, 2, 4, col(L.legs)); px(cx + 1, y + 10, 2, a.vy < 0 ? 3 : 6, col(L.legs));
+  } else if (run) {
+    const s = [2, 0, -2, 0][phase] * f;
+    px(cx - 2 + s, y + 10, 2, phase % 2 ? 5 : 6, col(L.legs)); px(cx - s, y + 10, 2, phase % 2 ? 6 : 5, col(L.legs));
+  } else {
+    px(cx - 3, y + 10, 2, 6, col(L.legs)); px(cx + 1, y + 10, 2, 6, col(L.legs));
+  }
+  // torso and belt
+  px(cx - 3 - wide, y + 4 + bob, 6 + wide * 2, 6 - bob, col(L.top));
+  px(f > 0 ? cx - 3 - wide : cx + 1 + wide, y + 4 + bob, 2, 6 - bob, col(L.topDark));
+  px(cx - 3 - wide, y + 9, 6 + wide * 2, 1, col(L.trim));
+  // head
+  px(cx - 2, y + bob, 4, 4, col(L.skin)); px(cx - 2, y + bob, 4, 1, col(L.hair)); px(f > 0 ? cx - 2 : cx + 1, y + bob, 1, 3, col(L.hair));
+  if (!a.climbing) px(f > 0 ? cx + 1 : cx - 2, y + 2 + bob, 1, 1, '#1a1420');
+  if (a.kind === 'foe') px(cx - 2, y + 3 + bob, 4, 1, col(L.hair));
+  if (a.kind === 'hero') { const wave = Math.floor(t * 8) % 2; px(f > 0 ? cx - 5 : cx + 3, y + 4 + bob, 2, 1, L.trim); px(f > 0 ? cx - 7 : cx + 5, y + 4 + bob + wave, 2, 1, L.trim); }
+  // arms
+  if (a.climbing) {
+    const s = Math.floor(a.animT * 7) % 2;
+    px(cx - 4 - wide, y + 1 + s * 2, 1, 4, col(L.skin)); px(cx + 3 + wide, y + 3 - s * 2, 1, 4, col(L.skin));
+  } else if (punch) {
+    px(f > 0 ? cx + 2 : cx - 9 - wide, y + 5, 7 + wide, 2, col(L.skin)); px(f > 0 ? cx + 8 + wide : cx - 10 - wide, y + 4, 2, 4, col(L.skin));
+  } else if (a.windup > 0) {
+    px(cx - f * (5 + wide), y + 1, 2, 5, col(L.skin)); px(cx - f * (5 + wide), y, 2, 2, Math.floor(t * 24) % 2 ? '#ffffff' : col(L.skin));
+  } else if (kick) {
+    px(cx - f * 5, y + 3, 2, 2, col(L.skin)); px(cx + f * 2, y + 6, 2, 2, col(L.skin));
+  } else {
+    const s = run ? [1, 0, -1, 0][phase] : 0;
+    px(cx - 4 - wide, y + 5 + s, 1, 4, col(L.skin)); px(cx + 3 + wide, y + 5 - s, 1, 4, col(L.skin));
+  }
+}
+
+function drawHud() {
+  for (let i = 0; i < 3; i++) {
+    const x = 12 + i * 10, y = 228, on = i < hero.hp, c = on ? '#ff5a5a' : '#262238';
+    px(x, y, 3, 3, c); px(x + 4, y, 3, 3, c); px(x, y + 2, 7, 2, c); px(x + 1, y + 4, 5, 1, c); px(x + 2, y + 5, 3, 1, c); px(x + 3, y + 6, 1, 1, c);
+    if (on) px(x + 1, y + 1, 1, 1, '#ffc0c0');
+  }
+  const got = embers.filter(m => m.taken).length;
+  centered(`EMBERS ${got}/${embers.length}`, 229, got === embers.length ? '#ffe27a' : '#cfc9e6');
+  const s = Math.floor(clock), label = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  text(label, W - 12 - textWidth(label), 229, '#cfc9e6');
+}
+
+function panel(lines) {
+  const h = 22 + lines.length * 12;
+  px(60, 96, 200, h, 'rgba(8,8,16,0.86)'); g.strokeStyle = '#9a94b8'; g.lineWidth = 1; g.strokeRect(60.5, 96.5, 199, h - 1);
+  lines.forEach(([str, color, scale], i) => centered(str, 106 + i * 13, color, scale || 1));
+}
+
+function draw(t) {
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  if (shake > 0) g.translate(Math.round((Math.random() - 0.5) * 4), Math.round((Math.random() - 0.5) * 4));
+  g.drawImage(backdrop, 0, 0);
+  drawTorches(t);
+  drawDoor(t);
+  drawEmbers(t);
+  drawActor(foe, t);
+  drawActor(hero, t);
+  for (const q of particles) px(q.x, q.y, 1, 1, q.color);
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  drawHud();
+  if (state === 'play' && banner > 0) {
+    centered('COLLECT THE EMBERS', 10, '#ffe27a'); centered('THEN REACH THE DOOR', 18, '#cfc9e6');
+  } else if (state === 'play' && embers.every(m => m.taken) && Math.floor(t * 2) % 2) {
+    centered('THE DOOR IS OPEN', 10, '#ffe27a');
+  }
+  if (state === 'won') { const s = Math.floor(clock); panel([['ROOM CLEARED', '#ffe27a', 2], [`TIME ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, '#cfc9e6'], ['PRESS JUMP TO PLAY AGAIN', '#8f89ac']]); }
+  if (state === 'lost') panel([['KNOCKED OUT', '#ff7a6a', 2], ['PRESS JUMP TO TRY AGAIN', '#8f89ac']]);
+}
+
+// ---- Loop ---------------------------------------------------------------------------------------
+function fit() {
+  const help = document.getElementById('help').offsetHeight + 30;
+  const scale = Math.max(1, Math.floor(Math.min(innerWidth / W, (innerHeight - help) / H)));
+  screen.style.width = W * scale + 'px'; screen.style.height = H * scale + 'px';
+}
+addEventListener('resize', fit);
+
+let last = 0, bank = 0;
+function advance(seconds) {
+  bank += seconds;
+  let first = true;
+  while (bank >= STEP) {
+    step(STEP);
+    bank -= STEP;
+    if (first) { inp.jumpPressed = false; inp.attackPressed = false; first = false; }
+  }
+}
+function tick(now) {
+  const dt = Math.min(0.05, (now - last) / 1000 || 0);
+  last = now; frameT += dt;
+  readInput();
+  if (inp.restartPressed || (state !== 'play' && inp.jumpPressed)) { reset(); inp.jumpPressed = false; }
+  advance(dt);
+  draw(frameT);
+  requestAnimationFrame(tick);
+}
+
+reset();
+fit();
+requestAnimationFrame(tick);
+
+// For checks from outside the page: the live objects and a way to run the world by hand.
+window.__room = {
+  get hero() { return hero; }, get foe() { return foe; }, get state() { return state; }, get embers() { return embers; },
+  input: inp, reset, run(seconds) { for (let i = 0; i < seconds / STEP; i++) step(STEP); },
+};
+})();
+</script>
+</body>
+</html>
