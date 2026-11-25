@@ -13,6 +13,7 @@ import { Camera, VIEW_H, VIEW_W } from './camera';
 import { type Caster, type Light, LightSheet, shaftPath, shafts } from './lighting';
 import { rimOffset } from './shading';
 import { groundLine, paintBackdrop } from './scene';
+import { paintSky, paintSnow } from './sky';
 import type { Words } from '../campaign';
 import { Hud } from './hud';
 import { text, textWidth } from './text';
@@ -22,7 +23,8 @@ interface Playing { kind: string; x: number; y: number; t: number; flip: boolean
 interface Loop { sheet: string; x: number; y: number; phase: number; front: boolean }
 
 // The hero's strikes last this long (the frames of the animation are spread over them).
-const PUNCH_T = 0.36, KICK_T = 0.42, SHADE_STRIKE_T = 0.16;
+const PUNCH_T = 0.36, KICK_T = 0.42, SWEEP_T = 0.42, SHADE_STRIKE_T = 0.16;
+const FIRE = ['#fff3c4', '#ffc93c', '#ff8a2a', '#e0401c'];
 const MONK_ANCHOR = 40, GHOUL_ANCHOR = 28;
 // The picture closes in on a finishing blow: how far, and when (seconds: in, held until, back out by).
 const ZOOM = 1.5, ZOOM_IN = 0.1, ZOOM_HOLD = 0.42, ZOOM_OUT = 0.7;
@@ -44,6 +46,8 @@ export class Stage {
   private punch: { x: number; y: number; t: number } | null = null;     // where the picture closes in, and since when
   private fell = false;
   private readonly own = new Map<Actor, Light>();       // the light each body carries: it casts no shadow of that body
+  private readonly holes: HTMLCanvasElement | null = null;     // where the wall is open on the sky
+  private readonly skyView: HTMLCanvasElement | null = null;
   private readonly bench = [document.createElement('canvas'), document.createElement('canvas')];     // where a sprite is lit before it is drawn
 
   constructor(private readonly world: World, private readonly assets: Assets, opening: string[], private readonly won: Words) {
@@ -51,6 +55,17 @@ export class Stage {
     this.hud = new Hud(world, opening);
     this.camera = new Camera(level.width, level.height);
     this.backdrop = paintBackdrop(level, assets);
+    if (level.settings.sky) {
+      // What the wall leaves open: everything, less the wall.
+      const holes = document.createElement('canvas');
+      holes.width = level.width; holes.height = level.height;
+      const k = holes.getContext('2d')!;
+      k.fillStyle = '#fff'; k.fillRect(0, 0, holes.width, holes.height);
+      k.globalCompositeOperation = 'destination-out'; k.drawImage(this.backdrop, 0, 0);
+      this.holes = holes;
+      this.skyView = document.createElement('canvas');
+      this.skyView.width = VIEW_W; this.skyView.height = VIEW_H;
+    }
     this.lights = new LightSheet(level);
     this.beams = shafts(level);
     this.ground = groundLine(level.grid);
@@ -81,13 +96,28 @@ export class Stage {
         // A heavy blow throws some of it at the screen; a finishing blow a lot.
         if (e.amount >= 50) this.lens.splash(e.x - this.camera.x, e.y - this.camera.y, e.amount >= 100 ? 9 : 3);
       }
-      else if (e.type === 'finisher') { this.punch = { x: e.x, y: e.y, t: 0 }; this.hud.finisher(); }
+      else if (e.type === 'finisher') {
+        this.punch = { x: e.x, y: e.y, t: 0 }; this.hud.finisher();
+        this.sparks(e.x, e.y, 26, 220);              // its flame bursts out of it
+      }
+      else if (e.type === 'flame') {
+        // The trail of the charge: fire left behind, that rises and goes out.
+        for (let i = 0; i < 6; i++) this.particles.push({ x: e.x - e.dir * Math.random() * 14, y: e.y - 16 + Math.random() * 30, vx: -e.dir * (30 + Math.random() * 130), vy: -10 - Math.random() * 70, life: 0.2 + Math.random() * 0.35, color: FIRE[Math.floor(Math.random() * FIRE.length)], g: -90 });
+      }
       else if (e.type === 'dust') {
         for (let i = 0; i < e.count; i++) this.particles.push({ x: e.x + (Math.random() - 0.5) * 12, y: e.y - 2, vx: (Math.random() - 0.5) * 80, vy: -Math.random() * 50, life: 0.2 + Math.random() * 0.15, color: '#8d7fa8', g: 120 });
       }
     }
     const p = this.world.hero;
     if (this.world.state === 'lost' && !this.fell) { this.fell = true; this.punch = { x: p.x + p.w / 2, y: p.y + 12, t: 0 }; }
+  }
+
+  // Sparks thrown all round a point.
+  private sparks(x: number, y: number, count: number, speed: number): void {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2, v = speed * (0.3 + Math.random() * 0.7);
+      this.particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 40, life: 0.3 + Math.random() * 0.5, color: FIRE[Math.floor(Math.random() * 3)], g: 260 });
+    }
   }
 
   /** Lets the effects, the particles and the camera live for dt seconds. Frozen with the world on a hit. */
@@ -99,6 +129,11 @@ export class Stage {
     this.effects = this.effects.filter(fx => fx.t < effectDuration(fx.kind));
     for (const q of this.particles) { q.life -= dt; q.vy += q.g * dt; q.x += q.vx * dt; q.y += q.vy * dt; }
     this.particles = this.particles.filter(q => q.life > 0);
+    // Each ember that waits throws a spark now and then.
+    for (const m of this.world.embers) {
+      if (m.taken || Math.random() > dt * 2.5) continue;
+      this.particles.push({ x: m.x - 4 + Math.random() * 8, y: m.y - 4, vx: (Math.random() - 0.5) * 16, vy: -18 - Math.random() * 26, life: 0.5 + Math.random() * 0.6, color: FIRE[1 + Math.floor(Math.random() * 2)], g: -14 });
+    }
     const marks = this.blood.update(dt);
     if (marks.length) {
       const k = this.stains.getContext('2d')!;
@@ -145,6 +180,16 @@ export class Stage {
     const moving = this.movingLights();
     this.lights.draw(g, cx, cy, level.settings.darkness, this.restingLights(), moving, t, this.casters(t));
 
+    // The night, where the wall is open: it has its own light, and no shadow falls on it.
+    if (this.holes && this.skyView) {
+      const k = this.skyView.getContext('2d')!;
+      k.globalCompositeOperation = 'source-over';
+      paintSky(k, cx, level.height - VIEW_H - cy, t, level.settings.snow);
+      k.globalCompositeOperation = 'destination-in';
+      k.drawImage(this.holes, -cx, -cy);
+      g.drawImage(this.skyView, 0, 0);
+    }
+
     // What burns or glows is not darkened; the hero takes the light of where he stands.
     g.translate(-cx, -cy);
     this.drawEmbers(g, t);
@@ -160,6 +205,7 @@ export class Stage {
     g.translate(-cx, -cy);
     this.drawAir(g, t);
     g.setTransform(1, 0, 0, 1, 0, 0);
+    if (level.settings.snow) paintSnow(g, cx, cy, t);
     this.closeIn(g, cx, cy);
     this.drawLens(g);
     this.hud.draw(g, t, paused, this.won);
@@ -191,7 +237,8 @@ export class Stage {
     this.own.clear();
     const carry = (a: Actor, l: Light): void => { this.own.set(a, l); out.push(l); };
     // The hero is never quite in the dark: a pale light goes with him.
-    carry(p, { x: p.x + 7, y: p.y + 18, radius: 80, strength: 0.3, flicker: 0, color: [200, 205, 255] });
+    if (p.charge > 0) carry(p, { x: p.x + 7, y: p.y + 18, radius: 170, strength: 1, flicker: 0, color: [255, 160, 70] });
+    else carry(p, { x: p.x + 7, y: p.y + 18, radius: 80, strength: 0.3, flicker: 0, color: [200, 205, 255] });
     for (const f of w.foes) {
       if (f.kind === 'shade' && f.ko <= 0) carry(f, { x: f.x + 7, y: f.y + 18, radius: 78, strength: 0.7, flicker: 0, color: [90, 255, 150] });
       if (f.kind === 'ghoul' && f.dead <= 0) carry(f, { x: f.x + 7, y: f.y + 8, radius: 104, strength: 0.95, flicker: 0, color: [255, 140, 60] });
@@ -314,7 +361,10 @@ export class Stage {
   private monkFrame(a: Actor, t: number): string {
     if (a.dazed > 0) return 'hurt' + (1 + Math.floor(t * 3) % 2);
     if (a.hurtT > 0 || a.stun > 0) return 'hurt' + (1 + Math.floor(t * 10) % 2);
+    if (a.charge > 0) return 'flying-kick' + (1 + Math.floor(t * 20) % 2);
+    if (a.guard || a.guardT > 0) return 'crouch2';
     if (a.attackT > 0) {
+      if (a.attackKind === 'sweep' && !a.attackAir) return 'crouch-kick' + (1 + Math.min(4, Math.floor((1 - a.attackT / SWEEP_T) * 5)));
       if (a.attackAir) return 'flying-kick' + (1 + Math.floor(t * 12) % 2);
       const kick = a.attackKind === 'kick', n = kick ? 5 : 6, total = kick ? KICK_T : PUNCH_T;
       return (kick ? 'kick' : 'punch') + (1 + Math.min(n - 1, Math.floor((1 - a.attackT / total) * n)));
@@ -330,7 +380,8 @@ export class Stage {
 
   private drawMonk(g: CanvasRenderingContext2D, a: Actor, t: number): void {
     if (a.ko > 0) return;
-    if (a.invul > 0 && Math.floor(t * 20) % 2) return;
+    const guarding = a.guard || a.guardT > 0;
+    if (a.invul > 0 && !guarding && a.charge <= 0 && Math.floor(t * 20) % 2) return;
     const shade = a.kind === 'shade';
     const flash = shade ? a.stun > 0.45 : a.hurtT > 0.15;
     const set = shade ? (flash ? 'shadeflash/' : 'shade/') : (flash ? 'monkflash/' : 'monk/');
@@ -338,10 +389,16 @@ export class Stage {
     const cx = a.x + a.w / 2 + (dazed ? Math.round(Math.sin(t * 5) * 2) : 0), feet = a.y + a.h;
     g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(Math.round(cx - 9), Math.round(feet), 18, 2);
     if (shade) this.glow(g, cx, a.y + 16, 36, 'rgba(90,255,150,0.22)');
+    if (a.charge > 0) this.glow(g, cx, a.y + 20, 46, 'rgba(255,150,50,0.55)');
     const frame = this.monkFrame(a, t);
     if (shade || flash) this.sprite(g, set + frame, cx, feet, MONK_ANCHOR, a.facing < 0);
     else this.picture(g, this.litSprite(set + frame, cx, a.y + 18, a.facing < 0, this.own.get(a) ?? null), cx, feet, MONK_ANCHOR, a.facing < 0);
     if (a.gore > 0 && !flash) { g.globalAlpha = Math.min(1, a.gore * 1.2); this.sprite(g, 'gore/' + frame, cx, feet, MONK_ANCHOR, a.facing < 0); g.globalAlpha = 1; }
+    if (guarding) {
+      // The guard: a pale arc in front, brighter for a moment when it has just stopped a blow.
+      g.fillStyle = a.invul > 0 || (shade && a.vx !== 0) ? '#ffffff' : shade ? 'rgba(150,255,190,0.8)' : 'rgba(190,215,255,0.8)';
+      for (let i = -3; i <= 3; i++) g.fillRect(Math.round(cx + a.facing * (15 - Math.abs(i) * 1.5)) - 1, Math.round(a.y + 21 + i * 5), 2, 4);
+    }
     if (dazed) {
       // Sparks turn over its head, and the word that says what to do with it.
       for (let i = 0; i < 3; i++) { const u = t * 6 + i * 2.1; g.fillStyle = i === 1 ? '#ffffff' : '#ffe27a'; g.fillRect(Math.round(cx + Math.cos(u) * 9), Math.round(a.y - 6 + Math.sin(u) * 3), 2, 2); }

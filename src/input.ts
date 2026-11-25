@@ -9,16 +9,17 @@ export interface Frame extends Controls { restartPressed: boolean; musicPressed:
 const KEYS = {
   left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'], up: ['ArrowUp', 'KeyW'], down: ['ArrowDown', 'KeyS'],
   jump: ['Space', 'KeyK'], attack: ['KeyX', 'KeyJ', 'ControlLeft', 'ControlRight'],
+  guard: ['KeyC', 'ShiftLeft', 'ShiftRight', 'KeyL'], special: ['KeyV', 'KeyI'],
   restart: ['KeyR', 'Enter'], music: ['KeyM'], pause: ['KeyP'],
 } as const;
-// Standard gamepad layout: 0 A, 1 B, 2 X, 8 Select, 9 Start, 12-15 the d-pad (up, down, left, right).
+// Standard gamepad layout: 0 A, 1 B, 2 X, 3 Y, 4-7 the shoulders, 8 Select, 9 Start, 12-15 the d-pad (up, down, left, right).
 const STICK = 0.4, STICK_UP = 0.5;
-const PRESSES = ['jump', 'attack', 'restart', 'music', 'pause'] as const;
+const PRESSES = ['jump', 'attack', 'special', 'restart', 'music', 'pause'] as const;
 
 export class Input {
   private readonly keys = new Set<string>();
   private readonly taps = new Set<string>();       // pressed since the last read: a tap shorter than a frame still counts
-  private readonly held: Record<(typeof PRESSES)[number], boolean> = { jump: false, attack: false, restart: false, music: false, pause: false };
+  private readonly held: Record<(typeof PRESSES)[number], boolean> = { jump: false, attack: false, special: false, restart: false, music: false, pause: false };
 
   constructor(target: EventTarget, private readonly pads: () => readonly (PadLike | null)[]) {
     target.addEventListener('keydown', event => {
@@ -34,19 +35,19 @@ export class Input {
   /** The state of the controls now. Call once per frame: presses are reported on the frame they happen. */
   read(): Frame {
     const key = (name: keyof typeof KEYS): boolean => KEYS[name].some(code => this.keys.has(code) || this.taps.has(code));
-    const now = { left: key('left'), right: key('right'), up: key('up'), down: key('down'), jump: key('jump'), attack: key('attack'), restart: key('restart'), music: key('music'), pause: key('pause') };
+    const now = { left: key('left'), right: key('right'), up: key('up'), down: key('down'), jump: key('jump'), attack: key('attack'), guard: key('guard'), special: key('special'), restart: key('restart'), music: key('music'), pause: key('pause') };
     for (const pad of this.pads()) {
       if (!pad || !pad.connected) continue;
       const b = (i: number): boolean => !!pad.buttons[i]?.pressed, ax = pad.axes[0] ?? 0, ay = pad.axes[1] ?? 0;
       now.left ||= ax < -STICK || b(14); now.right ||= ax > STICK || b(15);
       now.up ||= ay < -STICK_UP || b(12); now.down ||= ay > STICK_UP || b(13);
-      now.jump ||= b(0); now.attack ||= b(2) || b(1); now.restart ||= b(9); now.pause ||= b(8);
+      now.jump ||= b(0); now.attack ||= b(2) || b(1); now.special ||= b(3); now.guard ||= b(4) || b(5) || b(6) || b(7); now.restart ||= b(9); now.pause ||= b(8);
     }
     const pressed = (name: (typeof PRESSES)[number]): boolean => { const p = now[name] && !this.held[name]; this.held[name] = now[name]; return p; };
     const frame: Frame = {
       x: ((now.right ? 1 : 0) - (now.left ? 1 : 0)) as -1 | 0 | 1,
       up: now.up, down: now.down, jump: now.jump,
-      jumpPressed: pressed('jump'), attackPressed: pressed('attack'),
+      jumpPressed: pressed('jump'), attackPressed: pressed('attack'), guard: now.guard, specialPressed: pressed('special'),
       restartPressed: pressed('restart'), musicPressed: pressed('music'), pausePressed: pressed('pause'),
       any: Object.values(now).some(Boolean),
     };

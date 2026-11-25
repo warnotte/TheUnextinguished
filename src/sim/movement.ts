@@ -5,8 +5,8 @@ import type { Actor } from './actor';
 import type { Emit } from './events';
 import { type Grid, TILE } from './grid';
 
-export interface Controls { x: -1 | 0 | 1; up: boolean; down: boolean; jump: boolean; jumpPressed: boolean; attackPressed: boolean }
-export const NO_CONTROLS: Controls = { x: 0, up: false, down: false, jump: false, jumpPressed: false, attackPressed: false };
+export interface Controls { x: -1 | 0 | 1; up: boolean; down: boolean; jump: boolean; jumpPressed: boolean; attackPressed: boolean; guard: boolean; specialPressed: boolean }
+export const NO_CONTROLS: Controls = { x: 0, up: false, down: false, jump: false, jumpPressed: false, attackPressed: false, guard: false, specialPressed: false };
 
 export const TUNING = {
   run: 165, acc: 2000, airAcc: 1300, friction: 2400,

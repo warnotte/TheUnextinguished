@@ -244,6 +244,21 @@
           this.hiss("lowpass", 90, 240, { dur: 1, vol: 0.5, hall: 0.5 });
           [293.7, 440, 587.3, 880].forEach((f, i) => this.bell(f, 0.15 + i * 0.11, 0.13));
           break;
+        case "block":
+          this.tone("triangle", 540, 300, { dur: 0.07, vol: 0.4, hall: 0.3 });
+          this.hiss("highpass", 3e3, 2400, { dur: 0.04, vol: 0.34, hall: 0.35 });
+          this.tone("sine", 120, 70, { dur: 0.09, vol: 0.4, hall: 0.1 });
+          break;
+        case "charge":
+          this.duck(0.3);
+          this.hiss("bandpass", 300, 2600, { dur: 0.36, vol: 0.5, hall: 0.35 }, 1.2);
+          this.tone("sawtooth", 90, 280, { dur: 0.3, vol: 0.2, hall: 0.25 });
+          this.tone("sine", 60, 150, { dur: 0.34, vol: 0.5, hall: 0.1 });
+          this.bell(1318, 0.02, 0.06);
+          break;
+        case "empty":
+          this.tone("square", 110, 78, { dur: 0.08, vol: 0.16, hall: 0.1 });
+          break;
         case "daze":
           this.duck(0.5);
           this.tone("triangle", 880, 420, { dur: 0.55, vol: 0.2, hall: 0.5 }, 13);
@@ -302,6 +317,8 @@
     down: ["ArrowDown", "KeyS"],
     jump: ["Space", "KeyK"],
     attack: ["KeyX", "KeyJ", "ControlLeft", "ControlRight"],
+    guard: ["KeyC", "ShiftLeft", "ShiftRight", "KeyL"],
+    special: ["KeyV", "KeyI"],
     restart: ["KeyR", "Enter"],
     music: ["KeyM"],
     pause: ["KeyP"]
@@ -329,11 +346,11 @@
     keys = /* @__PURE__ */ new Set();
     taps = /* @__PURE__ */ new Set();
     // pressed since the last read: a tap shorter than a frame still counts
-    held = { jump: false, attack: false, restart: false, music: false, pause: false };
+    held = { jump: false, attack: false, special: false, restart: false, music: false, pause: false };
     /** The state of the controls now. Call once per frame: presses are reported on the frame they happen. */
     read() {
       const key = (name) => KEYS[name].some((code) => this.keys.has(code) || this.taps.has(code));
-      const now = { left: key("left"), right: key("right"), up: key("up"), down: key("down"), jump: key("jump"), attack: key("attack"), restart: key("restart"), music: key("music"), pause: key("pause") };
+      const now = { left: key("left"), right: key("right"), up: key("up"), down: key("down"), jump: key("jump"), attack: key("attack"), guard: key("guard"), special: key("special"), restart: key("restart"), music: key("music"), pause: key("pause") };
       for (const pad of this.pads()) {
         if (!pad || !pad.connected) continue;
         const b = (i) => !!pad.buttons[i]?.pressed, ax = pad.axes[0] ?? 0, ay = pad.axes[1] ?? 0;
@@ -343,6 +360,8 @@
         now.down ||= ay > STICK_UP || b(13);
         now.jump ||= b(0);
         now.attack ||= b(2) || b(1);
+        now.special ||= b(3);
+        now.guard ||= b(4) || b(5) || b(6) || b(7);
         now.restart ||= b(9);
         now.pause ||= b(8);
       }
@@ -358,6 +377,8 @@
         jump: now.jump,
         jumpPressed: pressed("jump"),
         attackPressed: pressed("attack"),
+        guard: now.guard,
+        specialPressed: pressed("special"),
         restartPressed: pressed("restart"),
         musicPressed: pressed("music"),
         pausePressed: pressed("pause"),
@@ -385,6 +406,8 @@
     pillar: { role: "decor", plane: "wall", image: "column", src: [0, 0, 114, 190], anchor: [57, 190], lights: [lantern(-19), lantern(36)], shaft: false },
     balustrade: { role: "decor", plane: "wall", image: "tiles", src: [192, 92, 80, 52], anchor: [40, 52], lights: [{ dx: 31, dy: -46, radius: 38, strength: 0.6, flicker: 0.5, color: CANDLE }], shaft: false },
     torch: { role: "decor", plane: "back", sheet: "torch", lights: [{ dx: 0, dy: -26, radius: 150, strength: 1, flicker: 1, color: FIRE }] },
+    // An opening in the wall, on the sky: its foot on (x, y), `width` and `height` in its properties. The moon comes in.
+    arch: { role: "decor", plane: "wall", painter: "arch", lights: [{ dx: 0, dy: -40, radius: 96, strength: 0.6, flicker: 0, color: MOON }] },
     "chain-lantern": { role: "decor", plane: "wall", painter: "chain-lantern", lights: [{ dx: 0, dy: 6, radius: 62, strength: 0.8, flicker: 0.6, color: CANDLE }] }
   };
   var KIND_NAMES = new Set(Object.keys(KINDS));
@@ -418,7 +441,14 @@
     "flying-kick1",
     "flying-kick2",
     "hurt1",
-    "hurt2"
+    "hurt2",
+    "crouch1",
+    "crouch2",
+    "crouch-kick1",
+    "crouch-kick2",
+    "crouch-kick3",
+    "crouch-kick4",
+    "crouch-kick5"
   ];
   var range = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
   var IMAGES = {
@@ -565,7 +595,9 @@
       darkness: typeof p.darkness === "number" ? p.darkness : 0.5,
       music: typeof p.music === "string" ? p.music : "",
       mist: p.mist === true,
-      bats: typeof p.bats === "number" ? p.bats : 0
+      bats: typeof p.bats === "number" ? p.bats : 0,
+      sky: p.sky === true,
+      snow: p.snow === true
     };
     return { grid: new Grid(map.width, map.height, cells), objects, settings, width: map.width * TILE, height: map.height * TILE };
   }
@@ -655,6 +687,14 @@
       climbDir: 1,
       dead: 0,
       strikeBuffer: 0,
+      guard: false,
+      guardT: 0,
+      guardCool: 0,
+      chain: 0,
+      charge: 0,
+      motion: 0,
+      motionT: 0,
+      motionDir: 1,
       dazed: 0,
       gore: 0,
       bleed: 0,
@@ -664,7 +704,7 @@
   }
 
   // src/sim/movement.ts
-  var NO_CONTROLS = { x: 0, up: false, down: false, jump: false, jumpPressed: false, attackPressed: false };
+  var NO_CONTROLS = { x: 0, up: false, down: false, jump: false, jumpPressed: false, attackPressed: false, guard: false, specialPressed: false };
   var TUNING = {
     run: 165,
     acc: 2e3,
@@ -845,14 +885,19 @@
   var SHADE_WINDUP = 0.3;
   var SHADE_STRIKE = 0.16;
   var SHADE_REACH = 32;
+  var SHADE_AGAIN = 0.16;
+  var SHADE_GUARD = 0.5;
+  var SHADE_GUARD_REST = 2.4;
+  var SHADE_GUARD_RANGE = 70;
   var AT_LADDER = 6;
   var STRIKE_RANGE = 34;
   var STRIKE_HEIGHT = 24;
+  var STAND_OFF = 20;
   var LOOK_AHEAD2 = 10;
   var JUMPABLE = 5;
   function thinkShade(e, hero, grid, playing) {
-    if (e.stun > 0 || e.ko > 0 || e.dazed > 0 || e.windup > 0 || e.strike > 0 || e.recover > 0 || !playing) return NO_CONTROLS;
-    const out = { x: 0, up: false, down: false, jump: true, jumpPressed: false, attackPressed: false };
+    if (e.stun > 0 || e.ko > 0 || e.dazed > 0 || e.guardT > 0 || e.windup > 0 || e.strike > 0 || e.recover > 0 || !playing) return NO_CONTROLS;
+    const out = { ...NO_CONTROLS, jump: true };
     const ecx = e.x + e.w / 2, pcx = hero.x + hero.w / 2;
     if (e.climbing) {
       const goal = hero.lastFloor * TILE, feet = e.y + e.h;
@@ -892,9 +937,11 @@
       if (d !== 0) e.facing = d > 0 ? 1 : -1;
       e.windup = SHADE_WINDUP;
       e.vx = 0;
+      e.chain = 0;
       return out;
     }
-    if (Math.abs(d) > 4) out.x = d > 0 ? 1 : -1;
+    if (Math.abs(d) > (via ? 4 : STAND_OFF)) out.x = d > 0 ? 1 : -1;
+    else if (!via && d !== 0) e.facing = d > 0 ? 1 : -1;
     if (out.x) {
       e.facing = out.x;
       const ahead = Math.floor((ecx + out.x * LOOK_AHEAD2) / TILE);
@@ -918,21 +965,30 @@
   var EMBER_REACH = 8;
   var EMBER_BURST_DROP = 30;
   var COMBO_WINDOW = 0.45;
+  var CHAIN = { punch: "kick", kick: "sweep", sweep: "punch" };
+  var LUNGE = 300;
   var START_GRACE = 1.5;
   var STRIKE_BUFFER = 0.16;
   var BLOOD = { light: 30, heavy: 55, hurt: 36, finish: 140, back: 80, trickle: 3 };
   var BLEEDING = { light: 0.3, heavy: 0.8, hurt: 0.4 };
   var TRICKLE_EVERY = 0.06;
   var FINISH_CHUNKS = 14;
-  var HIT = { light: 1, heavy: 2, shade: 2, ghoul: 1 };
+  var HIT = { shade: 2, ghoul: 1 };
   var DAZE = 3;
   var DAZED_BACK_HP = 2;
   var SLOW = 0.35;
   var STRIKES = {
-    punch: { time: 0.36, from: 0.07, to: 0.26, reach: 36, top: 6, height: 20, heavy: false },
-    kick: { time: 0.42, from: 0.1, to: 0.3, reach: 34, top: -4, height: 34, heavy: true },
-    flying: { time: 0.5, from: 0.04, to: 9, reach: 26, top: 14, height: 22, heavy: true }
+    punch: { time: 0.36, from: 0.07, to: 0.26, reach: 36, top: 6, height: 20, damage: 1, heavy: false, launch: false, pierce: false, blood: 30 },
+    kick: { time: 0.42, from: 0.1, to: 0.3, reach: 34, top: -4, height: 34, damage: 2, heavy: true, launch: false, pierce: false, blood: 55 },
+    sweep: { time: 0.42, from: 0.12, to: 0.3, reach: 38, top: 14, height: 26, damage: 2, heavy: true, launch: true, pierce: false, blood: 80 },
+    flying: { time: 0.5, from: 0.04, to: 9, reach: 26, top: 14, height: 22, damage: 2, heavy: true, launch: true, pierce: true, blood: 55 }
   };
+  var CHARGE = { time: 0.3, speed: 540, reach: 10, trail: 0.02, after: 140 };
+  var CHARGE_BLOW = { damage: 3, heavy: true, launch: true, pierce: true, blood: 90 };
+  var MOTION = 0.35;
+  var GUARD_PUSH = 150;
+  var GUARD_SAFE = 0.3;
+  var KNOCK = { near: { vx: 110, vy: 120, stun: 0.6 }, far: { vx: 350, vy: 300, stun: 1 } };
   var overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   var World = class {
     constructor(level) {
@@ -955,6 +1011,7 @@
       }
       if (!hero) throw new Error(`level "${level.settings.name}" has no hero`);
       this.hero = hero;
+      this.wasOpen = this.doorOpen;
     }
     level;
     grid;
@@ -971,12 +1028,22 @@
     events = [];
     doorChime = -1;
     // seconds until the door is heard opening, -1 when not waiting
+    wasOpen = false;
+    spare = 0;
+    // embers won from the foes, less those spent on charges
+    charged = /* @__PURE__ */ new Set();
+    // whom the charge in flight has already struck
+    trail = 0;
     emit = (event) => {
       this.events.push(event);
     };
-    /** Every ember taken. A level without embers has its door open from the start. */
+    /** The embers the hero has in hand: those he took and those he won, less those he spent. */
+    get carried() {
+      return this.embers.reduce((n, m) => n + (m.taken ? 1 : 0), 0) + this.spare;
+    }
+    /** As many embers in hand as the level holds. A level without embers has its door open from the start. */
     get doorOpen() {
-      return this.embers.every((m) => m.taken);
+      return this.carried >= this.embers.length;
     }
     /** Advances by one STEP and returns what happened since the last call. */
     step(controls) {
@@ -998,7 +1065,16 @@
     /** The hero takes a blow coming from the given side. */
     hurtHero(dir, damage = HIT.shade) {
       const p = this.hero;
-      if (this.state !== "play") return;
+      if (this.state !== "play" || p.charge > 0) return;
+      if (p.guard && dir === -p.facing) {
+        p.invul = GUARD_SAFE;
+        p.vx = dir * GUARD_PUSH;
+        this.hitStop = 0.05;
+        this.emit({ type: "effect", kind: "hit-spark", x: p.x + p.w / 2 - dir * 8, y: p.y + p.h, flip: dir > 0 });
+        this.emit({ type: "sound", name: "block" });
+        return;
+      }
+      p.guard = false;
       p.hp = Math.max(0, p.hp - damage);
       p.invul = 1.2;
       p.hurtT = 0.3;
@@ -1030,28 +1106,104 @@
       p.hurtT = Math.max(0, p.hurtT - STEP);
       if (p.attackT <= 0) p.sinceAttack += STEP;
       this.trickle(p);
+      if (p.charge > 0) {
+        this.stepCharge(p);
+        return;
+      }
+      p.motionT = Math.max(0, p.motionT - STEP);
+      if (p.motionT <= 0) p.motion = 0;
+      if (c.down && !c.x) {
+        p.motion = 1;
+        p.motionT = MOTION;
+      } else if (p.motion === 1 && c.x) {
+        p.motion = 2;
+        p.motionDir = c.x;
+        p.motionT = MOTION;
+      }
+      const byMotion = c.attackPressed && p.motion === 2;
+      if ((c.specialPressed || byMotion) && !p.climbing && p.hurtT <= 0) {
+        p.motion = 0;
+        if (this.carried > 0) {
+          this.spare--;
+          p.charge = CHARGE.time;
+          p.facing = byMotion ? p.motionDir : c.x || p.facing;
+          p.attackT = 0;
+          p.strikeBuffer = 0;
+          p.guard = false;
+          this.charged.clear();
+          this.trail = 0;
+          this.emit({ type: "sound", name: "charge" });
+          this.stepCharge(p);
+          return;
+        }
+        this.emit({ type: "sound", name: "empty" });
+      }
+      p.guard = (c.guard || c.down && !c.x) && p.onGround && !p.climbing && p.attackT <= 0 && p.hurtT <= 0;
+      if (p.guard && c.x) p.facing = c.x;
       p.strikeBuffer = c.attackPressed ? STRIKE_BUFFER : Math.max(0, p.strikeBuffer - STEP);
       if (p.strikeBuffer > 0 && p.attackT <= 0 && !p.climbing && p.hurtT <= 0) {
         p.strikeBuffer = 0;
+        p.guard = false;
         p.attackAir = !p.onGround;
-        p.attackKind = !p.attackAir && p.attackKind === "punch" && p.sinceAttack < COMBO_WINDOW ? "kick" : "punch";
+        p.attackKind = !p.attackAir && p.sinceAttack < COMBO_WINDOW ? CHAIN[p.attackKind] : "punch";
         p.attackT = this.strikeOf(p).time;
         p.attackHit = false;
         p.sinceAttack = 0;
+        if (!p.attackAir) {
+          if (p.attackKind !== "punch" && !this.foes.some((f) => f.ko <= 0 && f.dead <= 0 && overlap(this.reach(p), f))) p.vx = p.facing * LUNGE;
+          this.warn(p);
+        }
         this.emit({ type: "sound", name: "swing" });
       }
-      control(p, c, this.grid, STEP, 1, this.emit);
+      control(p, p.guard ? { ...c, x: 0 } : c, this.grid, STEP, 1, this.emit);
+      if (p.climbing) p.guard = false;
       move(p, this.grid, STEP, this.emit);
       if (p.onGround && p.attackAir && p.attackT > 0) p.attackT = 0;
       if (p.attackT > 0 && !p.attackHit) {
         const s = this.strikeOf(p), since = s.time - p.attackT;
         if (since > s.from && since < s.to) {
-          const box = { x: p.facing > 0 ? p.x + p.w : p.x - s.reach, y: p.y + s.top, w: s.reach, h: s.height };
+          const box = this.reach(p);
           const foe = this.foes.find((f) => this.canBeHit(f) && overlap(box, f));
-          if (foe) this.strikeFoe(foe, p.attackAir, p.facing, s.heavy);
+          if (foe) this.strikeFoe(foe, p.facing, s);
         }
       }
       if (Math.abs(p.vx) > 12 && p.onGround) p.animT += STEP;
+    }
+    // The flaming charge: straight ahead, over the gaps, through whoever stands there, until stone or its end.
+    stepCharge(p) {
+      p.charge = Math.max(0, p.charge - STEP);
+      p.vx = p.facing * CHARGE.speed;
+      p.vy = 0;
+      move(p, this.grid, STEP, this.emit);
+      this.trail -= STEP;
+      if (this.trail <= 0) {
+        this.trail = CHARGE.trail;
+        this.emit({ type: "flame", x: p.x + p.w / 2, y: p.y + 20, dir: p.facing });
+      }
+      const box = { x: p.facing > 0 ? p.x : p.x - CHARGE.reach, y: p.y, w: p.w + CHARGE.reach, h: p.h };
+      for (const foe of this.foes) {
+        if (this.charged.has(foe) || foe.ko > 0 || foe.dead > 0 || !overlap(box, foe)) continue;
+        this.charged.add(foe);
+        this.strikeFoe(foe, p.facing, CHARGE_BLOW);
+      }
+      if (p.blocked) p.charge = 0;
+      if (p.charge <= 0) {
+        p.vx = p.facing * CHARGE.after;
+        p.invul = Math.max(p.invul, 0.25);
+      }
+    }
+    // A shade that stands ready, in front of the hero and close, raises its guard when he strikes.
+    warn(p) {
+      for (const e of this.foes) {
+        if (e.kind !== "shade" || e.guardCool > 0 || e.cool > 0 || e.stun > 0 || e.ko > 0 || e.dazed > 0) continue;
+        if (e.windup > 0 || e.strike > 0 || e.recover > 0 || e.climbing || !e.onGround) continue;
+        const d = e.x - p.x;
+        if (d * p.facing <= 0 || Math.abs(d) > SHADE_GUARD_RANGE || Math.abs(e.y - p.y) > 24) continue;
+        e.guardT = SHADE_GUARD;
+        e.guardCool = SHADE_GUARD_REST;
+        e.facing = p.facing > 0 ? -1 : 1;
+        e.vx = 0;
+      }
     }
     // Blood leaves an actor at chest height, the way the blow went.
     bleed(a, dir, amount, chunks) {
@@ -1067,15 +1219,21 @@
         this.bleed(a, a.bleedDir, BLOOD.trickle, 0);
       }
     }
+    // Where the strike in hand can land.
+    reach(p) {
+      const s = this.strikeOf(p);
+      const half = p.w / 2;
+      return { x: p.facing > 0 ? p.x + half : p.x - s.reach, y: p.y + s.top, w: s.reach + half, h: s.height };
+    }
     strikeOf(p) {
       return STRIKES[p.attackAir ? "flying" : p.attackKind];
     }
     canBeHit(f) {
       return f.ko <= 0 && f.dead <= 0 && f.invul <= 0;
     }
-    strikeFoe(e, air, dir, heavy) {
+    strikeFoe(e, dir, blow) {
       this.hero.attackHit = true;
-      const x = e.x + e.w / 2, y = e.y + e.h;
+      const x = e.x + e.w / 2, y = e.y + e.h, heavy = blow.heavy;
       if (e.kind === "ghoul") {
         e.dead = 6;
         e.vx = 0;
@@ -1086,22 +1244,33 @@
         return;
       }
       const wasDazed = e.dazed > 0;
+      if (e.guardT > 0 && !blow.pierce && !wasDazed && dir === -e.facing) {
+        e.vx = dir * 90;
+        e.cool = Math.max(e.cool, SHADE_GUARD);
+        this.hitStop = 0.04;
+        this.emit({ type: "effect", kind: "hit-spark", x: x - dir * 8, y, flip: dir < 0 });
+        this.emit({ type: "sound", name: "block" });
+        return;
+      }
       e.windup = 0;
       e.strike = 0;
       e.recover = 0;
       e.climbing = false;
       e.cool = 0.9;
+      e.guardT = 0;
+      e.chain = 0;
       if (!wasDazed) {
-        e.hp = Math.max(0, e.hp - (heavy ? HIT.heavy : HIT.light));
-        e.vx = dir * (air ? 350 : 230);
-        e.vy = -(air ? 300 : 190);
+        const k = blow.launch ? KNOCK.far : KNOCK.near;
+        e.hp = Math.max(0, e.hp - blow.damage);
+        e.vx = dir * k.vx;
+        e.vy = -k.vy;
         e.onGround = false;
-        e.stun = air ? 1 : 0.6;
+        e.stun = k.stun;
       } else e.vx = 0;
       this.hitStop = heavy ? 0.1 : 0.06;
       this.shake = heavy ? 0.2 : 0.14;
       this.emit({ type: "effect", kind: heavy ? "crit-hit" : "hit-spark", x: x - dir * 4, y, flip: dir < 0 });
-      this.bleed(e, dir, heavy ? BLOOD.heavy : BLOOD.light, 0);
+      this.bleed(e, dir, blow.blood, 0);
       e.bleed = heavy ? BLEEDING.heavy : BLEEDING.light;
       e.bleedDir = dir;
       e.gore = Math.min(1, e.gore + (heavy ? 0.3 : 0.18));
@@ -1118,6 +1287,8 @@
         this.shake = 0.45;
         this.slow = SLOW;
         this.emit({ type: "effect", kind: "poof-green", x, y, flip: false });
+        this.spare++;
+        this.emit({ type: "effect", kind: "collect-burst", x, y: e.y + 12 + EMBER_BURST_DROP, flip: false });
         this.emit({ type: "finisher", x, y: e.y + 12 });
         this.emit({ type: "sound", name: "finish" });
       } else if (!wasDazed && e.hp <= 0) {
@@ -1133,6 +1304,8 @@
         if (playing && e.dead <= 0 && e.invul <= 0 && p.invul <= 0 && overlap(e, p)) this.hurtHero(p.x + p.w / 2 >= e.x + e.w / 2 ? 1 : -1, HIT.ghoul);
         return;
       }
+      e.guardT = Math.max(0, e.guardT - STEP);
+      e.guardCool = Math.max(0, e.guardCool - STEP);
       e.stun = Math.max(0, e.stun - STEP);
       e.cool = Math.max(0, e.cool - STEP);
       e.invul = Math.max(0, e.invul - STEP);
@@ -1172,8 +1345,15 @@
           this.hurtHero(e.facing);
         }
         if (e.strike <= 0) {
-          e.cool = 0.8;
-          e.recover = 0.14;
+          const near = playing && Math.abs(p.x - e.x) < SHADE_REACH + 14 && Math.abs(p.y - e.y) < 24;
+          if (e.chain === 0 && near) {
+            e.chain = 1;
+            e.windup = SHADE_AGAIN;
+          } else {
+            e.chain = 0;
+            e.cool = 0.8;
+            e.recover = 0.14;
+          }
         }
       }
       if (Math.abs(e.vx) > 12 && e.onGround) e.animT += STEP;
@@ -1185,8 +1365,10 @@
         m.taken = true;
         this.emit({ type: "effect", kind: "collect-burst", x: m.x, y: m.y + EMBER_BURST_DROP, flip: false });
         this.emit({ type: "sound", name: "ember" });
-        if (this.doorOpen && this.door) this.doorChime = 0.15;
       }
+      const open = this.doorOpen;
+      if (open && !this.wasOpen && this.door) this.doorChime = 0.15;
+      this.wasOpen = open;
       if (this.doorChime >= 0) {
         this.doorChime -= STEP;
         if (this.doorChime < 0) this.emit({ type: "sound", name: "door" });
@@ -1877,6 +2059,28 @@
     r(x, y + 4, 2, 3, "#ffe27a");
     r(x - 3, y + 10, 8, 2, "#2e2a44");
   }
+  function paintArch(b, o) {
+    const w = Number(o.props.width ?? 80), h = Number(o.props.height ?? 88), rad = w / 2, top = o.y - h;
+    const rows = (grow, color) => {
+      b.fillStyle = color;
+      for (let y = top - grow; y < o.y; y++) {
+        const up = top + rad - y, half = up <= 0 ? rad + grow : Math.sqrt(Math.max(0, (rad + grow) * (rad + grow) - up * up));
+        b.fillRect(Math.round(o.x - half), y, Math.round(half * 2), 1);
+      }
+    };
+    rows(6, "#221f36");
+    rows(5, "#7468a0");
+    rows(3, "#4a416e");
+    rows(1, "#1a1730");
+    b.save();
+    b.globalCompositeOperation = "destination-out";
+    rows(0, "#000");
+    b.restore();
+    b.fillStyle = "#7468a0";
+    b.fillRect(o.x - rad - 8, o.y - 3, w + 16, 3);
+    b.fillStyle = "#2c2646";
+    b.fillRect(o.x - rad - 8, o.y, w + 16, 2);
+  }
   function paintBackdrop(level, assets) {
     const { grid } = level, W = level.width, H = level.height;
     const canvas2 = document.createElement("canvas");
@@ -1924,7 +2128,7 @@
         if ("image" in kind) {
           const [sx, sy, sw, sh] = kind.src;
           b.drawImage(assets.image(kind.image), sx, sy, sw, sh, o.x - kind.anchor[0], o.y - kind.anchor[1], sw, sh);
-        } else if ("painter" in kind) paintChainLantern(b, o);
+        } else if ("painter" in kind) (kind.painter === "arch" ? paintArch : paintChainLantern)(b, o);
       }
     };
     decor("wall");
@@ -1973,6 +2177,104 @@
       }
     }
     return canvas2;
+  }
+
+  // src/render/sky.ts
+  var hash2 = (a, b) => {
+    const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+    return s - Math.floor(s);
+  };
+  var mod = (v, m) => (v % m + m) % m;
+  var DEPTH = { stars: 0.02, moon: 0.04, clouds: 0.08, mountains: 0.12, town: 0.3, snow: 0.5 };
+  var RISE = 0.4;
+  function planeShift(depth, camX, rise) {
+    return [-camX * depth, rise * depth * RISE];
+  }
+  var ridge = (u) => 26 * Math.sin(u * 0.011) + 15 * Math.sin(u * 0.029 + 1.7) + 7 * Math.sin(u * 0.067 + 0.4);
+  function paintSky(k, camX, rise, t, snow) {
+    const r = (x, y, w, h, color) => {
+      k.fillStyle = color;
+      k.fillRect(Math.round(x), Math.round(y), w, h);
+    };
+    const sky = k.createLinearGradient(0, 0, 0, VIEW_H);
+    sky.addColorStop(0, "#070a20");
+    sky.addColorStop(0.5, "#182058");
+    sky.addColorStop(1, "#4c3684");
+    k.fillStyle = sky;
+    k.fillRect(0, 0, VIEW_W, VIEW_H);
+    const [sx, sy] = planeShift(DEPTH.stars, camX, rise);
+    for (let i = 0; i < 150; i++) {
+      const x = mod(hash2(i, 1) * (VIEW_W + 40) + sx, VIEW_W + 40) - 20, y = hash2(i, 2) * 300 + sy;
+      const twinkle = 0.45 + 0.55 * Math.sin(t * (1 + hash2(i, 3) * 2.5) + i);
+      r(x, y, hash2(i, 4) > 0.88 ? 2 : 1, 1, `rgba(220,230,255,${(0.35 + 0.65 * twinkle * hash2(i, 5)).toFixed(3)})`);
+    }
+    const [mx, my] = planeShift(DEPTH.moon, camX, rise);
+    const moonX = 455 + mx, moonY = 70 + my;
+    const halo = k.createRadialGradient(moonX, moonY, 10, moonX, moonY, 120);
+    halo.addColorStop(0, "rgba(170,190,255,0.38)");
+    halo.addColorStop(1, "rgba(170,190,255,0)");
+    k.fillStyle = halo;
+    k.fillRect(moonX - 120, moonY - 120, 240, 240);
+    for (let dy = -25; dy <= 25; dy++) {
+      const half = Math.round(Math.sqrt(625 - dy * dy));
+      r(moonX - half, moonY + dy, half * 2, 1, "#e9edff");
+    }
+    for (const [cx2, cy2, cr] of [[-8, -6, 6], [9, 4, 4], [-2, 12, 5], [11, -12, 3]]) {
+      for (let dy = -cr; dy <= cr; dy++) {
+        const half = Math.round(Math.sqrt(cr * cr - dy * dy));
+        r(moonX + cx2 - half, moonY + cy2 + dy, half * 2, 1, "#c3cbee");
+      }
+    }
+    const [cx, cy] = planeShift(DEPTH.clouds, camX, rise);
+    for (let i = 0; i < 7; i++) {
+      const w = 70 + hash2(i, 60) * 90, x = mod(hash2(i, 61) * (VIEW_W + 300) + t * (3 + hash2(i, 62) * 4) + cx, VIEW_W + 300) - 150, y = 40 + hash2(i, 63) * 150 + cy;
+      for (let j = 0; j < 5; j++) {
+        const part = w * (0.35 + hash2(i * 5 + j, 64) * 0.4), px = x + (j - 2) * w * 0.2, py = y + (hash2(i * 5 + j, 65) - 0.5) * 8;
+        r(px - part / 2, py, Math.round(part), 6, "#262e6a");
+        r(px - part / 2 + 3, py - 2, Math.round(part) - 6, 2, "#4a56a0");
+      }
+    }
+    const [hx, hy] = planeShift(DEPTH.mountains, camX, rise);
+    for (let x = 0; x < VIEW_W; x += 2) {
+      const top = 170 + hy - ridge(x - hx);
+      r(x, top, 2, VIEW_H - top + 1, "#181d4c");
+      r(x, top, 2, ridge(x - hx) > 18 ? 5 : 2, ridge(x - hx) > 18 ? "#8f9bd8" : "#2b3472");
+    }
+    const [tx, ty] = planeShift(DEPTH.town, camX, rise);
+    const BLOCK = 30, ground = 262 + ty;
+    for (let b = Math.floor(-tx / BLOCK) - 1; b * BLOCK + tx < VIEW_W; b++) {
+      const x = b * BLOCK + tx, tall = hash2(b, 7) > 0.84, w = tall ? 14 : 20 + Math.floor(hash2(b, 8) * 10), h = tall ? 70 + hash2(b, 9) * 40 : 26 + hash2(b, 9) * 30;
+      const left = x + (BLOCK - w) / 2, top = ground - h, roof = tall ? 34 : 9 + Math.floor(hash2(b, 10) * 8);
+      r(left, top, w, VIEW_H - top, "#0c0e2a");
+      for (let i = 0; i < roof; i++) {
+        const half = (w / 2 + 2) * (1 - i / roof);
+        r(left + w / 2 - half, top - i, Math.max(1, Math.round(half * 2)), 1, "#0c0e2a");
+        r(left + w / 2 - half, top - i, 2, 1, "#aab4e6");
+      }
+      r(left - 2, top, w + 4, 1, "#aab4e6");
+      for (let i = 0; i < 3; i++) if (hash2(b * 3 + i, 11) > 0.55) r(left + 3 + i * 6, top + 8 + Math.floor(hash2(b, 12 + i) * (h - 20)), 2, 3, hash2(b, 20 + i) > 0.5 ? "#ffc56a" : "#ff9a4a");
+    }
+    r(0, ground, VIEW_W, VIEW_H - ground + 1, "#0c0e2a");
+    if (snow) {
+      const [fx, fy] = planeShift(DEPTH.snow, camX, rise);
+      for (let i = 0; i < 70; i++) {
+        const x = mod(hash2(i, 30) * VIEW_W + t * (9 + hash2(i, 31) * 9) + 6 * Math.sin(t * 0.6 + i) + fx, VIEW_W);
+        const y = mod(hash2(i, 32) * VIEW_H + t * (16 + hash2(i, 33) * 12) + fy, VIEW_H);
+        r(x, y, 1, 1, "rgba(200,210,245,0.55)");
+      }
+    }
+  }
+  function paintSnow(g2, camX, camY, t) {
+    const depths = [0.7, 1, 1.5];
+    depths.forEach((d, layer) => {
+      for (let i = 0; i < 46; i++) {
+        const x = mod(hash2(i, 40 + layer) * (VIEW_W + 40) + t * 22 * d + 9 * Math.sin(t * 0.9 + i * 1.3) - camX * d * 0.7, VIEW_W + 40) - 20;
+        const y = mod(hash2(i, 50 + layer) * VIEW_H + t * 38 * d - camY * d * 0.7, VIEW_H);
+        const size = layer === 2 ? 2 : 1;
+        g2.fillStyle = `rgba(232,238,255,${(0.35 + layer * 0.22).toFixed(2)})`;
+        g2.fillRect(Math.round(x), Math.round(y), size, size);
+      }
+    });
   }
 
   // src/render/text.ts
@@ -2119,7 +2421,7 @@
         const label = dazed ? "DAZED" : "SHADE";
         text(g2, label, VIEW_W - MARGIN2 - textWidth(label), BAR_Y + BAR_H + 5, dazed && Math.floor(t * 6) % 2 ? "#ff5a3a" : "#e2d8f0");
       }
-      const got = w.embers.filter((m) => m.taken).length;
+      const got = w.carried;
       if (w.embers.length) centered(g2, `EMBERS ${got}/${w.embers.length}`, VIEW_H - 20, w.doorOpen ? "#ffe27a" : "#e2d8f0");
       const s = Math.floor(w.clock), clock = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
       text(g2, clock, VIEW_W - MARGIN2 - textWidth(clock), VIEW_H - 20, "#e2d8f0");
@@ -2148,14 +2450,16 @@
   // src/render/frame.ts
   var PUNCH_T = 0.36;
   var KICK_T = 0.42;
+  var SWEEP_T = 0.42;
   var SHADE_STRIKE_T = 0.16;
+  var FIRE2 = ["#fff3c4", "#ffc93c", "#ff8a2a", "#e0401c"];
   var MONK_ANCHOR = 40;
   var GHOUL_ANCHOR = 28;
   var ZOOM = 1.5;
   var ZOOM_IN = 0.1;
   var ZOOM_HOLD = 0.42;
   var ZOOM_OUT = 0.7;
-  var hash2 = (a, b) => {
+  var hash3 = (a, b) => {
     const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
     return s - Math.floor(s);
   };
@@ -2169,6 +2473,20 @@
       this.hud = new Hud(world, opening);
       this.camera = new Camera(level.width, level.height);
       this.backdrop = paintBackdrop(level, assets);
+      if (level.settings.sky) {
+        const holes = document.createElement("canvas");
+        holes.width = level.width;
+        holes.height = level.height;
+        const k = holes.getContext("2d");
+        k.fillStyle = "#fff";
+        k.fillRect(0, 0, holes.width, holes.height);
+        k.globalCompositeOperation = "destination-out";
+        k.drawImage(this.backdrop, 0, 0);
+        this.holes = holes;
+        this.skyView = document.createElement("canvas");
+        this.skyView.width = VIEW_W;
+        this.skyView.height = VIEW_H;
+      }
       this.lights = new LightSheet(level);
       this.beams = shafts(level);
       this.ground = groundLine(level.grid);
@@ -2205,6 +2523,9 @@
     fell = false;
     own = /* @__PURE__ */ new Map();
     // the light each body carries: it casts no shadow of that body
+    holes = null;
+    // where the wall is open on the sky
+    skyView = null;
     bench = [document.createElement("canvas"), document.createElement("canvas")];
     // Where the camera looks: the hero, at chest height; a jump does not lift it, a fall takes it down.
     focus() {
@@ -2223,6 +2544,9 @@
         } else if (e.type === "finisher") {
           this.punch = { x: e.x, y: e.y, t: 0 };
           this.hud.finisher();
+          this.sparks(e.x, e.y, 26, 220);
+        } else if (e.type === "flame") {
+          for (let i = 0; i < 6; i++) this.particles.push({ x: e.x - e.dir * Math.random() * 14, y: e.y - 16 + Math.random() * 30, vx: -e.dir * (30 + Math.random() * 130), vy: -10 - Math.random() * 70, life: 0.2 + Math.random() * 0.35, color: FIRE2[Math.floor(Math.random() * FIRE2.length)], g: -90 });
         } else if (e.type === "dust") {
           for (let i = 0; i < e.count; i++) this.particles.push({ x: e.x + (Math.random() - 0.5) * 12, y: e.y - 2, vx: (Math.random() - 0.5) * 80, vy: -Math.random() * 50, life: 0.2 + Math.random() * 0.15, color: "#8d7fa8", g: 120 });
         }
@@ -2231,6 +2555,13 @@
       if (this.world.state === "lost" && !this.fell) {
         this.fell = true;
         this.punch = { x: p.x + p.w / 2, y: p.y + 12, t: 0 };
+      }
+    }
+    // Sparks thrown all round a point.
+    sparks(x, y, count, speed) {
+      for (let i = 0; i < count; i++) {
+        const a = Math.random() * Math.PI * 2, v = speed * (0.3 + Math.random() * 0.7);
+        this.particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 40, life: 0.3 + Math.random() * 0.5, color: FIRE2[Math.floor(Math.random() * 3)], g: 260 });
       }
     }
     /** Lets the effects, the particles and the camera live for dt seconds. Frozen with the world on a hit. */
@@ -2250,6 +2581,10 @@
         q.y += q.vy * dt;
       }
       this.particles = this.particles.filter((q) => q.life > 0);
+      for (const m of this.world.embers) {
+        if (m.taken || Math.random() > dt * 2.5) continue;
+        this.particles.push({ x: m.x - 4 + Math.random() * 8, y: m.y - 4, vx: (Math.random() - 0.5) * 16, vy: -18 - Math.random() * 26, life: 0.5 + Math.random() * 0.6, color: FIRE2[1 + Math.floor(Math.random() * 2)], g: -14 });
+      }
       const marks = this.blood.update(dt);
       if (marks.length) {
         const k = this.stains.getContext("2d");
@@ -2297,6 +2632,14 @@
       g2.setTransform(1, 0, 0, 1, 0, 0);
       const moving = this.movingLights();
       this.lights.draw(g2, cx, cy, level.settings.darkness, this.restingLights(), moving, t, this.casters(t));
+      if (this.holes && this.skyView) {
+        const k = this.skyView.getContext("2d");
+        k.globalCompositeOperation = "source-over";
+        paintSky(k, cx, level.height - VIEW_H - cy, t, level.settings.snow);
+        k.globalCompositeOperation = "destination-in";
+        k.drawImage(this.holes, -cx, -cy);
+        g2.drawImage(this.skyView, 0, 0);
+      }
       g2.translate(-cx, -cy);
       this.drawEmbers(g2, t);
       for (const f of w.foes) if (f.kind === "ghoul") this.drawGhoul(g2, f, t);
@@ -2316,6 +2659,7 @@
       g2.translate(-cx, -cy);
       this.drawAir(g2, t);
       g2.setTransform(1, 0, 0, 1, 0, 0);
+      if (level.settings.snow) paintSnow(g2, cx, cy, t);
       this.closeIn(g2, cx, cy);
       this.drawLens(g2);
       this.hud.draw(g2, t, paused, this.won);
@@ -2345,7 +2689,8 @@
         this.own.set(a, l);
         out.push(l);
       };
-      carry(p, { x: p.x + 7, y: p.y + 18, radius: 80, strength: 0.3, flicker: 0, color: [200, 205, 255] });
+      if (p.charge > 0) carry(p, { x: p.x + 7, y: p.y + 18, radius: 170, strength: 1, flicker: 0, color: [255, 160, 70] });
+      else carry(p, { x: p.x + 7, y: p.y + 18, radius: 80, strength: 0.3, flicker: 0, color: [200, 205, 255] });
       for (const f of w.foes) {
         if (f.kind === "shade" && f.ko <= 0) carry(f, { x: f.x + 7, y: f.y + 18, radius: 78, strength: 0.7, flicker: 0, color: [90, 255, 150] });
         if (f.kind === "ghoul" && f.dead <= 0) carry(f, { x: f.x + 7, y: f.y + 8, radius: 104, strength: 0.95, flicker: 0, color: [255, 140, 60] });
@@ -2486,7 +2831,10 @@
     monkFrame(a, t) {
       if (a.dazed > 0) return "hurt" + (1 + Math.floor(t * 3) % 2);
       if (a.hurtT > 0 || a.stun > 0) return "hurt" + (1 + Math.floor(t * 10) % 2);
+      if (a.charge > 0) return "flying-kick" + (1 + Math.floor(t * 20) % 2);
+      if (a.guard || a.guardT > 0) return "crouch2";
       if (a.attackT > 0) {
+        if (a.attackKind === "sweep" && !a.attackAir) return "crouch-kick" + (1 + Math.min(4, Math.floor((1 - a.attackT / SWEEP_T) * 5)));
         if (a.attackAir) return "flying-kick" + (1 + Math.floor(t * 12) % 2);
         const kick = a.attackKind === "kick", n = kick ? 5 : 6, total = kick ? KICK_T : PUNCH_T;
         return (kick ? "kick" : "punch") + (1 + Math.min(n - 1, Math.floor((1 - a.attackT / total) * n)));
@@ -2501,7 +2849,8 @@
     }
     drawMonk(g2, a, t) {
       if (a.ko > 0) return;
-      if (a.invul > 0 && Math.floor(t * 20) % 2) return;
+      const guarding = a.guard || a.guardT > 0;
+      if (a.invul > 0 && !guarding && a.charge <= 0 && Math.floor(t * 20) % 2) return;
       const shade = a.kind === "shade";
       const flash = shade ? a.stun > 0.45 : a.hurtT > 0.15;
       const set = shade ? flash ? "shadeflash/" : "shade/" : flash ? "monkflash/" : "monk/";
@@ -2510,6 +2859,7 @@
       g2.fillStyle = "rgba(0,0,0,0.3)";
       g2.fillRect(Math.round(cx - 9), Math.round(feet), 18, 2);
       if (shade) this.glow(g2, cx, a.y + 16, 36, "rgba(90,255,150,0.22)");
+      if (a.charge > 0) this.glow(g2, cx, a.y + 20, 46, "rgba(255,150,50,0.55)");
       const frame = this.monkFrame(a, t);
       if (shade || flash) this.sprite(g2, set + frame, cx, feet, MONK_ANCHOR, a.facing < 0);
       else this.picture(g2, this.litSprite(set + frame, cx, a.y + 18, a.facing < 0, this.own.get(a) ?? null), cx, feet, MONK_ANCHOR, a.facing < 0);
@@ -2517,6 +2867,10 @@
         g2.globalAlpha = Math.min(1, a.gore * 1.2);
         this.sprite(g2, "gore/" + frame, cx, feet, MONK_ANCHOR, a.facing < 0);
         g2.globalAlpha = 1;
+      }
+      if (guarding) {
+        g2.fillStyle = a.invul > 0 || shade && a.vx !== 0 ? "#ffffff" : shade ? "rgba(150,255,190,0.8)" : "rgba(190,215,255,0.8)";
+        for (let i = -3; i <= 3; i++) g2.fillRect(Math.round(cx + a.facing * (15 - Math.abs(i) * 1.5)) - 1, Math.round(a.y + 21 + i * 5), 2, 4);
       }
       if (dazed) {
         for (let i = 0; i < 3; i++) {
@@ -2590,7 +2944,7 @@
         shaftPath(g2, b.x, b.y);
         g2.fill();
         for (let i = 0; i < 22; i++) {
-          const u = (hash2(i, w + 1) + t * (0.012 + 0.01 * hash2(w + 2, i))) % 1, v = hash2(i + 7, w + 3);
+          const u = (hash3(i, w + 1) + t * (0.012 + 0.01 * hash3(w + 2, i))) % 1, v = hash3(i + 7, w + 3);
           const x = b.x + 56 + v * 48 + u * 130 + 5 * Math.sin(t * 0.7 + i), y = b.y + 64 + u * 232;
           const twinkle = 0.5 + 0.5 * Math.sin(t * 2.3 + i * 1.7);
           g2.fillStyle = `rgba(205,218,255,${(0.75 * (1 - u) * twinkle).toFixed(3)})`;

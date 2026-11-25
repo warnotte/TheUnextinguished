@@ -9,7 +9,7 @@ import { AIR, Grid, LADDER, STONE, TILE } from '../sim/grid';
 
 export type Props = Record<string, number | string | boolean>;
 export interface LevelObject { kind: string; x: number; y: number; props: Props }
-export interface LevelSettings { name: string; title: string; darkness: number; music: string; mist: boolean; bats: number }
+export interface LevelSettings { name: string; title: string; darkness: number; music: string; mist: boolean; bats: number; sky: boolean; snow: boolean }
 export interface Level { grid: Grid; objects: LevelObject[]; settings: LevelSettings; width: number; height: number }
 
 /** A level file the engine cannot use; the message says what is wrong in the file. */
@@ -65,6 +65,8 @@ export function parseLevel(tiled: unknown, knownKinds: ReadonlySet<string>, name
     music: typeof p.music === 'string' ? p.music : '',
     mist: p.mist === true,
     bats: typeof p.bats === 'number' ? p.bats : 0,
+    sky: p.sky === true,
+    snow: p.snow === true,
   };
   return { grid: new Grid(map.width, map.height, cells), objects, settings, width: map.width * TILE, height: map.height * TILE };
 }

@@ -8,7 +8,7 @@ import type { Emit, GameEvent } from './events';
 import type { Grid } from './grid';
 import { stepGhoul } from './ghoul';
 import { control, type Controls, move } from './movement';
-import { SHADE_PACE, SHADE_REACH, SHADE_STRIKE, thinkShade } from './shade';
+import { SHADE_AGAIN, SHADE_GUARD, SHADE_GUARD_RANGE, SHADE_GUARD_REST, SHADE_PACE, SHADE_REACH, SHADE_STRIKE, thinkShade } from './shade';
 
 export const STEP = 1 / 120;
 
@@ -18,7 +18,9 @@ export interface Door { x: number; y: number; w: number; h: number }
 interface Box { x: number; y: number; w: number; h: number }
 
 const DOOR_W = 32, DOOR_H = 64, EMBER_REACH = 8, EMBER_BURST_DROP = 30;
-const COMBO_WINDOW = 0.45;       // a second strike this soon after a punch is a kick
+const COMBO_WINDOW = 0.45;       // a strike this soon after the last one is the next of the chain
+const CHAIN = { punch: 'kick', kick: 'sweep', sweep: 'punch' } as const;
+const LUNGE = 300;               // the step forward that the second and third blows of a chain take
 const START_GRACE = 1.5;
 const STRIKE_BUFFER = 0.16;
 // How many drops a blow draws.
@@ -29,16 +31,27 @@ const TRICKLE_EVERY = 0.06;
 const FINISH_CHUNKS = 14;
 // The duel. A light blow costs 1, a heavy one 2. A foe at the end of its health stands dazed:
 // a heavy blow then ends it; left alone, it comes round with a little health.
-const HIT = { light: 1, heavy: 2, shade: 2, ghoul: 1 } as const;
+const HIT = { shade: 2, ghoul: 1 } as const;
 const DAZE = 3, DAZED_BACK_HP = 2;
 const SLOW = 0.35;               // seconds of the world that pass slowly after a finishing blow
 
+// What a blow does: what it costs the foe, whether it is heavy (a heavy blow ends a dazed foe),
+// whether it throws the foe away, whether it gets past a guard, and the blood it draws.
+interface Blow { damage: number; heavy: boolean; launch: boolean; pierce: boolean; blood: number }
 // Each strike: how long it lasts, when it can land, how far and how high it reaches.
 const STRIKES = {
-  punch:  { time: 0.36, from: 0.07, to: 0.26, reach: 36, top: 6, height: 20, heavy: false },
-  kick:   { time: 0.42, from: 0.10, to: 0.30, reach: 34, top: -4, height: 34, heavy: true },
-  flying: { time: 0.50, from: 0.04, to: 9, reach: 26, top: 14, height: 22, heavy: true },
+  punch:  { time: 0.36, from: 0.07, to: 0.26, reach: 36, top: 6, height: 20, damage: 1, heavy: false, launch: false, pierce: false, blood: 30 },
+  kick:   { time: 0.42, from: 0.10, to: 0.30, reach: 34, top: -4, height: 34, damage: 2, heavy: true, launch: false, pierce: false, blood: 55 },
+  sweep:  { time: 0.42, from: 0.12, to: 0.30, reach: 38, top: 14, height: 26, damage: 2, heavy: true, launch: true, pierce: false, blood: 80 },
+  flying: { time: 0.50, from: 0.04, to: 9, reach: 26, top: 14, height: 22, damage: 2, heavy: true, launch: true, pierce: true, blood: 55 },
 } as const;
+// The flaming charge: an ember spent, a rush that nothing stops but stone.
+const CHARGE = { time: 0.3, speed: 540, reach: 10, trail: 0.02, after: 140 } as const;
+const CHARGE_BLOW: Blow = { damage: 3, heavy: true, launch: true, pierce: true, blood: 90 };
+const MOTION = 0.35;             // seconds between down, forward and the strike that make the charge
+const GUARD_PUSH = 150, GUARD_SAFE = 0.3;
+// How far a blow sends the foe, and for how long it cannot act.
+const KNOCK = { near: { vx: 110, vy: 120, stun: 0.6 }, far: { vx: 350, vy: 300, stun: 1.0 } } as const;
 
 const overlap = (a: Box, b: Box): boolean => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
@@ -56,6 +69,10 @@ export class World {
 
   private events: GameEvent[] = [];
   private doorChime = -1;          // seconds until the door is heard opening, -1 when not waiting
+  private wasOpen = false;
+  private spare = 0;               // embers won from the foes, less those spent on charges
+  private readonly charged = new Set<Actor>();     // whom the charge in flight has already struck
+  private trail = 0;
   private readonly emit: Emit = event => { this.events.push(event); };
 
   constructor(readonly level: Level) {
@@ -77,10 +94,14 @@ export class World {
     }
     if (!hero) throw new Error(`level "${level.settings.name}" has no hero`);
     this.hero = hero;
+    this.wasOpen = this.doorOpen;
   }
 
-  /** Every ember taken. A level without embers has its door open from the start. */
-  get doorOpen(): boolean { return this.embers.every(m => m.taken); }
+  /** The embers the hero has in hand: those he took and those he won, less those he spent. */
+  get carried(): number { return this.embers.reduce((n, m) => n + (m.taken ? 1 : 0), 0) + this.spare; }
+
+  /** As many embers in hand as the level holds. A level without embers has its door open from the start. */
+  get doorOpen(): boolean { return this.carried >= this.embers.length; }
 
   /** Advances by one STEP and returns what happened since the last call. */
   step(controls: Controls): GameEvent[] {
@@ -103,7 +124,15 @@ export class World {
   /** The hero takes a blow coming from the given side. */
   hurtHero(dir: 1 | -1, damage: number = HIT.shade): void {
     const p = this.hero;
-    if (this.state !== 'play') return;
+    if (this.state !== 'play' || p.charge > 0) return;
+    if (p.guard && dir === -p.facing) {            // stopped: it costs him a step back
+      p.invul = GUARD_SAFE; p.vx = dir * GUARD_PUSH;
+      this.hitStop = 0.05;
+      this.emit({ type: 'effect', kind: 'hit-spark', x: p.x + p.w / 2 - dir * 8, y: p.y + p.h, flip: dir > 0 });
+      this.emit({ type: 'sound', name: 'block' });
+      return;
+    }
+    p.guard = false;
     p.hp = Math.max(0, p.hp - damage); p.invul = 1.2; p.hurtT = 0.3; p.attackT = 0; p.climbing = false;
     this.emit({ type: 'effect', kind: 'blunt-hit', x: p.x + p.w / 2, y: p.y + p.h, flip: dir < 0 });
     p.vx = dir * 280; p.vy = -250; p.onGround = false;
@@ -125,29 +154,89 @@ export class World {
     p.attackT = Math.max(0, p.attackT - STEP); p.invul = Math.max(0, p.invul - STEP); p.hurtT = Math.max(0, p.hurtT - STEP);
     if (p.attackT <= 0) p.sinceAttack += STEP;
     this.trickle(p);
+    if (p.charge > 0) { this.stepCharge(p); return; }
+
+    // Down, then forward, then the strike: the charge, without its own button.
+    p.motionT = Math.max(0, p.motionT - STEP);
+    if (p.motionT <= 0) p.motion = 0;
+    if (c.down && !c.x) { p.motion = 1; p.motionT = MOTION; }
+    else if (p.motion === 1 && c.x) { p.motion = 2; p.motionDir = c.x; p.motionT = MOTION; }
+    const byMotion = c.attackPressed && p.motion === 2;
+    if ((c.specialPressed || byMotion) && !p.climbing && p.hurtT <= 0) {
+      p.motion = 0;
+      if (this.carried > 0) {
+        this.spare--;
+        p.charge = CHARGE.time; p.facing = byMotion ? p.motionDir : c.x || p.facing;
+        p.attackT = 0; p.strikeBuffer = 0; p.guard = false;
+        this.charged.clear(); this.trail = 0;
+        this.emit({ type: 'sound', name: 'charge' });
+        this.stepCharge(p);
+        return;
+      }
+      this.emit({ type: 'sound', name: 'empty' });
+    }
+
+    // The guard: held with its button, or by pressing down, feet on the ground.
+    p.guard = (c.guard || (c.down && !c.x)) && p.onGround && !p.climbing && p.attackT <= 0 && p.hurtT <= 0;
+    if (p.guard && c.x) p.facing = c.x;
+
     // A strike pressed a little before the last one ends is not lost: it follows it.
     p.strikeBuffer = c.attackPressed ? STRIKE_BUFFER : Math.max(0, p.strikeBuffer - STEP);
     if (p.strikeBuffer > 0 && p.attackT <= 0 && !p.climbing && p.hurtT <= 0) {
-      p.strikeBuffer = 0;
+      p.strikeBuffer = 0; p.guard = false;
       p.attackAir = !p.onGround;
-      p.attackKind = !p.attackAir && p.attackKind === 'punch' && p.sinceAttack < COMBO_WINDOW ? 'kick' : 'punch';
+      p.attackKind = !p.attackAir && p.sinceAttack < COMBO_WINDOW ? CHAIN[p.attackKind] : 'punch';
       p.attackT = this.strikeOf(p).time;
       p.attackHit = false; p.sinceAttack = 0;
+      if (!p.attackAir) {
+        // The second and third blows step in, unless a foe is already in reach.
+        if (p.attackKind !== 'punch' && !this.foes.some(f => f.ko <= 0 && f.dead <= 0 && overlap(this.reach(p), f))) p.vx = p.facing * LUNGE;
+        this.warn(p);
+      }
       this.emit({ type: 'sound', name: 'swing' });
     }
-    control(p, c, this.grid, STEP, 1, this.emit);
+    control(p, p.guard ? { ...c, x: 0 } : c, this.grid, STEP, 1, this.emit);
+    if (p.climbing) p.guard = false;               // down, over a ladder, is the way down
     move(p, this.grid, STEP, this.emit);
     if (p.onGround && p.attackAir && p.attackT > 0) p.attackT = 0;       // a flying kick ends on landing
 
     if (p.attackT > 0 && !p.attackHit) {
       const s = this.strikeOf(p), since = s.time - p.attackT;
       if (since > s.from && since < s.to) {
-        const box = { x: p.facing > 0 ? p.x + p.w : p.x - s.reach, y: p.y + s.top, w: s.reach, h: s.height };
+        const box = this.reach(p);
         const foe = this.foes.find(f => this.canBeHit(f) && overlap(box, f));
-        if (foe) this.strikeFoe(foe, p.attackAir, p.facing, s.heavy);
+        if (foe) this.strikeFoe(foe, p.facing, s);
       }
     }
     if (Math.abs(p.vx) > 12 && p.onGround) p.animT += STEP;
+  }
+
+  // The flaming charge: straight ahead, over the gaps, through whoever stands there, until stone or its end.
+  private stepCharge(p: Actor): void {
+    p.charge = Math.max(0, p.charge - STEP);
+    p.vx = p.facing * CHARGE.speed; p.vy = 0;
+    move(p, this.grid, STEP, this.emit);
+    this.trail -= STEP;
+    if (this.trail <= 0) { this.trail = CHARGE.trail; this.emit({ type: 'flame', x: p.x + p.w / 2, y: p.y + 20, dir: p.facing }); }
+    const box = { x: p.facing > 0 ? p.x : p.x - CHARGE.reach, y: p.y, w: p.w + CHARGE.reach, h: p.h };
+    for (const foe of this.foes) {
+      if (this.charged.has(foe) || foe.ko > 0 || foe.dead > 0 || !overlap(box, foe)) continue;
+      this.charged.add(foe);
+      this.strikeFoe(foe, p.facing, CHARGE_BLOW);
+    }
+    if (p.blocked) p.charge = 0;
+    if (p.charge <= 0) { p.vx = p.facing * CHARGE.after; p.invul = Math.max(p.invul, 0.25); }
+  }
+
+  // A shade that stands ready, in front of the hero and close, raises its guard when he strikes.
+  private warn(p: Actor): void {
+    for (const e of this.foes) {
+      if (e.kind !== 'shade' || e.guardCool > 0 || e.cool > 0 || e.stun > 0 || e.ko > 0 || e.dazed > 0) continue;
+      if (e.windup > 0 || e.strike > 0 || e.recover > 0 || e.climbing || !e.onGround) continue;
+      const d = e.x - p.x;
+      if (d * p.facing <= 0 || Math.abs(d) > SHADE_GUARD_RANGE || Math.abs(e.y - p.y) > 24) continue;
+      e.guardT = SHADE_GUARD; e.guardCool = SHADE_GUARD_REST; e.facing = p.facing > 0 ? -1 : 1; e.vx = 0;
+    }
   }
 
   // Blood leaves an actor at chest height, the way the blow went.
@@ -162,13 +251,20 @@ export class World {
     if (a.bleedTick <= 0) { a.bleedTick = TRICKLE_EVERY; this.bleed(a, a.bleedDir, BLOOD.trickle, 0); }
   }
 
+  // Where the strike in hand can land.
+  private reach(p: Actor): Box {
+    const s = this.strikeOf(p);
+    const half = p.w / 2;                          // from his middle: a foe standing against him is struck too
+    return { x: p.facing > 0 ? p.x + half : p.x - s.reach, y: p.y + s.top, w: s.reach + half, h: s.height };
+  }
+
   private strikeOf(p: Actor) { return STRIKES[p.attackAir ? 'flying' : p.attackKind]; }
 
   private canBeHit(f: Actor): boolean { return f.ko <= 0 && f.dead <= 0 && f.invul <= 0; }
 
-  private strikeFoe(e: Actor, air: boolean, dir: 1 | -1, heavy: boolean): void {
+  private strikeFoe(e: Actor, dir: 1 | -1, blow: Blow): void {
     this.hero.attackHit = true;
-    const x = e.x + e.w / 2, y = e.y + e.h;
+    const x = e.x + e.w / 2, y = e.y + e.h, heavy = blow.heavy;
     if (e.kind === 'ghoul') {
       e.dead = 6; e.vx = 0;
       this.hitStop = 0.06; this.shake = 0.14;
@@ -177,15 +273,23 @@ export class World {
       return;
     }
     const wasDazed = e.dazed > 0;
-    e.windup = 0; e.strike = 0; e.recover = 0; e.climbing = false; e.cool = 0.9;
+    if (e.guardT > 0 && !blow.pierce && !wasDazed && dir === -e.facing) {     // stopped by its guard
+      e.vx = dir * 90; e.cool = Math.max(e.cool, SHADE_GUARD);
+      this.hitStop = 0.04;
+      this.emit({ type: 'effect', kind: 'hit-spark', x: x - dir * 8, y, flip: dir < 0 });
+      this.emit({ type: 'sound', name: 'block' });
+      return;
+    }
+    e.windup = 0; e.strike = 0; e.recover = 0; e.climbing = false; e.cool = 0.9; e.guardT = 0; e.chain = 0;
     if (!wasDazed) {
-      e.hp = Math.max(0, e.hp - (heavy ? HIT.heavy : HIT.light));
-      e.vx = dir * (air ? 350 : 230); e.vy = -(air ? 300 : 190); e.onGround = false;
-      e.stun = air ? 1.0 : 0.6;
+      const k = blow.launch ? KNOCK.far : KNOCK.near;
+      e.hp = Math.max(0, e.hp - blow.damage);
+      e.vx = dir * k.vx; e.vy = -k.vy; e.onGround = false;
+      e.stun = k.stun;
     } else e.vx = 0;                           // a dazed foe takes the blow where it stands
     this.hitStop = heavy ? 0.1 : 0.06; this.shake = heavy ? 0.2 : 0.14;
     this.emit({ type: 'effect', kind: heavy ? 'crit-hit' : 'hit-spark', x: x - dir * 4, y, flip: dir < 0 });
-    this.bleed(e, dir, heavy ? BLOOD.heavy : BLOOD.light, 0);
+    this.bleed(e, dir, blow.blood, 0);
     e.bleed = heavy ? BLEEDING.heavy : BLEEDING.light; e.bleedDir = dir;
     e.gore = Math.min(1, e.gore + (heavy ? 0.3 : 0.18));
     this.hero.gore = Math.min(1, this.hero.gore + 0.05);       // the striker is splashed too
@@ -196,6 +300,8 @@ export class World {
       e.ko = 3.5; e.stun = 0; e.vx = 0;
       this.hitStop = 0.16; this.shake = 0.45; this.slow = SLOW;
       this.emit({ type: 'effect', kind: 'poof-green', x, y, flip: false });
+      this.spare++;                            // its flame is his now
+      this.emit({ type: 'effect', kind: 'collect-burst', x, y: e.y + 12 + EMBER_BURST_DROP, flip: false });
       this.emit({ type: 'finisher', x, y: e.y + 12 });
       this.emit({ type: 'sound', name: 'finish' });
     } else if (!wasDazed && e.hp <= 0) {
@@ -211,6 +317,7 @@ export class World {
       if (playing && e.dead <= 0 && e.invul <= 0 && p.invul <= 0 && overlap(e, p)) this.hurtHero(p.x + p.w / 2 >= e.x + e.w / 2 ? 1 : -1, HIT.ghoul);
       return;
     }
+    e.guardT = Math.max(0, e.guardT - STEP); e.guardCool = Math.max(0, e.guardCool - STEP);
     e.stun = Math.max(0, e.stun - STEP); e.cool = Math.max(0, e.cool - STEP); e.invul = Math.max(0, e.invul - STEP); e.recover = Math.max(0, e.recover - STEP);
     this.trickle(e);
     if (e.dazed > 0) {
@@ -233,7 +340,12 @@ export class World {
       e.strike -= STEP;
       const box = { x: e.facing > 0 ? e.x + e.w : e.x - SHADE_REACH, y: e.y + 6, w: SHADE_REACH, h: 22 };
       if (!e.struck && p.invul <= 0 && playing && overlap(box, p)) { e.struck = true; this.hurtHero(e.facing); }
-      if (e.strike <= 0) { e.cool = 0.8; e.recover = 0.14; }
+      if (e.strike <= 0) {
+        // A first blow that did not send the hero away is followed by a second, sooner.
+        const near = playing && Math.abs(p.x - e.x) < SHADE_REACH + 14 && Math.abs(p.y - e.y) < 24;
+        if (e.chain === 0 && near) { e.chain = 1; e.windup = SHADE_AGAIN; }
+        else { e.chain = 0; e.cool = 0.8; e.recover = 0.14; }
+      }
     }
     if (Math.abs(e.vx) > 12 && e.onGround) e.animT += STEP;
   }
@@ -245,8 +357,10 @@ export class World {
       m.taken = true;
       this.emit({ type: 'effect', kind: 'collect-burst', x: m.x, y: m.y + EMBER_BURST_DROP, flip: false });
       this.emit({ type: 'sound', name: 'ember' });
-      if (this.doorOpen && this.door) this.doorChime = 0.15;
     }
+    const open = this.doorOpen;
+    if (open && !this.wasOpen && this.door) this.doorChime = 0.15;
+    this.wasOpen = open;
     if (this.doorChime >= 0) {
       this.doorChime -= STEP;
       if (this.doorChime < 0) this.emit({ type: 'sound', name: 'door' });

@@ -78,7 +78,7 @@ export class Hud {
       text(g, label, VIEW_W - MARGIN - textWidth(label), BAR_Y + BAR_H + 5, dazed && Math.floor(t * 6) % 2 ? '#ff5a3a' : '#e2d8f0');
     }
 
-    const got = w.embers.filter(m => m.taken).length;
+    const got = w.carried;
     if (w.embers.length) centered(g, `EMBERS ${got}/${w.embers.length}`, VIEW_H - 20, w.doorOpen ? '#ffe27a' : '#e2d8f0');
     const s = Math.floor(w.clock), clock = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
     text(g, clock, VIEW_W - MARGIN - textWidth(clock), VIEW_H - 20, '#e2d8f0');

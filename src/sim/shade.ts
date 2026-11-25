@@ -8,16 +8,19 @@ import { type Controls, NO_CONTROLS } from './movement';
 
 export const SHADE_PACE = 0.84;          // of the hero's speed
 export const SHADE_WINDUP = 0.3, SHADE_STRIKE = 0.16, SHADE_REACH = 32;
+export const SHADE_AGAIN = 0.16;         // the wind-up of its second blow in a row
+export const SHADE_GUARD = 0.5, SHADE_GUARD_REST = 2.4, SHADE_GUARD_RANGE = 70;
 
 const AT_LADDER = 6;          // px: close enough to the middle of a ladder to take it
 const STRIKE_RANGE = 34, STRIKE_HEIGHT = 24;
+const STAND_OFF = 20;         // px from the hero where it stops: at arm's length, not on top of him
 const LOOK_AHEAD = 10;        // px in front of its middle where it checks for floor
 const JUMPABLE = 5;           // tiles of gap it is willing to jump
 
 /** What the shade wants to do this step. It also sets its own facing, wind-up and ladder direction. */
 export function thinkShade(e: Actor, hero: Actor, grid: Grid, playing: boolean): Controls {
-  if (e.stun > 0 || e.ko > 0 || e.dazed > 0 || e.windup > 0 || e.strike > 0 || e.recover > 0 || !playing) return NO_CONTROLS;
-  const out: Controls = { x: 0, up: false, down: false, jump: true, jumpPressed: false, attackPressed: false };
+  if (e.stun > 0 || e.ko > 0 || e.dazed > 0 || e.guardT > 0 || e.windup > 0 || e.strike > 0 || e.recover > 0 || !playing) return NO_CONTROLS;
+  const out: Controls = { ...NO_CONTROLS, jump: true };
   const ecx = e.x + e.w / 2, pcx = hero.x + hero.w / 2;
 
   if (e.climbing) {
@@ -52,10 +55,11 @@ export function thinkShade(e: Actor, hero: Actor, grid: Grid, playing: boolean):
   }
   if (!via && pf === ef && Math.abs(d) < STRIKE_RANGE && Math.abs(hero.y - e.y) < STRIKE_HEIGHT && e.cool <= 0 && hero.invul <= 0) {
     if (d !== 0) e.facing = d > 0 ? 1 : -1;
-    e.windup = SHADE_WINDUP; e.vx = 0;
+    e.windup = SHADE_WINDUP; e.vx = 0; e.chain = 0;
     return out;
   }
-  if (Math.abs(d) > 4) out.x = d > 0 ? 1 : -1;
+  if (Math.abs(d) > (via ? 4 : STAND_OFF)) out.x = d > 0 ? 1 : -1;
+  else if (!via && d !== 0) e.facing = d > 0 ? 1 : -1;
   if (out.x) {
     e.facing = out.x;
     const ahead = Math.floor((ecx + out.x * LOOK_AHEAD) / TILE);

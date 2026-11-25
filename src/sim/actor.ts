@@ -13,12 +13,17 @@ export interface Actor {
   lastFloor: number;                               // row of the last floor stood on
   spawnX: number; spawnY: number;                  // where it was born: centre x, feet y
   animT: number;
-  attackT: number; attackKind: 'punch' | 'kick'; attackAir: boolean; attackHit: boolean; sinceAttack: number;
+  attackT: number; attackKind: 'punch' | 'kick' | 'sweep'; attackAir: boolean; attackHit: boolean; sinceAttack: number;
   invul: number; hurtT: number; hp: number;
   coyote: number; buffer: number;
   stun: number; ko: number; windup: number; strike: number; recover: number; struck: boolean; cool: number;
   airDir: -1 | 0 | 1; climbDir: -1 | 1;
   strikeBuffer: number;                            // seconds a strike pressed too soon is still remembered
+  guard: boolean;                                  // the hero holds his guard
+  guardT: number; guardCool: number;               // a shade: seconds its guard still holds, and before it can guard again
+  chain: number;                                   // a shade: blows already struck in a row
+  charge: number;                                  // seconds left of a flaming charge
+  motion: 0 | 1 | 2; motionT: number; motionDir: 1 | -1;     // down, then forward: how far the hero is into it
   dazed: number;                                   // seconds left standing dazed, at the end of its health
   gore: number;                                    // 0 clean to 1 soaked: the blood it wears
   bleed: number; bleedDir: 1 | -1; bleedTick: number;      // seconds it goes on bleeding after a blow, and which way
@@ -36,7 +41,7 @@ export function makeActor(kind: ActorKind, centreX: number, feetY: number): Acto
     animT: 0, attackT: 0, attackKind: 'punch', attackAir: false, attackHit: false, sinceAttack: 9,
     invul: 0, hurtT: 0, hp: MAX_HP, coyote: 0, buffer: 0,
     stun: 0, ko: 0, windup: 0, strike: 0, recover: 0, struck: false, cool: 0, airDir: 0, climbDir: 1, dead: 0,
-    strikeBuffer: 0, dazed: 0, gore: 0, bleed: 0, bleedDir: 1, bleedTick: 0,
+    strikeBuffer: 0, guard: false, guardT: 0, guardCool: 0, chain: 0, charge: 0, motion: 0, motionT: 0, motionDir: 1, dazed: 0, gore: 0, bleed: 0, bleedDir: 1, bleedTick: 0,
   };
 }
 

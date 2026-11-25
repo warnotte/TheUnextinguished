@@ -23,7 +23,7 @@ export function makeGrid(rows: string[]): Grid {
 /** A level made in the test: a grid in text and a list of objects. */
 export function makeLevel(rows: string[], objects: LevelObject[]): Level {
   const grid = makeGrid(rows);
-  return { grid, objects, settings: { name: 'test', title: 'TEST', darkness: 0.5, music: '', mist: false, bats: 0 }, width: grid.cols * 16, height: grid.rows * 16 };
+  return { grid, objects, settings: { name: 'test', title: 'TEST', darkness: 0.5, music: '', mist: false, bats: 0, sky: false, snow: false }, width: grid.cols * 16, height: grid.rows * 16 };
 }
 
 export const press =(c: Partial<Controls>): Controls => ({ ...NO_CONTROLS, ...c });

@@ -17,7 +17,7 @@ const FIRE = [255, 170, 92] as const, CANDLE = [255, 198, 128] as const, MOON = 
 export type Kind =
   | { role: 'decor'; plane: Plane; image: string; src: readonly [number, number, number, number]; anchor: readonly [number, number]; lights: readonly LightSpec[]; shaft: boolean }
   | { role: 'decor'; plane: Plane; sheet: string; lights: readonly LightSpec[] }                 // a sheet played in a loop, placed by its pivot
-  | { role: 'decor'; plane: Plane; painter: 'chain-lantern'; lights: readonly LightSpec[] }      // drawn by code; lights hang from the end of the chain
+  | { role: 'decor'; plane: Plane; painter: 'chain-lantern' | 'arch'; lights: readonly LightSpec[] }      // drawn by code; a chain lantern's lights hang from the end of its chain
   | { role: 'spawn'; actor: ActorKind }
   | { role: 'ember' }
   | { role: 'door' };
@@ -37,6 +37,8 @@ export const KINDS: Readonly<Record<string, Kind>> = {
   pillar: { role: 'decor', plane: 'wall', image: 'column', src: [0, 0, 114, 190], anchor: [57, 190], lights: [lantern(-19), lantern(36)], shaft: false },
   balustrade: { role: 'decor', plane: 'wall', image: 'tiles', src: [192, 92, 80, 52], anchor: [40, 52], lights: [{ dx: 31, dy: -46, radius: 38, strength: 0.6, flicker: 0.5, color: CANDLE }], shaft: false },
   torch: { role: 'decor', plane: 'back', sheet: 'torch', lights: [{ dx: 0, dy: -26, radius: 150, strength: 1, flicker: 1, color: FIRE }] },
+  // An opening in the wall, on the sky: its foot on (x, y), `width` and `height` in its properties. The moon comes in.
+  arch: { role: 'decor', plane: 'wall', painter: 'arch', lights: [{ dx: 0, dy: -40, radius: 96, strength: 0.6, flicker: 0, color: MOON }] },
   'chain-lantern': { role: 'decor', plane: 'wall', painter: 'chain-lantern', lights: [{ dx: 0, dy: 6, radius: 62, strength: 0.8, flicker: 0.6, color: CANDLE }] },
 };
 
@@ -48,6 +50,7 @@ const CHURCH = 'gothicvania-church/';
 export const MONK_FRAMES = [
   'idle1', 'idle2', 'idle3', 'idle4', 'walk1', 'walk2', 'walk3', 'walk4', 'walk5', 'walk6', 'jump1', 'jump2', 'fall1', 'fall2',
   'punch1', 'punch2', 'punch3', 'punch4', 'punch5', 'punch6', 'kick1', 'kick2', 'kick3', 'kick4', 'kick5', 'flying-kick1', 'flying-kick2', 'hurt1', 'hurt2',
+  'crouch1', 'crouch2', 'crouch-kick1', 'crouch-kick2', 'crouch-kick3', 'crouch-kick4', 'crouch-kick5',
 ] as const;
 
 const range = (from: number, to: number): number[] => Array.from({ length: to - from + 1 }, (_, i) => from + i);

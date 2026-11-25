@@ -17,16 +17,31 @@ Open `index.html` by double-click (after a build, see below). No server, no netw
 | Climb | ↑ ↓, or Z / S | stick or d-pad |
 | Jump | Space | A |
 | Strike | X or Ctrl | X or B |
+| Guard | C or Shift, or hold ↓ | LB or RB, or hold ↓ |
+| Flaming charge | V; or ↓, then → (or ←), then strike | Y; or ↓, then → (or ←), then strike |
 | Pause | P | Select |
 | Restart | R | Start |
 | Music on / off | M | |
 
-A second strike right after a punch is a kick; a strike in the air is a flying kick. A punch
-takes one point of health, a kick or a flying kick two. A shade at the end of its health stands
-dazed for three seconds: a kick or a flying kick then ends it; left alone, it comes round.
+The duel:
 
-The levels follow each other: the door of one leads to the next. To start at the second level,
-add `?level=2` to the address of the page.
+- **The chain.** Three strikes in a row are a punch, a kick and a sweep. The punch takes one point
+  of health, the kick and the sweep two; the sweep throws the foe away. A strike in the air is a
+  flying kick (two points).
+- **The guard** stops any blow that comes from the front, at the cost of a step back.
+- **The flaming charge** costs one ember. It carries the hero a long way straight ahead, over the
+  gaps, through whoever stands there (three points of health, guard or no guard); nothing hurts him
+  while it lasts. Only stone stops it.
+- **The embers are the stake.** The door is open while the hero carries as many embers as the level
+  holds: an ember spent on a charge shuts it again. Ending a foe gives one back.
+- **The shades fight too.** One that stands ready raises its guard when the hero strikes (not twice
+  in a row, and not against a flying kick or a charge); one whose blow was stopped strikes a second
+  time, sooner.
+- A shade at the end of its health stands dazed for three seconds: a kick, a sweep, a flying kick
+  or a charge then ends it; left alone, it comes round.
+
+The levels follow each other: the door of one leads to the next. To start at the second or the
+third level, add `?level=2` or `?level=3` to the address of the page.
 
 ## Build and test
 
@@ -67,10 +82,14 @@ object, paint a cell); nothing drives them yet.
 - The tile layer **collision** uses the two tiles of the `collision` tileset: stone and ladder.
   Slabs, walls, ground, their broken ends and their brackets are dressed by the engine from that grid.
 - The object layers hold **point** objects whose type is their kind: `torch`, `window`, `pillar`,
-  `altar`, `gargoyle`, `balustrade`, `chain-lantern` (with a `length` property), `ember`, `door`,
+  `altar`, `gargoyle`, `balustrade`, `chain-lantern` (with a `length` property), `arch` (an opening
+  on the sky, with `width` and `height`), `ember`, `door`,
   `hero`, `shade`, `ghoul`. The point is the anchor of the kind: the bottom middle of a piece of
   decor, the feet of an actor, the pivot of a torch.
-- The map's own properties set the level: `title`, `darkness` (0 to 1), `music`, `mist`, `bats`.
+- The map's own properties set the level: `title`, `darkness` (0 to 1), `music`, `mist`, `bats`,
+  `sky` (the night shows through the arches, in planes that slide at different speeds:
+  `src/render/sky.ts`) and `snow`.
+- The third level, the belfry, is written by `node tools/make-beffroi.mjs`.
 - The levels are played in the order `index.html` loads them.
 
 A kind the engine does not know, or a missing layer, is reported in plain words on the page.
@@ -98,6 +117,6 @@ level. Behaviour that is new goes into `src/sim/`, never into a level.
   (`assets/pixelfx/LICENSE.txt`, `NOTICE.md`).
 - Music: ours, played on the emulated sound chips of NoobSynth (FM operators and drum machines for
   the nave; NES and SNES oscillators, a pipe organ and an FM bell for the crypt) by the program in
-  `tools/music` (see its README to render them again). `assets/music/poursuite.*` is an earlier tune
-  on the AY-3-8910, made by `essais/ay-essai`; no level plays it now.
+  `tools/music` (see its README to render them again). The belfry plays `assets/music/poursuite.*`,
+  an earlier tune on the AY-3-8910, made by `essais/ay-essai`.
 - Sound effects: made on the spot by `src/audio.ts`, no samples.

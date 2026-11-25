@@ -215,6 +215,21 @@ export class Sound {
         this.hiss('lowpass', 90, 240, { dur: 1.0, vol: 0.5, hall: 0.5 });                // stone grinding open
         [293.7, 440, 587.3, 880].forEach((f, i) => this.bell(f, 0.15 + i * 0.11, 0.13));
         break;
+      case 'block':
+        this.tone('triangle', 540, 300, { dur: 0.07, vol: 0.4, hall: 0.3 });             // the knock of a blow stopped
+        this.hiss('highpass', 3000, 2400, { dur: 0.04, vol: 0.34, hall: 0.35 });
+        this.tone('sine', 120, 70, { dur: 0.09, vol: 0.4, hall: 0.1 });
+        break;
+      case 'charge':
+        this.duck(0.3);
+        this.hiss('bandpass', 300, 2600, { dur: 0.36, vol: 0.5, hall: 0.35 }, 1.2);      // the rush of the fire
+        this.tone('sawtooth', 90, 280, { dur: 0.3, vol: 0.2, hall: 0.25 });
+        this.tone('sine', 60, 150, { dur: 0.34, vol: 0.5, hall: 0.1 });
+        this.bell(1318, 0.02, 0.06);
+        break;
+      case 'empty':
+        this.tone('square', 110, 78, { dur: 0.08, vol: 0.16, hall: 0.1 });
+        break;
       case 'daze':
         this.duck(0.5);
         this.tone('triangle', 880, 420, { dur: 0.55, vol: 0.2, hall: 0.5 }, 13);

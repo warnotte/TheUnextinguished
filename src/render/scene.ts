@@ -49,6 +49,23 @@ function paintChainLantern(b: CanvasRenderingContext2D, o: LevelObject): void {
   r(x - 3, y, 8, 2, '#2e2a44'); r(x - 2, y + 2, 6, 8, '#1c1828'); r(x - 1, y + 3, 4, 6, '#ff9a3a'); r(x, y + 4, 2, 3, '#ffe27a'); r(x - 3, y + 10, 8, 2, '#2e2a44');
 }
 
+// An opening on the night: the wall is cut away in the shape of an arch, row by row so that its
+// edge stays made of whole pixels, and framed in stone.
+function paintArch(b: CanvasRenderingContext2D, o: LevelObject): void {
+  const w = Number(o.props.width ?? 80), h = Number(o.props.height ?? 88), rad = w / 2, top = o.y - h;
+  const rows = (grow: number, color: string): void => {
+    b.fillStyle = color;
+    for (let y = top - grow; y < o.y; y++) {
+      const up = top + rad - y, half = up <= 0 ? rad + grow : Math.sqrt(Math.max(0, (rad + grow) * (rad + grow) - up * up));
+      b.fillRect(Math.round(o.x - half), y, Math.round(half * 2), 1);
+    }
+  };
+  rows(6, '#221f36'); rows(5, '#7468a0'); rows(3, '#4a416e'); rows(1, '#1a1730');
+  b.save(); b.globalCompositeOperation = 'destination-out'; rows(0, '#000'); b.restore();
+  b.fillStyle = '#7468a0'; b.fillRect(o.x - rad - 8, o.y - 3, w + 16, 3);        // the sill
+  b.fillStyle = '#2c2646'; b.fillRect(o.x - rad - 8, o.y, w + 16, 2);
+}
+
 export function paintBackdrop(level: Level, assets: Assets): HTMLCanvasElement {
   const { grid } = level, W = level.width, H = level.height;
   const canvas = document.createElement('canvas');
@@ -90,7 +107,7 @@ export function paintBackdrop(level: Level, assets: Assets): HTMLCanvasElement {
       const kind = KINDS[o.kind];
       if (!kind || kind.role !== 'decor' || kind.plane !== plane) continue;
       if ('image' in kind) { const [sx, sy, sw, sh] = kind.src; b.drawImage(assets.image(kind.image), sx, sy, sw, sh, o.x - kind.anchor[0], o.y - kind.anchor[1], sw, sh); }
-      else if ('painter' in kind) paintChainLantern(b, o);
+      else if ('painter' in kind) (kind.painter === 'arch' ? paintArch : paintChainLantern)(b, o);
     }
   };
   decor('wall');
