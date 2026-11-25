@@ -1,7 +1,7 @@
 // Loads every picture the registry names, and makes the few that are derived from them: the
 // shade (the monk washed in green), the white flashes, and the torch sheet faded at its edges.
 
-import { IMAGES, MONK_FRAMES, SHEETS } from '../level/kinds';
+import { IMAGES, MONK_FRAMES, SHEETS, STRIPS } from '../level/kinds';
 
 /** A picture that could not be loaded; the message gives its path. */
 export class AssetError extends Error {
@@ -23,7 +23,7 @@ function load(path: string): Promise<HTMLImageElement> {
 }
 
 // A copy of a picture with a colour laid over its opaque pixels.
-function washed(source: HTMLImageElement, color: string): HTMLCanvasElement {
+function washed(source: HTMLImageElement | HTMLCanvasElement, color: string): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = source.width; c.height = source.height;
   const k = c.getContext('2d')!;
@@ -78,7 +78,22 @@ export async function loadAssets(base = 'assets/'): Promise<Assets> {
   await Promise.all([
     ...Object.entries(IMAGES).map(async ([key, path]) => { const img = await load(base + path); images.set(key, img); loaded.set(key, img); }),
     ...Object.entries(SHEETS).map(async ([name, s]) => { const img = await load(base + s.file); sheets.set(name, img); loaded.set('sheet:' + name, img); }),
+    ...Object.entries(STRIPS).map(async ([name, s]) => {
+      const img = await load(base + s.file);
+      for (let i = 0; i < s.frames; i++) {
+        const c = document.createElement('canvas');
+        c.width = s.w; c.height = s.h;
+        c.getContext('2d')!.drawImage(img, i * s.w, 0, s.w, s.h, 0, 0, s.w, s.h);
+        images.set(`${name}/${i + 1}`, c);
+      }
+    }),
   ]);
+  // The demon's frames, white for the instant a blow lands, black for its shadow.
+  for (const [name, s] of Object.entries(STRIPS)) for (let i = 1; i <= s.frames; i++) {
+    const frame = images.get(`${name}/${i}`) as HTMLCanvasElement;
+    images.set(`flash-${name}/${i}`, washed(frame, 'rgba(255,245,235,0.85)'));
+    images.set(`shadow-${name}/${i}`, washed(frame, '#000'));
+  }
   for (const n of MONK_FRAMES) {
     const monk = loaded.get('monk/' + n)!;
     // A spectral green: the one colour that stands out from the purple stone, the hero's blue and the fire.
@@ -88,7 +103,7 @@ export async function loadAssets(base = 'assets/'): Promise<Assets> {
     images.set('gore/' + n, blotched(monk, 'rgba(150,8,14,0.92)'));
     images.set('shadow/' + n, washed(monk, '#000'));          // its outline, for the shadow it casts
   }
-  for (const key of Object.keys(IMAGES)) if (key.startsWith('ghoul/')) images.set('shadow-' + key, washed(loaded.get(key)!, '#000'));
+  for (const key of Object.keys(IMAGES)) if (key.startsWith('ghoul/') || key.startsWith('skeleton')) images.set('shadow-' + key, washed(loaded.get(key)!, '#000'));
   const torch = SHEETS.torch;
   sheets.set('torch', feathered(loaded.get('sheet:torch')!, torch.w, torch.h, torch.cols, torch.frames));
 

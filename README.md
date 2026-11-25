@@ -43,10 +43,28 @@ The duel:
 - A shade at the end of its health stands dazed for three seconds: a kick, a sweep, a flying kick
   or a charge then ends it; left alone, it comes round.
 
+The bell chamber, at the top of the belfry, is the room of the demon. It has no door: the room is
+won when the demon is ended.
+
+- **The demon** (44 points of health) floats over its floor and is not thrown by blows. Its wings
+  rise, then beat all round it, at a hero who comes close, and at once at one who strikes it again
+  and again (the guard stops the wings, if the hero has stopped striking: two blows, then guard).
+  It breathes blue fire low in front of it from its very body (the guard does not stop fire: get
+  behind it, or away), glides back from a hero who stands against it, and swoops on a hero who keeps
+  away or climbs to a gallery: its shadow on the floor shows where it will come down, and its landing
+  throws whoever stands near.
+- **Past half its health** it is quicker, it turns and breathes again at a hero who slipped behind
+  it, and each landing sends a wave of fire along the floor each way: jump it.
+- **The great bell** tolls now and then, and skeletons come out of their graves (three at most,
+  never under the hero's feet). Their touch hurts; one blow breaks them, and the ember each one
+  carries goes to the hero.
+- **At the end of its health** the demon stands dazed for good: blows no longer touch it, and only a
+  flaming charge ends it. Hence the embers of the skeletons.
+
 The levels follow each other: the door of one leads to the next. After the last comes the end,
 which tells the run: its time, the foes snuffed out, the blood spilt, how often the hero was knocked
-out. Then back to the title. To go straight to a level, without the title, add `?level=1`,
-`?level=2` or `?level=3` to the address of the page.
+out. Then back to the title. To go straight to a level, without the title, add `?level=1` to
+`?level=4` to the address of the page.
 
 The title stands in front of the first level open on the sky (the belfry), climbing it slowly under
 a storm: now and then lightning flashes through the arches and the thunder follows.
@@ -91,13 +109,15 @@ object, paint a cell); nothing drives them yet.
   Slabs, walls, ground, their broken ends and their brackets are dressed by the engine from that grid.
 - The object layers hold **point** objects whose type is their kind: `torch`, `window`, `pillar`,
   `altar`, `gargoyle`, `balustrade`, `chain-lantern` (with a `length` property), `arch` (an opening
-  on the sky, with `width` and `height`), `ember`, `door`,
-  `hero`, `shade`, `ghoul`. The point is the anchor of the kind: the bottom middle of a piece of
+  on the sky, with `width` and `height`), `bell` (the great bell, hung by its top), `ember`, `door`,
+  `grave` (where the bell raises a skeleton), `hero`, `shade`, `ghoul`, `demon`. The point is the anchor of the kind: the bottom middle of a piece of
   decor, the feet of an actor, the pivot of a torch.
 - The map's own properties set the level: `title`, `darkness` (0 to 1), `music`, `mist`, `bats`,
   `sky` (the night shows through the arches, in planes that slide at different speeds:
   `src/render/sky.ts`), `snow` and `storm` (now and then lightning lights the place through its openings, each body throws a long shadow on the wall, and the thunder follows).
-- The third level, the belfry, is written by `node tools/make-beffroi.mjs`.
+- The third level, the belfry, is written by `node tools/make-beffroi.mjs`; the fourth, the bell
+  chamber, by `node tools/make-clocher.mjs`.
+- A level with a `demon` is won when the demon is ended, not by a door.
 - The levels are played in the order `index.html` loads them.
 
 A kind the engine does not know, or a missing layer, is reported in plain words on the page.
@@ -119,12 +139,15 @@ level. Behaviour that is new goes into `src/sim/`, never into a level.
 
 ## Credits
 
-- Sprites and tiles: "Gothicvania Church" by Luis Zuno (ansimuz), public domain (CC0). The files
-  ending in `-cut.png` are the same pictures with their flat backdrop made transparent.
+- Sprites and tiles: "Gothicvania Church", the skeletons of "Gothicvania Cemetery" and the demon of
+  the "Gothicvania Patreon's Collection", all by Luis Zuno (ansimuz), public domain (CC0; their
+  licences are in `assets/gothicvania-*/public-license.txt`). The files ending in `-cut.png` are the
+  same pictures with their flat backdrop made transparent.
 - Effects: rendered with [pixelfx](https://github.com/patch-gg/pixelfx) by Patch, MIT licence
   (`assets/pixelfx/LICENSE.txt`, `NOTICE.md`).
 - Music: ours, played on the emulated sound chips of NoobSynth (FM operators and drum machines for
-  the nave; NES and SNES oscillators, a pipe organ and an FM bell for the crypt) by the program in
+  the nave; NES and SNES oscillators, a pipe organ and an FM bell for the crypt; the NES chip, an
+  808 kick and an FM bell for the bell chamber) by the program in
   `tools/music` (see its README to render them again). The belfry plays `assets/music/poursuite.*`,
   an earlier tune on the AY-3-8910, made by `essais/ay-essai`.
 - Sound effects: made on the spot by `src/audio.ts`, no samples.

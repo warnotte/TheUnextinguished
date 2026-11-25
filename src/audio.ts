@@ -3,6 +3,7 @@
 // A tune is an Ogg file carried as text by a small script (assets/music/<name>.js fills
 // window.MUSIC[name]), so that the page can decode it and loop it without a gap even when it is
 // opened as a file. Browsers only let sound start after a key press, a click or a button.
+// Reading a tune takes a moment: the next ones are read ahead, so that a level starts with its music.
 //
 // The effects are made on the spot: each is a few layers (a low body, a crack of noise, something
 // wet), sent through a compressor and, for a share, through the echo of a stone hall.
@@ -29,6 +30,8 @@ export class Sound {
   private asked = false;
   private on = true;
   private hushed = false;
+  private reader: BaseAudioContext | null = null;                     // reads the tunes before sound is allowed
+  private readonly reading = new Map<string, Promise<AudioBuffer>>();  // the tunes read, or being read
 
   get musicPlaying(): boolean { return this.gain !== null && this.ac !== null && this.ac.state === 'running'; }
   get musicOn(): boolean { return this.on; }
@@ -93,14 +96,39 @@ export class Sound {
     air.start(); swell.start();
   }
 
-  private startMusic(): void {
-    const ac = this.ac, tune = this.tune, data = (globalThis as any).MUSIC?.[tune] as string | undefined;
-    if (!ac || this.asked || !data) return;
-    this.asked = true;
+  /**
+   * Reads these tunes now, in the background, so that they play at once when their level starts.
+   * Only they and the tune playing are kept: a tune read is some twenty megabytes.
+   */
+  preload(names: readonly string[]): void {
+    for (const name of [...this.reading.keys()]) if (name !== this.tune && !names.includes(name)) this.reading.delete(name);
+    for (const name of names) void this.read(name)?.catch(() => {});
+  }
+
+  // A tune, read once: from the text the page carries to sound the browser can play.
+  private read(name: string): Promise<AudioBuffer> | null {
+    const known = this.reading.get(name);
+    if (known) return known;
+    const data = (globalThis as any).MUSIC?.[name] as string | undefined;
+    if (!data) return null;
+    let ctx: BaseAudioContext | null = this.ac ?? this.reader;
+    if (!ctx) { try { ctx = this.reader = new OfflineAudioContext(2, 1, 44100); } catch { return null; } }
     const raw = atob(data), bytes = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-    ac.decodeAudioData(bytes.buffer).then(buffer => {
-      if (tune !== this.tune) return;                    // the level changed while the tune was being read
+    const reading = ctx.decodeAudioData(bytes.buffer);
+    reading.catch(() => this.reading.delete(name));
+    this.reading.set(name, reading);
+    return reading;
+  }
+
+  private startMusic(): void {
+    const ac = this.ac, tune = this.tune;
+    if (!ac || this.asked) return;
+    const reading = this.read(tune);
+    if (!reading) return;
+    this.asked = true;
+    reading.then(buffer => {
+      if (tune !== this.tune || this.gain) return;       // the level changed while the tune was being read
       const source = ac.createBufferSource();
       this.source = source;
       source.buffer = buffer; source.loop = true;
@@ -259,6 +287,45 @@ export class Sound {
           this.hiss('lowpass', f, 55, { at: 0.3 + i * 0.38 + Math.random() * 0.2, dur: 0.9 + Math.random() * 0.7, vol: 0.5 - i * 0.07, hall: 0.7 });
         }
         this.tone('sine', 52, 28, { dur: 2.4, vol: 0.45, hall: 0.3 });
+        break;
+      case 'bell':
+        // The great bell: a deep strike, its partials dying one after another, and the stone humming.
+        this.duck(1.6);
+        this.tone('sine', 73.4, 73.4, { dur: 3.2, vol: 0.55, hall: 0.6 });
+        this.tone('sine', 146.8 * 1.002, 146.8, { dur: 2.4, vol: 0.32, hall: 0.6 });
+        this.tone('sine', 174.6, 174.6, { dur: 1.8, vol: 0.18, hall: 0.6 });                 // the minor third that makes it grieve
+        this.tone('sine', 220.2, 220.2, { dur: 1.4, vol: 0.16, hall: 0.6 });
+        this.tone('sine', 293.7 * 1.41, 293.7 * 1.41, { dur: 0.9, vol: 0.1, hall: 0.7 });
+        this.hiss('bandpass', 2400, 1600, { dur: 0.05, vol: 0.3, hall: 0.6 }, 3);          // the clapper on the bronze
+        break;
+      case 'roar':
+        this.duck(0.8);
+        this.tone('sawtooth', 120, 62, { dur: 0.9, vol: 0.22, hall: 0.5 }, 9);
+        this.tone('sawtooth', 181, 90, { dur: 0.8, vol: 0.12, hall: 0.5 }, 13);
+        this.hiss('bandpass', 700, 260, { dur: 0.85, vol: 0.4, hall: 0.5 }, 1.2);
+        this.tone('sine', 55, 38, { dur: 0.9, vol: 0.45, hall: 0.3 });
+        break;
+      case 'breath':
+        // Fire that pours out: a long rush, a crackle in it.
+        this.duck(0.7);
+        this.hiss('bandpass', 1800, 500, { dur: 0.7, vol: 0.55, hall: 0.45 }, 0.8);
+        this.hiss('lowpass', 900, 200, { dur: 0.75, vol: 0.45, hall: 0.4 });
+        this.splatter(6, 0.6, 0.18);
+        this.tone('sawtooth', 70, 48, { dur: 0.6, vol: 0.12, hall: 0.3 });
+        break;
+      case 'slam':
+        this.duck(0.8);
+        this.tone('sine', 90, 28, { dur: 0.7, vol: 0.95, hall: 0.35 });
+        this.hiss('lowpass', 2200, 120, { dur: 0.55, vol: 0.6, hall: 0.5 });
+        this.hiss('highpass', 3000, 1800, { dur: 0.05, vol: 0.4, hall: 0.4 });
+        break;
+      case 'bones':
+        // Dry bones, falling apart: a few hollow knocks.
+        for (let i = 0; i < 6; i++) {
+          const at = i * 0.035 + Math.random() * 0.02, f = 700 + Math.random() * 900;
+          this.tone('triangle', f, f * 0.7, { at, dur: 0.05, vol: 0.22, hall: 0.3 });
+        }
+        this.hiss('bandpass', 2600, 1200, { dur: 0.12, vol: 0.2, hall: 0.3 }, 2);
         break;
       case 'win':
         this.duck(1.2);

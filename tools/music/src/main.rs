@@ -8,6 +8,7 @@
 //!        music measure <file.wav>   prints the level and the seam of a 16-bit stereo WAV
 
 mod crypte;
+mod demon;
 mod mix;
 mod nef;
 mod score;
@@ -31,6 +32,7 @@ fn tunes() -> Vec<Tune> {
     vec![
         Tune { name: nef::NAME, about: nef::ABOUT, time: nef::time(), sections: nef::SECTIONS, mix: nef::mix },
         Tune { name: crypte::NAME, about: crypte::ABOUT, time: crypte::time(), sections: crypte::SECTIONS, mix: crypte::mix },
+        Tune { name: demon::NAME, about: demon::ABOUT, time: demon::time(), sections: demon::SECTIONS, mix: demon::mix },
     ]
 }
 

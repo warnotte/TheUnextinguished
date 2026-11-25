@@ -16,6 +16,10 @@
     asked = false;
     on = true;
     hushed = false;
+    reader = null;
+    // reads the tunes before sound is allowed
+    reading = /* @__PURE__ */ new Map();
+    // the tunes read, or being read
     get musicPlaying() {
       return this.gain !== null && this.ac !== null && this.ac.state === "running";
     }
@@ -96,14 +100,44 @@
       air.start();
       swell.start();
     }
-    startMusic() {
-      const ac = this.ac, tune = this.tune, data = globalThis.MUSIC?.[tune];
-      if (!ac || this.asked || !data) return;
-      this.asked = true;
+    /**
+     * Reads these tunes now, in the background, so that they play at once when their level starts.
+     * Only they and the tune playing are kept: a tune read is some twenty megabytes.
+     */
+    preload(names) {
+      for (const name2 of [...this.reading.keys()]) if (name2 !== this.tune && !names.includes(name2)) this.reading.delete(name2);
+      for (const name2 of names) void this.read(name2)?.catch(() => {
+      });
+    }
+    // A tune, read once: from the text the page carries to sound the browser can play.
+    read(name2) {
+      const known = this.reading.get(name2);
+      if (known) return known;
+      const data = globalThis.MUSIC?.[name2];
+      if (!data) return null;
+      let ctx = this.ac ?? this.reader;
+      if (!ctx) {
+        try {
+          ctx = this.reader = new OfflineAudioContext(2, 1, 44100);
+        } catch {
+          return null;
+        }
+      }
       const raw = atob(data), bytes = new Uint8Array(raw.length);
       for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-      ac.decodeAudioData(bytes.buffer).then((buffer) => {
-        if (tune !== this.tune) return;
+      const reading = ctx.decodeAudioData(bytes.buffer);
+      reading.catch(() => this.reading.delete(name2));
+      this.reading.set(name2, reading);
+      return reading;
+    }
+    startMusic() {
+      const ac = this.ac, tune = this.tune;
+      if (!ac || this.asked) return;
+      const reading = this.read(tune);
+      if (!reading) return;
+      this.asked = true;
+      reading.then((buffer) => {
+        if (tune !== this.tune || this.gain) return;
         const source = ac.createBufferSource();
         this.source = source;
         source.buffer = buffer;
@@ -291,6 +325,42 @@
           }
           this.tone("sine", 52, 28, { dur: 2.4, vol: 0.45, hall: 0.3 });
           break;
+        case "bell":
+          this.duck(1.6);
+          this.tone("sine", 73.4, 73.4, { dur: 3.2, vol: 0.55, hall: 0.6 });
+          this.tone("sine", 146.8 * 1.002, 146.8, { dur: 2.4, vol: 0.32, hall: 0.6 });
+          this.tone("sine", 174.6, 174.6, { dur: 1.8, vol: 0.18, hall: 0.6 });
+          this.tone("sine", 220.2, 220.2, { dur: 1.4, vol: 0.16, hall: 0.6 });
+          this.tone("sine", 293.7 * 1.41, 293.7 * 1.41, { dur: 0.9, vol: 0.1, hall: 0.7 });
+          this.hiss("bandpass", 2400, 1600, { dur: 0.05, vol: 0.3, hall: 0.6 }, 3);
+          break;
+        case "roar":
+          this.duck(0.8);
+          this.tone("sawtooth", 120, 62, { dur: 0.9, vol: 0.22, hall: 0.5 }, 9);
+          this.tone("sawtooth", 181, 90, { dur: 0.8, vol: 0.12, hall: 0.5 }, 13);
+          this.hiss("bandpass", 700, 260, { dur: 0.85, vol: 0.4, hall: 0.5 }, 1.2);
+          this.tone("sine", 55, 38, { dur: 0.9, vol: 0.45, hall: 0.3 });
+          break;
+        case "breath":
+          this.duck(0.7);
+          this.hiss("bandpass", 1800, 500, { dur: 0.7, vol: 0.55, hall: 0.45 }, 0.8);
+          this.hiss("lowpass", 900, 200, { dur: 0.75, vol: 0.45, hall: 0.4 });
+          this.splatter(6, 0.6, 0.18);
+          this.tone("sawtooth", 70, 48, { dur: 0.6, vol: 0.12, hall: 0.3 });
+          break;
+        case "slam":
+          this.duck(0.8);
+          this.tone("sine", 90, 28, { dur: 0.7, vol: 0.95, hall: 0.35 });
+          this.hiss("lowpass", 2200, 120, { dur: 0.55, vol: 0.6, hall: 0.5 });
+          this.hiss("highpass", 3e3, 1800, { dur: 0.05, vol: 0.4, hall: 0.4 });
+          break;
+        case "bones":
+          for (let i = 0; i < 6; i++) {
+            const at = i * 0.035 + Math.random() * 0.02, f = 700 + Math.random() * 900;
+            this.tone("triangle", f, f * 0.7, { at, dur: 0.05, vol: 0.22, hall: 0.3 });
+          }
+          this.hiss("bandpass", 2600, 1200, { dur: 0.12, vol: 0.2, hall: 0.3 }, 2);
+          break;
         case "win":
           this.duck(1.2);
           [587.3, 740, 880, 1174.7].forEach((f, i) => {
@@ -307,11 +377,13 @@
   function afterWin(index, count) {
     return index + 1 < count ? index + 1 : "end";
   }
-  function wonWords(index, count) {
-    if (index + 1 < count) return { title: "ROOM CLEARED", lines: ["PRESS JUMP FOR THE NEXT ROOM"] };
-    return { title: "ROOM CLEARED", lines: ["PRESS JUMP TO GO ON"] };
+  function wonWords(index, count, boss = false) {
+    const title = boss ? "DEMON SLAIN" : "ROOM CLEARED";
+    if (index + 1 < count) return { title, lines: ["PRESS JUMP FOR THE NEXT ROOM"] };
+    return { title, lines: ["PRESS JUMP TO GO ON"] };
   }
-  function openingWords(title) {
+  function openingWords(title, boss = false) {
+    if (boss) return [title, "SLAY THE DEMON", "ITS SKELETONS CARRY EMBERS", "ONLY A FLAMING CHARGE ENDS IT"];
     return [title, "COLLECT THE EMBERS", "THEN REACH THE DOOR"];
   }
   function firstLevel(search, count) {
@@ -435,6 +507,9 @@
     hero: { role: "spawn", actor: "hero" },
     shade: { role: "spawn", actor: "shade" },
     ghoul: { role: "spawn", actor: "ghoul" },
+    demon: { role: "spawn", actor: "demon" },
+    grave: { role: "grave" },
+    bell: { role: "bell" },
     ember: { role: "ember" },
     door: { role: "door" },
     window: { role: "decor", plane: "wall", image: "back", src: [0, 0, 160, 192], anchor: [80, 192], lights: [{ dx: 0, dy: -96, radius: 86, strength: 0.7, flicker: 0, color: MOON }], shaft: true },
@@ -449,6 +524,7 @@
   };
   var KIND_NAMES = new Set(Object.keys(KINDS));
   var CHURCH = "gothicvania-church/";
+  var CEMETERY = "gothicvania-cemetery/";
   var MONK_FRAMES = [
     "idle1",
     "idle2",
@@ -496,7 +572,14 @@
     ...Object.fromEntries(MONK_FRAMES.map((n) => ["monk/" + n, `${CHURCH}player/${n}.png`])),
     ...Object.fromEntries(range(1, 8).map((i) => ["ghoul/" + i, `${CHURCH}ghoul/burning-ghoul${i}.png`])),
     ...Object.fromEntries(range(2, 8).map((i) => ["death/" + i, `${CHURCH}fx/enemy-death${i}.png`])),
-    ...Object.fromEntries(range(1, 3).map((i) => ["orb/" + i, `${CHURCH}fx/fireball${i}.png`]))
+    ...Object.fromEntries(range(1, 3).map((i) => ["orb/" + i, `${CHURCH}fx/fireball${i}.png`])),
+    // The skeletons of the cemetery pack: bare (0) or in rags (1), walking and coming out of the ground.
+    ...Object.fromEntries([0, 1].flatMap((look) => range(1, 8).map((i) => [`skeleton/${look}/${i}`, `${CEMETERY}skeleton/skeleton${look ? "-clothed" : ""}-${i}.png`]))),
+    ...Object.fromEntries([0, 1].flatMap((look) => range(1, 6).map((i) => [`skeleton-rise/${look}/${i}`, `${CEMETERY}skeleton/skeleton-rise${look ? "-clothed" : ""}-${i}.png`])))
+  };
+  var STRIPS = {
+    "demon/idle": { file: "gothicvania-patreon/demon/demon-idle.png", w: 160, h: 144, frames: 6, footX: 61, footY: 126 },
+    "demon/attack": { file: "gothicvania-patreon/demon/demon-attack.png", w: 240, h: 192, frames: 11, footX: 135, footY: 166 }
   };
   var sheet = (name2, frames, w, h, px, py, cols) => ({ file: `pixelfx/${name2}.png`, fps: 30, frames, w, h, px, py, cols });
   var SHEETS = {
@@ -686,23 +769,25 @@
   // src/sim/actor.ts
   var ACTOR_W = 14;
   var ACTOR_H = 40;
+  var SIZE = { skeleton: [16, 44], demon: [48, 92] };
   var MAX_HP = 6;
-  function makeActor(kind, centreX, feetY) {
+  function makeActor(kind, centreX2, feetY2) {
+    const [w, h] = SIZE[kind] ?? [ACTOR_W, ACTOR_H];
     return {
       kind,
-      x: centreX - ACTOR_W / 2,
-      y: feetY - ACTOR_H,
-      w: ACTOR_W,
-      h: ACTOR_H,
+      x: centreX2 - w / 2,
+      y: feetY2 - h,
+      w,
+      h,
       vx: 0,
       vy: 0,
       facing: 1,
       onGround: true,
       climbing: false,
       blocked: false,
-      lastFloor: Math.round(feetY / TILE),
-      spawnX: centreX,
-      spawnY: feetY,
+      lastFloor: Math.round(feetY2 / TILE),
+      spawnX: centreX2,
+      spawnY: feetY2,
       animT: 0,
       attackT: 0,
       attackKind: "punch",
@@ -737,9 +822,13 @@
       gore: 0,
       bleed: 0,
       bleedDir: 1,
-      bleedTick: 0
+      bleedTick: 0,
+      rise: 0,
+      look: 0
     };
   }
+  var centreX = (a) => a.x + a.w / 2;
+  var feetY = (a) => a.y + a.h;
 
   // src/sim/movement.ts
   var NO_CONTROLS = { x: 0, up: false, down: false, jump: false, jumpPressed: false, attackPressed: false, guard: false, specialPressed: false };
@@ -877,6 +966,236 @@
       else emit({ type: "dust", x, y, count: 5 });
       if (a.kind === "hero") emit({ type: "sound", name: "land" });
     }
+  }
+
+  // src/sim/demon.ts
+  var BELL = {
+    first: 4,
+    // seconds before the first toll
+    every: 11,
+    // seconds between two tolls
+    fast: 7,
+    // ... once the demon is enraged
+    most: 3,
+    // skeletons standing at once, at most
+    clear: 72
+    // px: no skeleton comes out of a grave this close to the hero
+  };
+  var SKELETON = {
+    rise: 1,
+    // seconds to come out of the ground
+    soft: 0.5,
+    // seconds of rising left when it can first be struck
+    speed: 52,
+    hurt: 1
+  };
+  var DEMON = {
+    hp: 44,
+    w: 48,
+    h: 92,
+    speed: 46,
+    fast: 72,
+    // px a second, drifting towards the hero
+    near: 110,
+    // px: it drifts no closer than this
+    back: 52,
+    // px: a hero closer than this, it glides away from, to have room for its fire
+    rest: 1.4,
+    restFast: 0.9,
+    // seconds between two attacks
+    pressure: { limit: 4, fade: 1 },
+    // the damage that makes it answer at once with its wings, and how fast it forgets it (a second)
+    start: 1.5,
+    // seconds it waits when the room opens
+    buffet: { near: 64, time: 0.6, at: 0.35, reach: 60, damage: 1 },
+    // its wings rise for a moment before they strike: time to guard
+    breath: { range: 230, windup: 0.65, time: 0.6, from: -6, reach: 136, height: 60, turn: 0.35 },
+    // from its middle: no shelter against its body;
+    // `turn`: the short windup of a second breath, enraged
+    burn: 2,
+    // what the breath costs the hero: the guard does not stop fire
+    swoop: { up: 0.5, mark: 0.9, follow: 0.4, fall: 0.14, wave: 80 },
+    slam: 2,
+    // what its landing costs a hero on the ground near it
+    wave: { speed: 210, life: 1.7, half: 7, height: 16, damage: 1 },
+    // enraged, its landing sends fire along the floor, each way
+    dying: 2.4
+    // seconds it burns before the room is won
+  };
+  function makeDemon(body) {
+    return { body, phase: "wait", t: 0, rest: 0.6, floor: feetY(body), markX: centreX(body), landY: feetY(body), hit: false, enraged: false, pressure: 0, again: false, waves: [] };
+  }
+  function demonTouchable(d) {
+    return d.phase !== "rise" && d.phase !== "mark" && d.phase !== "fall" && d.phase !== "dying" && d.phase !== "gone";
+  }
+  var overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  function breathBox(d) {
+    const b = d.body, s = DEMON.breath, front = b.facing > 0 ? centreX(b) + s.from : centreX(b) - s.from - s.reach;
+    return { x: front, y: d.floor - s.height, w: s.reach, h: s.height };
+  }
+  function buffetBox(d) {
+    const b = d.body, r = DEMON.buffet.reach;
+    return { x: b.x - r, y: b.y, w: b.w + 2 * r, h: b.h };
+  }
+  var go = (d, phase) => {
+    d.phase = phase;
+    d.t = 0;
+    d.hit = false;
+  };
+  var settle = (d) => {
+    go(d, "drift");
+    d.rest = d.enraged ? DEMON.restFast : DEMON.rest;
+  };
+  var keepIn = (x, a, w) => Math.max(TILE + w / 2, Math.min(a.width - TILE - w / 2, x));
+  function stepDemon(d, a, dt) {
+    const b = d.body, hero = a.hero;
+    d.t += dt;
+    b.animT += dt;
+    b.invul = Math.max(0, b.invul - dt);
+    b.hurtT = Math.max(0, b.hurtT - dt);
+    d.pressure = Math.max(0, d.pressure - DEMON.pressure.fade * dt);
+    for (const v of d.waves) {
+      v.x += v.dir * DEMON.wave.speed * dt;
+      v.t += dt;
+      const box = { x: v.x - DEMON.wave.half, y: v.y - DEMON.wave.height, w: DEMON.wave.half * 2, h: DEMON.wave.height };
+      if (!v.hit && a.playing && overlap(box, hero)) v.hit = a.hurt(v.dir, DEMON.wave.damage, true);
+    }
+    d.waves = d.waves.filter((v) => v.t < DEMON.wave.life && v.x > TILE && v.x < a.width - TILE && d.phase !== "dying" && d.phase !== "gone");
+    switch (d.phase) {
+      case "wait":
+        if (d.t >= DEMON.start) go(d, "drift");
+        break;
+      case "drift": {
+        const dx = centreX(hero) - centreX(b), adx = Math.abs(dx), speed = d.enraged ? DEMON.fast : DEMON.speed;
+        if (adx > 2) b.facing = dx > 0 ? 1 : -1;
+        if (adx > DEMON.near) b.x = keepIn(centreX(b) + b.facing * speed * dt, a, b.w) - b.w / 2;
+        else if (adx < DEMON.back) b.x = keepIn(centreX(b) - b.facing * speed * 1.4 * dt, a, b.w) - b.w / 2;
+        d.rest -= dt;
+        if (a.playing && d.pressure >= DEMON.pressure.limit && adx < DEMON.buffet.near) {
+          d.pressure = 0;
+          go(d, "buffet");
+          a.emit({ type: "sound", name: "swing" });
+        } else if (d.rest <= 0 && a.playing) choose(d, a);
+        break;
+      }
+      case "windup":
+        if (d.t >= DEMON.breath.windup) {
+          go(d, "breath");
+          a.emit({ type: "sound", name: "breath" });
+        }
+        break;
+      case "breath":
+        if (!d.hit && a.playing && overlap(breathBox(d), hero)) d.hit = a.hurt(b.facing, DEMON.burn, true);
+        if (d.t >= DEMON.breath.time) {
+          const behind = Math.sign(centreX(hero) - centreX(b)) === -b.facing;
+          if (d.enraged && !d.again && behind && a.playing) {
+            b.facing = b.facing > 0 ? -1 : 1;
+            go(d, "windup");
+            d.t = DEMON.breath.windup - DEMON.breath.turn;
+            d.again = true;
+            a.emit({ type: "sound", name: "roar" });
+          } else {
+            d.again = false;
+            settle(d);
+          }
+        }
+        break;
+      case "buffet":
+        if (!d.hit && d.t >= DEMON.buffet.at && a.playing && overlap(buffetBox(d), hero)) d.hit = a.hurt(centreX(hero) >= centreX(b) ? 1 : -1, DEMON.buffet.damage, false);
+        if (d.t >= DEMON.buffet.time) settle(d);
+        break;
+      case "rise":
+        b.y -= 900 * dt;
+        if (d.t >= DEMON.swoop.up) {
+          b.y = -b.h - 40;
+          go(d, "mark");
+        }
+        break;
+      case "mark":
+        if (d.t <= DEMON.swoop.follow) {
+          d.markX = keepIn(centreX(hero), a, b.w);
+          d.landY = hero.lastFloor * TILE;
+        }
+        if (d.t >= DEMON.swoop.mark) go(d, "fall");
+        break;
+      case "fall": {
+        const k = Math.min(1, d.t / DEMON.swoop.fall);
+        b.x = d.markX - b.w / 2;
+        b.y = -b.h - 40 + (d.landY + 40) * k;
+        if (k >= 1) land(d, a);
+        break;
+      }
+      case "dying":
+        if (Math.random() < dt * 14) a.emit({ type: "flame", x: b.x + Math.random() * b.w, y: b.y + 20 + Math.random() * (b.h - 20), dir: Math.random() < 0.5 ? 1 : -1 });
+        if (d.t >= DEMON.dying) {
+          go(d, "gone");
+          a.emit({ type: "effect", kind: "death", x: centreX(b), y: feetY(b), flip: false });
+        }
+        break;
+      case "dazed": {
+        const bottom = d.floor - b.h;
+        if (b.y < bottom) {
+          b.y = Math.min(bottom, b.y + 700 * dt);
+          if (b.y === bottom) {
+            a.shake(0.25);
+            a.emit({ type: "dust", x: centreX(b), y: d.floor, count: 18 });
+            a.emit({ type: "sound", name: "slam" });
+          }
+        } else b.y = bottom;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  function choose(d, a) {
+    const b = d.body, hero = a.hero;
+    const adx = Math.abs(centreX(hero) - centreX(b)), level = Math.abs(hero.lastFloor * TILE - d.floor) < 8;
+    if (level && adx < DEMON.buffet.near) {
+      go(d, "buffet");
+      a.emit({ type: "sound", name: "swing" });
+    } else if (level && adx < DEMON.breath.range) {
+      go(d, "windup");
+      a.emit({ type: "sound", name: "roar" });
+    } else go(d, "rise");
+  }
+  function land(d, a) {
+    const b = d.body, hero = a.hero;
+    b.y = d.landY - b.h;
+    d.floor = d.landY;
+    b.lastFloor = Math.round(d.landY / TILE);
+    a.shake(0.35);
+    a.emit({ type: "effect", kind: "heavy-landing", x: d.markX, y: d.landY, flip: false });
+    a.emit({ type: "dust", x: d.markX, y: d.landY, count: 26 });
+    a.emit({ type: "sound", name: "slam" });
+    const dx = centreX(hero) - d.markX;
+    if (a.playing && hero.onGround && Math.abs(feetY(hero) - d.landY) < 6 && Math.abs(dx) < DEMON.swoop.wave) a.hurt(dx >= 0 ? 1 : -1, DEMON.slam, true);
+    if (d.enraged) for (const dir of [-1, 1]) d.waves.push({ x: d.markX + dir * 20, y: d.landY, dir, t: 0, hit: false });
+    settle(d);
+  }
+  function stepSkeleton(e, hero, grid, dt, playing, emit) {
+    if (e.dead > 0) return;
+    e.invul = Math.max(0, e.invul - dt);
+    if (e.rise > 0) {
+      e.rise = Math.max(0, e.rise - dt);
+      return;
+    }
+    let speed = 0;
+    if (playing) {
+      const middle = centreX(e), d = centreX(hero) - middle;
+      const chasing = hero.lastFloor === e.lastFloor;
+      if (chasing && Math.abs(d) > 2) e.facing = d > 0 ? 1 : -1;
+      const ahead = !e.onGround || grid.floorAt(Math.floor((middle + e.facing * 8) / TILE), e.lastFloor);
+      if (chasing) speed = ahead && Math.abs(d) > 2 ? SKELETON.speed : 0;
+      else {
+        if (e.blocked || !ahead) e.facing = e.facing > 0 ? -1 : 1;
+        speed = SKELETON.speed;
+      }
+    }
+    e.vx = e.facing * speed;
+    e.vy = Math.min(TUNING.maxFall, e.vy + TUNING.gravity * dt);
+    move(e, grid, dt, emit);
+    if (speed) e.animT += dt;
   }
 
   // src/sim/ghoul.ts
@@ -1027,7 +1346,7 @@
   var GUARD_PUSH = 150;
   var GUARD_SAFE = 0.3;
   var KNOCK = { near: { vx: 110, vy: 120, stun: 0.6 }, far: { vx: 350, vy: 300, stun: 1 } };
-  var overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  var overlap2 = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   var World = class {
     constructor(level) {
       this.level = level;
@@ -1039,17 +1358,39 @@
         if (kind.role === "spawn") {
           const actor = makeActor(kind.actor, o.x, o.y);
           if (kind.actor === "hero") hero = actor;
-          else {
+          else if (kind.actor === "demon") {
+            actor.hp = DEMON.hp;
+            this.boss = makeDemon(actor);
+            this.foes.push(actor);
+          } else {
             if (kind.actor === "shade") actor.cool = START_GRACE;
             else actor.invul = START_GRACE;
             this.foes.push(actor);
           }
         } else if (kind.role === "ember") this.embers.push({ x: o.x, y: o.y, taken: false });
         else if (kind.role === "door") this.door = { x: o.x - DOOR_W / 2, y: o.y - DOOR_H, w: DOOR_W, h: DOOR_H };
+        else if (kind.role === "grave") this.graves.push({ x: o.x, y: o.y });
       }
       if (!hero) throw new Error(`level "${level.settings.name}" has no hero`);
       this.hero = hero;
       this.wasOpen = this.doorOpen;
+      const world = this;
+      this.arena = {
+        hero,
+        width: level.width,
+        emit: this.emit,
+        get playing() {
+          return world.state === "play";
+        },
+        hurt: (dir, damage, unblockable) => {
+          if (hero.invul > 0 || world.state !== "play") return false;
+          world.hurtHero(dir, damage, unblockable);
+          return true;
+        },
+        shake: (seconds) => {
+          world.shake = Math.max(world.shake, seconds);
+        }
+      };
     }
     level;
     grid;
@@ -1069,6 +1410,13 @@
     // blood thrown, his and theirs, in the units of the blood events
     invincible = false;
     // the cheat: no blow harms the hero
+    boss = null;
+    // the demon of the bell chamber, when the level has one
+    graves = [];
+    bellT = BELL.first;
+    risen = 0;
+    // skeletons raised so far: every other one wears rags
+    arena;
     events = [];
     doorChime = -1;
     // seconds until the door is heard opening, -1 when not waiting
@@ -1100,17 +1448,20 @@
           this.stepHero(controls);
         }
         for (const foe of this.foes) this.stepFoe(foe);
-        if (this.state === "play") this.stepItems();
+        if (this.state === "play") {
+          this.stepItems();
+          this.stepBell();
+        }
       }
       const out = this.events;
       this.events = [];
       return out;
     }
     /** The hero takes a blow coming from the given side. */
-    hurtHero(dir, damage = HIT.shade) {
+    hurtHero(dir, damage = HIT.shade, unblockable = false) {
       const p = this.hero;
       if (this.state !== "play" || p.charge > 0) return;
-      if (p.guard && dir === -p.facing) {
+      if (p.guard && dir === -p.facing && !unblockable) {
         p.invul = GUARD_SAFE;
         p.vx = dir * GUARD_PUSH;
         this.hitStop = 0.05;
@@ -1197,7 +1548,7 @@
         p.sinceAttack = 0;
         this.struck.clear();
         if (!p.attackAir) {
-          if (p.attackKind !== "punch" && !this.foes.some((f) => f.ko <= 0 && f.dead <= 0 && overlap(this.reach(p), f))) p.vx = p.facing * LUNGE;
+          if (p.attackKind !== "punch" && !this.foes.some((f) => f.ko <= 0 && f.dead <= 0 && overlap2(this.reach(p), f))) p.vx = p.facing * LUNGE;
           this.warn(p);
         }
         this.emit({ type: "sound", name: "swing" });
@@ -1211,7 +1562,7 @@
         if (since > s.from && since < s.to) {
           const box = this.reach(p);
           for (const foe of this.foes) {
-            if (this.struck.has(foe) || !this.canBeHit(foe) || !overlap(box, foe)) continue;
+            if (this.struck.has(foe) || !this.canBeHit(foe) || !overlap2(box, foe)) continue;
             this.struck.add(foe);
             this.strikeFoe(foe, p.facing, s);
           }
@@ -1232,7 +1583,7 @@
       }
       const box = { x: p.facing > 0 ? p.x : p.x - CHARGE.reach, y: p.y, w: p.w + CHARGE.reach, h: p.h };
       for (const foe of this.foes) {
-        if (this.struck.has(foe) || foe.ko > 0 || foe.dead > 0 || !overlap(box, foe)) continue;
+        if (this.struck.has(foe) || foe.ko > 0 || foe.dead > 0 || !this.touchable(foe) || !overlap2(box, foe)) continue;
         this.struck.add(foe);
         this.strikeFoe(foe, p.facing, CHARGE_BLOW);
       }
@@ -1280,11 +1631,25 @@
       return STRIKES[p.attackAir ? "flying" : p.attackKind];
     }
     canBeHit(f) {
-      return f.ko <= 0 && f.dead <= 0 && f.invul <= 0;
+      return f.ko <= 0 && f.dead <= 0 && f.invul <= 0 && this.touchable(f);
+    }
+    // A skeleton half out of the ground can be struck; the demon not while it is in the air.
+    touchable(f) {
+      if (f.kind === "skeleton") return f.rise <= SKELETON.soft;
+      if (f.kind === "demon") return !!this.boss && demonTouchable(this.boss);
+      return true;
     }
     strikeFoe(e, dir, blow) {
       this.hero.attackHit = true;
       const x = e.x + e.w / 2, y = e.y + e.h, heavy = blow.heavy;
+      if (e.kind === "skeleton") {
+        this.breakSkeleton(e);
+        return;
+      }
+      if (e.kind === "demon" && this.boss) {
+        this.strikeDemon(this.boss, dir, blow);
+        return;
+      }
       if (e.kind === "ghoul") {
         e.dead = 6;
         e.vx = 0;
@@ -1352,9 +1717,24 @@
     }
     stepFoe(e) {
       const p = this.hero, playing = this.state === "play";
+      if (e.kind === "skeleton") {
+        stepSkeleton(e, p, this.grid, STEP, playing, this.emit);
+        if (playing && e.dead <= 0 && e.rise <= 0 && p.invul <= 0 && overlap2(e, p)) this.hurtHero(centreX(p) >= centreX(e) ? 1 : -1, SKELETON.hurt);
+        return;
+      }
+      if (e.kind === "demon") {
+        const d = this.boss;
+        stepDemon(d, this.arena, STEP);
+        this.trickle(e);
+        if (d.phase === "gone" && this.state === "play") {
+          this.state = "won";
+          this.emit({ type: "sound", name: "win" });
+        }
+        return;
+      }
       if (e.kind === "ghoul") {
         stepGhoul(e, p, this.grid, STEP, playing, this.emit);
-        if (playing && e.dead <= 0 && e.invul <= 0 && p.invul <= 0 && overlap(e, p)) this.hurtHero(p.x + p.w / 2 >= e.x + e.w / 2 ? 1 : -1, HIT.ghoul);
+        if (playing && e.dead <= 0 && e.invul <= 0 && p.invul <= 0 && overlap2(e, p)) this.hurtHero(p.x + p.w / 2 >= e.x + e.w / 2 ? 1 : -1, HIT.ghoul);
         return;
       }
       e.guardT = Math.max(0, e.guardT - STEP);
@@ -1393,7 +1773,7 @@
       } else if (e.strike > 0) {
         e.strike -= STEP;
         const box = { x: e.facing > 0 ? e.x + e.w : e.x - SHADE_REACH, y: e.y + 6, w: SHADE_REACH, h: 22 };
-        if (!e.struck && p.invul <= 0 && playing && overlap(box, p)) {
+        if (!e.struck && p.invul <= 0 && playing && overlap2(box, p)) {
           e.struck = true;
           this.hurtHero(e.facing);
         }
@@ -1414,7 +1794,7 @@
     stepItems() {
       const p = this.hero;
       for (const m of this.embers) {
-        if (m.taken || !overlap({ x: m.x - EMBER_REACH, y: m.y - EMBER_REACH, w: EMBER_REACH * 2, h: EMBER_REACH * 2 }, p)) continue;
+        if (m.taken || !overlap2({ x: m.x - EMBER_REACH, y: m.y - EMBER_REACH, w: EMBER_REACH * 2, h: EMBER_REACH * 2 }, p)) continue;
         m.taken = true;
         this.emit({ type: "effect", kind: "collect-burst", x: m.x, y: m.y + EMBER_BURST_DROP, flip: false });
         this.emit({ type: "sound", name: "ember" });
@@ -1426,11 +1806,105 @@
         this.doorChime -= STEP;
         if (this.doorChime < 0) this.emit({ type: "sound", name: "door" });
       }
-      const reached = this.door ? overlap(this.door, p) && p.onGround : this.embers.length > 0;
-      if (this.doorOpen && reached) {
+      const reached = this.door ? overlap2(this.door, p) && p.onGround : this.embers.length > 0;
+      if (!this.boss && this.doorOpen && reached) {
         this.state = "won";
         this.emit({ type: "sound", name: "win" });
       }
+    }
+    // ---- the bell chamber ------------------------------------------------------------------------------
+    // The great bell tolls now and then, while the demon lives, and the dead come out of their graves:
+    // never too many at once, and never under the hero's feet.
+    stepBell() {
+      if (!this.graves.length) return;
+      const d = this.boss;
+      if (d && (d.phase === "dying" || d.phase === "gone")) return;
+      if ((this.bellT -= STEP) > 0) return;
+      this.bellT = d?.enraged ? BELL.fast : BELL.every;
+      this.emit({ type: "toll" });
+      this.emit({ type: "sound", name: "bell" });
+      this.shake = Math.max(this.shake, 0.25);
+      this.foes = this.foes.filter((f) => !(f.kind === "skeleton" && f.dead > 0));
+      let room = BELL.most - this.foes.filter((f) => f.kind === "skeleton").length;
+      const hx = centreX(this.hero);
+      const spots = this.graves.filter((g2) => Math.abs(g2.x - hx) >= BELL.clear).sort((a, b) => Math.abs(b.x - hx) - Math.abs(a.x - hx));
+      for (const g2 of spots) {
+        if (room-- <= 0) break;
+        const s = makeActor("skeleton", g2.x, g2.y);
+        s.rise = SKELETON.rise;
+        s.look = this.risen++ % 2;
+        s.hp = 1;
+        s.facing = hx < g2.x ? -1 : 1;
+        this.foes.push(s);
+      }
+    }
+    // A skeleton falls apart at the first blow, and the ember it carried is the hero's.
+    breakSkeleton(e) {
+      const x = centreX(e), y = e.y + e.h;
+      e.dead = 1;
+      this.slain++;
+      this.spare++;
+      this.hitStop = 0.05;
+      this.shake = Math.max(this.shake, 0.12);
+      this.emit({ type: "effect", kind: "death", x, y, flip: false });
+      this.emit({ type: "effect", kind: "collect-burst", x, y: e.y + 12 + EMBER_BURST_DROP, flip: false });
+      this.emit({ type: "sound", name: "bones" });
+      this.emit({ type: "sound", name: "ember" });
+    }
+    // The demon is not thrown by a blow. At the end of its health it stands dazed, for good: then only a
+    // flaming charge ends it.
+    strikeDemon(d, dir, blow) {
+      const b = d.body, x = centreX(b), y = b.y + b.h * 0.6;
+      if (d.phase === "dazed") {
+        if (blow !== CHARGE_BLOW) {
+          this.hitStop = 0.03;
+          this.emit({ type: "effect", kind: "hit-spark", x: x - dir * 10, y, flip: dir < 0 });
+          this.emit({ type: "sound", name: "block" });
+          return;
+        }
+        d.phase = "dying";
+        d.t = 0;
+        this.slain++;
+        this.hitStop = 0.16;
+        this.shake = 0.6;
+        this.slow = SLOW;
+        this.bleed(b, dir, BLOOD.finish * 2, FINISH_CHUNKS * 2);
+        this.bleed(b, dir > 0 ? -1 : 1, BLOOD.back * 2, 0);
+        this.emit({ type: "effect", kind: "crit-hit", x, y, flip: dir < 0 });
+        this.emit({ type: "finisher", x, y: b.y + 30 });
+        this.emit({ type: "sound", name: "finish" });
+        this.emit({ type: "sound", name: "roar" });
+        for (const f of this.foes) if (f.kind === "skeleton" && f.dead <= 0) this.breakSkeleton(f);
+        return;
+      }
+      b.hp = Math.max(0, b.hp - blow.damage);
+      b.hurtT = 0.1;
+      d.pressure += blow.damage;
+      const heavy = blow.heavy;
+      this.hitStop = heavy ? 0.08 : 0.05;
+      this.shake = Math.max(this.shake, heavy ? 0.18 : 0.1);
+      this.emit({ type: "effect", kind: heavy ? "crit-hit" : "hit-spark", x: x - dir * 16, y, flip: dir < 0 });
+      this.bleed(b, dir, blow.blood, 0);
+      b.bleed = heavy ? BLEEDING.heavy : BLEEDING.light;
+      b.bleedDir = dir;
+      b.gore = Math.min(1, b.gore + (heavy ? 0.12 : 0.06));
+      this.hero.gore = Math.min(1, this.hero.gore + 0.04);
+      if (!d.enraged && b.hp <= DEMON.hp / 2) {
+        d.enraged = true;
+        this.emit({ type: "sound", name: "roar" });
+        this.shake = 0.3;
+      }
+      if (b.hp <= 0) {
+        d.phase = "dazed";
+        d.t = 0;
+        const col = Math.floor(centreX(b) / TILE);
+        for (let r = Math.round(d.floor / TILE); r < this.grid.rows; r++) if (this.grid.floorAt(col, r)) {
+          d.floor = r * TILE;
+          break;
+        }
+        b.lastFloor = Math.round(d.floor / TILE);
+        this.emit({ type: "sound", name: "daze" });
+      } else this.emit({ type: "sound", name: "hit" });
     }
   };
 
@@ -1532,8 +2006,23 @@
         const img = await load(base + s.file);
         sheets.set(name2, img);
         loaded.set("sheet:" + name2, img);
+      }),
+      ...Object.entries(STRIPS).map(async ([name2, s]) => {
+        const img = await load(base + s.file);
+        for (let i = 0; i < s.frames; i++) {
+          const c = document.createElement("canvas");
+          c.width = s.w;
+          c.height = s.h;
+          c.getContext("2d").drawImage(img, i * s.w, 0, s.w, s.h, 0, 0, s.w, s.h);
+          images.set(`${name2}/${i + 1}`, c);
+        }
       })
     ]);
+    for (const [name2, s] of Object.entries(STRIPS)) for (let i = 1; i <= s.frames; i++) {
+      const frame = images.get(`${name2}/${i}`);
+      images.set(`flash-${name2}/${i}`, washed(frame, "rgba(255,245,235,0.85)"));
+      images.set(`shadow-${name2}/${i}`, washed(frame, "#000"));
+    }
     for (const n of MONK_FRAMES) {
       const monk = loaded.get("monk/" + n);
       images.set("shade/" + n, washed(monk, "rgba(110,255,165,0.6)"));
@@ -1542,7 +2031,7 @@
       images.set("gore/" + n, blotched(monk, "rgba(150,8,14,0.92)"));
       images.set("shadow/" + n, washed(monk, "#000"));
     }
-    for (const key of Object.keys(IMAGES)) if (key.startsWith("ghoul/")) images.set("shadow-" + key, washed(loaded.get(key), "#000"));
+    for (const key of Object.keys(IMAGES)) if (key.startsWith("ghoul/") || key.startsWith("skeleton")) images.set("shadow-" + key, washed(loaded.get(key), "#000"));
     const torch = SHEETS.torch;
     sheets.set("torch", feathered(loaded.get("sheet:torch"), torch.w, torch.h, torch.cols, torch.frames));
     const get = (map, key, what) => {
@@ -2545,9 +3034,10 @@
     finisher() {
       this.finish = FINISH_WORDS;
     }
-    // The foe whose bar is shown: the nearest shade still standing.
+    // The foe whose bar is shown: the demon while it lives, or else the nearest shade still standing.
     rival() {
-      const p = this.world.hero;
+      const p = this.world.hero, boss = this.world.boss;
+      if (boss && boss.phase !== "gone" && boss.phase !== "dying") return boss.body;
       let best = null, bestD = Infinity;
       for (const f of this.world.foes) {
         if (f.kind !== "shade" || f.ko > 0) continue;
@@ -2571,7 +3061,7 @@
       if (foe) this.foeLag = Math.max(foe.hp, this.foeLag - DRAIN * dt);
     }
     // A bar that empties towards the middle of the screen; the pale part is what the last blow took.
-    bar(g2, x, hp, lag, fromRight, color, t, alarm) {
+    bar(g2, x, hp, lag, fromRight, color, t, alarm, max = MAX_HP) {
       const px = (bx, by, w, h, c) => {
         g2.fillStyle = c;
         g2.fillRect(bx, by, w, h);
@@ -2579,7 +3069,7 @@
       px(x - 2, BAR_Y - 2, BAR_W + 4, BAR_H + 4, "#0a0814");
       px(x - 1, BAR_Y - 1, BAR_W + 2, BAR_H + 2, alarm && Math.floor(t * 8) % 2 ? "#ffffff" : "#9a8fc0");
       px(x, BAR_Y, BAR_W, BAR_H, "#3a0d14");
-      const full = Math.round(BAR_W * hp / MAX_HP), pale = Math.round(BAR_W * lag / MAX_HP);
+      const full = Math.round(BAR_W * hp / max), pale = Math.round(BAR_W * lag / max);
       const start = (w) => fromRight ? x + BAR_W - w : x;
       px(start(pale), BAR_Y, pale, BAR_H, "#fff3d6");
       px(start(full), BAR_Y, full, BAR_H, color);
@@ -2604,13 +3094,14 @@
       if (w.invincible) text(g2, "INVINCIBLE", MARGIN2 + textWidth("MONK") + 12, BAR_Y + BAR_H + 5, "#ffe27a");
       const foe = this.foe;
       if (foe) {
-        const dazed = foe.dazed > 0, x = VIEW_W - MARGIN2 - BAR_W;
-        this.bar(g2, x, foe.hp, this.foeLag, true, "#6dff9a", t, dazed);
-        const label = dazed ? "DAZED" : "SHADE";
+        const demon = foe.kind === "demon", dazed = demon ? w.boss?.phase === "dazed" : foe.dazed > 0, x = VIEW_W - MARGIN2 - BAR_W;
+        this.bar(g2, x, foe.hp, this.foeLag, true, demon ? "#6fdcff" : "#6dff9a", t, dazed, demon ? DEMON.hp : MAX_HP);
+        const label = dazed ? "DAZED" : demon ? "DEMON" : "SHADE";
         text(g2, label, VIEW_W - MARGIN2 - textWidth(label), BAR_Y + BAR_H + 5, dazed && Math.floor(t * 6) % 2 ? "#ff5a3a" : "#e2d8f0");
       }
       const got = w.carried;
       if (w.embers.length) centered(g2, `EMBERS ${got}/${w.embers.length}`, VIEW_H - 20, w.doorOpen ? "#ffe27a" : "#e2d8f0");
+      else if (w.boss) centered(g2, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? "#ffe27a" : "#e2d8f0");
       const clock = clockText(w.clock);
       text(g2, clock, VIEW_W - MARGIN2 - textWidth(clock), VIEW_H - 20, "#e2d8f0");
       if (this.finish > 0) {
@@ -2643,6 +3134,8 @@
   var FIRE2 = ["#fff3c4", "#ffc93c", "#ff8a2a", "#e0401c"];
   var MONK_ANCHOR = 40;
   var GHOUL_ANCHOR = 28;
+  var SKELETON_ANCHOR = 26;
+  var DEMON_GLOW = [110, 225, 255];
   var ZOOM = 1.5;
   var ZOOM_IN = 0.1;
   var ZOOM_HOLD = 0.42;
@@ -2665,6 +3158,7 @@
     return s - Math.floor(s);
   };
   var Stage = class {
+    // the sound of a toll, seen going out
     /** With `scenery`, only the place is drawn: nobody in it, no words over it, and the camera looks where it is told. */
     constructor(world, assets, opening, won, scenery = false) {
       this.world = world;
@@ -2702,6 +3196,7 @@
       this.stains.height = level.height;
       level.objects.forEach((o, i) => {
         const kind = KINDS[o.kind];
+        if (kind && kind.role === "bell") this.bells.push({ x: o.x, y: o.y });
         if (kind && kind.role === "decor" && "sheet" in kind) this.loops.push({ sheet: kind.sheet, x: o.x, y: o.y, phase: i * 17, front: kind.plane === "front" });
       });
       const [fx, fy] = this.focus();
@@ -2743,6 +3238,11 @@
     openings = [];
     // the middle of each opening on the sky, where a flash comes in
     flashSheet = null;
+    bells = [];
+    // where each great bell hangs
+    swing = { amp: 0, t: 0 };
+    // how far the bells swing since their last toll
+    rings = [];
     // Where the camera looks: the hero, at chest height; a jump does not lift it, a fall takes it down.
     focus() {
       if (this.aim) return this.aim;
@@ -2775,6 +3275,9 @@
           this.sparks(e.x, e.y, 26, 220);
         } else if (e.type === "flame") {
           for (let i = 0; i < 6; i++) this.particles.push({ x: e.x - e.dir * Math.random() * 14, y: e.y - 16 + Math.random() * 30, vx: -e.dir * (30 + Math.random() * 130), vy: -10 - Math.random() * 70, life: 0.2 + Math.random() * 0.35, color: FIRE2[Math.floor(Math.random() * FIRE2.length)], g: -90 });
+        } else if (e.type === "toll") {
+          this.swing = { amp: 0.34, t: 0 };
+          for (const b of this.bells) this.rings.push({ x: b.x, y: b.y + 40, t: 0 });
         } else if (e.type === "dust") {
           for (let i = 0; i < e.count; i++) this.particles.push({ x: e.x + (Math.random() - 0.5) * 12, y: e.y - 2, vx: (Math.random() - 0.5) * 80, vy: -Math.random() * 50, life: 0.2 + Math.random() * 0.15, color: "#8d7fa8", g: 120 });
         }
@@ -2803,6 +3306,15 @@
       if (this.storm?.update(dt).thunder) this.heardNow.push("thunder");
       for (const fx2 of this.effects) fx2.t += dt;
       this.effects = this.effects.filter((fx2) => fx2.t < effectDuration(fx2.kind));
+      this.swing.t += dt;
+      this.swing.amp *= Math.exp(-0.45 * dt);
+      for (const r of this.rings) r.t += dt;
+      this.rings = this.rings.filter((r) => r.t < 1.1);
+      const boss = this.world.boss;
+      if (boss && boss.phase === "breath") {
+        const b = boss.body, f = b.facing, from = b.x + b.w / 2 + f * 20;
+        for (let i = 0; i < 5; i++) this.particles.push({ x: from + f * Math.random() * 30, y: boss.floor - 50 + Math.random() * 20, vx: f * (180 + Math.random() * 220), vy: 40 + Math.random() * 90, life: 0.25 + Math.random() * 0.3, color: ["#e8fbff", "#8ff0ff", "#3cc8ff", "#1d7fd8"][Math.floor(Math.random() * 4)], g: 60 });
+      }
       for (const q of this.particles) {
         q.life -= dt;
         q.vy += q.g * dt;
@@ -2856,7 +3368,7 @@
         }
       }
       g2.setTransform(1, 0, 0, 1, 0, 0);
-      const moving = this.movingLights();
+      const moving = this.movingLights(t);
       const casters = this.casters(t);
       this.lights.draw(g2, cx, cy, level.settings.darkness, this.restingLights(), moving, t, casters);
       if (this.storm && this.storm.glow > 0.02) this.lightning(g2, casters, cx, cy, this.storm.glow);
@@ -2880,13 +3392,20 @@
         g2.drawImage(this.skyView, 0, 0);
       }
       g2.translate(-cx, -cy);
+      this.drawBells(g2);
       this.drawEmbers(g2, t);
       if (!this.scenery) {
+        if (w.boss) {
+          this.drawDemon(g2, w.boss, t);
+          this.drawWaves(g2, w.boss, t);
+        }
+        for (const f of w.foes) if (f.kind === "skeleton") this.drawSkeleton(g2, f, t);
         for (const f of w.foes) if (f.kind === "ghoul") this.drawGhoul(g2, f, t);
         for (const f of w.foes) if (f.kind === "shade") this.drawMonk(g2, f, t);
         this.drawMonk(g2, w.hero, t);
       }
       for (const fx of this.effects) this.drawEffect(g2, fx);
+      this.drawRings(g2);
       for (const q of this.particles) {
         g2.fillStyle = q.color;
         g2.fillRect(Math.round(q.x), Math.round(q.y), 2, 2);
@@ -2931,7 +3450,7 @@
       if (flash > 0.02) for (const o of this.openings) out.push({ x: o.x, y: o.y, radius: LIGHTNING.radius, strength: LIGHTNING.strength * flash, flicker: 0, color: LIGHTNING.color });
       return out;
     }
-    movingLights() {
+    movingLights(t) {
       const w = this.world, p = w.hero;
       const out = [];
       this.own.clear();
@@ -2946,6 +3465,14 @@
         if (f.kind === "shade" && f.ko <= 0) carry(f, { x: f.x + 7, y: f.y + 18, radius: 78, strength: 0.7, flicker: 0, color: [90, 255, 150] });
         if (f.kind === "ghoul" && f.dead <= 0) carry(f, { x: f.x + 7, y: f.y + 8, radius: 104, strength: 0.95, flicker: 0, color: [255, 140, 60] });
       }
+      const d = w.boss;
+      if (d && d.phase !== "gone" && d.phase !== "rise" && d.phase !== "mark") {
+        const b = d.body, head = this.demonHead(d, t);
+        const fierce = d.phase === "windup" ? 0.5 + d.t / DEMON.breath.windup : d.phase === "breath" ? 1.4 : d.phase === "dying" ? 1.6 * (1 - d.t / DEMON.dying) : 0.8;
+        carry(b, { x: head[0], y: head[1], radius: 130, strength: fierce, flicker: 0, color: DEMON_GLOW });
+        if (d.phase === "breath") out.push({ x: b.x + b.w / 2 + b.facing * 80, y: d.floor - 26, radius: 200, strength: 1.3, flicker: 0, color: DEMON_GLOW });
+      }
+      if (d) for (const v of d.waves) out.push({ x: v.x, y: v.y - 10, radius: 80, strength: 0.9, flicker: 0, color: DEMON_GLOW });
       for (const fx of this.effects) if (fx.t < 0.35) out.push({ x: fx.x, y: fx.y - 26, radius: 130, strength: 1 - fx.t / 0.35, flicker: 0, color: [255, 236, 200] });
       return out;
     }
@@ -2959,8 +3486,17 @@
         out.push({ x: cx, y: a.y + a.h / 2, feet, own: this.own.get(a) ?? null, draw: (k) => this.sprite(k, key, cx, feet, MONK_ANCHOR, a.facing < 0) });
       };
       monk(w.hero);
+      if (w.boss && w.boss.phase !== "gone" && w.boss.phase !== "rise" && w.boss.phase !== "mark") {
+        const d = w.boss, b = d.body, [key, s, x, y, mirror] = this.demonPicture(d, t);
+        out.push({ x: b.x + b.w / 2, y: b.y + b.h / 2, feet: b.y + b.h, own: this.own.get(b) ?? null, draw: (k) => this.sprite(k, "shadow-" + key, x, y, s.footX, mirror) });
+      }
       for (const f of w.foes) {
-        if (f.kind === "shade") monk(f);
+        if (f.kind === "demon") continue;
+        if (f.kind === "skeleton") {
+          if (f.dead > 0) continue;
+          const cx = f.x + f.w / 2, feet = f.y + f.h, key = "shadow-" + this.skeletonFrame(f);
+          out.push({ x: cx, y: f.y + f.h / 2, feet, own: null, draw: (k) => this.sprite(k, key, cx, feet, SKELETON_ANCHOR, f.facing > 0) });
+        } else if (f.kind === "shade") monk(f);
         else if (f.dead <= 0) {
           const cx = f.x + f.w / 2, feet = f.y + f.h, key = "shadow-ghoul/" + (1 + Math.floor(f.animT * 12) % 8);
           out.push({ x: cx, y: f.y + f.h / 2, feet, own: this.own.get(f) ?? null, draw: (k) => this.sprite(k, key, cx, feet, GHOUL_ANCHOR, f.facing > 0) });
@@ -3015,6 +3551,149 @@
       g2.filter = "blur(1px)";
       g2.drawImage(this.flashSheet, 0, 0);
       g2.restore();
+    }
+    // ---- the bell chamber ---------------------------------------------------------------------------
+    // The great bell: bronze, hung from a beam by its crown, swinging after it has tolled.
+    drawBells(g2) {
+      const angle = this.swing.amp * Math.sin(this.swing.t * 3.4);
+      for (const b of this.bells) {
+        g2.fillStyle = "#2a1a14";
+        g2.fillRect(b.x - 34, b.y - 6, 68, 8);
+        g2.fillStyle = "#4a3020";
+        g2.fillRect(b.x - 34, b.y - 6, 68, 2);
+        g2.save();
+        g2.translate(b.x, b.y + 2);
+        g2.rotate(angle);
+        const bronze = g2.createLinearGradient(-30, 0, 30, 0);
+        bronze.addColorStop(0, "#2a1c0c");
+        bronze.addColorStop(0.3, "#7d5a28");
+        bronze.addColorStop(0.45, "#a88446");
+        bronze.addColorStop(0.7, "#4e3517");
+        bronze.addColorStop(1, "#1e1408");
+        g2.fillStyle = "#5a3f1c";
+        g2.fillRect(-6, 0, 12, 7);
+        g2.fillStyle = bronze;
+        g2.beginPath();
+        g2.moveTo(-15, 7);
+        g2.quadraticCurveTo(-17, 26, -22, 42);
+        g2.quadraticCurveTo(-31, 52, -32, 58);
+        g2.lineTo(32, 58);
+        g2.quadraticCurveTo(31, 52, 22, 42);
+        g2.quadraticCurveTo(17, 26, 15, 7);
+        g2.closePath();
+        g2.fill();
+        g2.fillStyle = "rgba(255,230,170,0.35)";
+        g2.fillRect(-28, 50, 56, 2);
+        g2.fillStyle = "rgba(0,0,0,0.35)";
+        g2.fillRect(-30, 56, 60, 2);
+        g2.fillStyle = "#2a1c0c";
+        g2.fillRect(-3, 58, 6, 6);
+        g2.restore();
+      }
+    }
+    // A toll, seen: a ring that goes out from the bell and fades.
+    drawRings(g2) {
+      g2.save();
+      g2.globalCompositeOperation = "lighter";
+      for (const r of this.rings) {
+        g2.strokeStyle = `rgba(255,220,160,${(0.35 * (1 - r.t / 1.1)).toFixed(3)})`;
+        g2.lineWidth = 2;
+        g2.beginPath();
+        g2.ellipse(r.x, r.y, 30 + r.t * 260, 12 + r.t * 100, 0, 0, Math.PI * 2);
+        g2.stroke();
+      }
+      g2.restore();
+    }
+    skeletonFrame(e) {
+      if (e.rise > 0) return `skeleton-rise/${e.look}/${1 + Math.min(5, Math.floor((1 - e.rise / SKELETON.rise) * 6))}`;
+      return `skeleton/${e.look}/${1 + Math.floor(e.animT * 10) % 8}`;
+    }
+    drawSkeleton(g2, e, t) {
+      if (e.dead > 0 || e.invul > 0 && Math.floor(t * 20) % 2) return;
+      const cx = e.x + e.w / 2, feet = e.y + e.h, key = this.skeletonFrame(e);
+      if (e.rise <= 0) {
+        g2.fillStyle = "rgba(0,0,0,0.3)";
+        g2.fillRect(Math.round(cx - 9), Math.round(feet), 18, 2);
+      }
+      this.picture(g2, this.litSprite(key, cx, e.y + 20, e.facing > 0, null), cx, feet, SKELETON_ANCHOR, e.facing > 0);
+    }
+    // Where the demon floats above its floor: a slow sway, lower when it is spent.
+    demonHover(d, t) {
+      if (d.phase === "dazed") return 0;
+      if (d.phase === "dying") return -14 * (d.t / DEMON.dying);
+      return 6 + 3 * Math.sin(t * 2.6);
+    }
+    // The frame it shows, the strip it comes from, and where it is drawn: [key, strip, x, bottom of the picture, mirrored].
+    demonPicture(d, t) {
+      const b = d.body;
+      let strip = "demon/idle", n = 1 + Math.floor(b.animT * 8) % 6;
+      if (d.phase === "windup") {
+        strip = "demon/attack";
+        n = 1 + Math.min(6, Math.floor(d.t / DEMON.breath.windup * 7));
+      } else if (d.phase === "breath") {
+        strip = "demon/attack";
+        n = 8 + Math.min(3, Math.floor(d.t / DEMON.breath.time * 4));
+      } else if (d.phase === "buffet") {
+        const { at, time } = DEMON.buffet;
+        strip = "demon/attack";
+        n = d.t < at ? 1 + Math.floor(d.t / at * 3) : 4 + Math.min(2, Math.floor((d.t - at) / (time - at) * 3));
+      } else if (d.phase === "dazed" || d.phase === "dying") n = 4;
+      const s = STRIPS[strip], feet = b.y + b.h - this.demonHover(d, t);
+      const shake = d.phase === "dazed" ? Math.round(Math.sin(t * 9) * 2) : 0;
+      return [`${strip}/${n}`, s, b.x + b.w / 2 + shake, feet + (s.h - s.footY), b.facing > 0];
+    }
+    // Its waves of fire: a few blue tongues, leaning the way they run, flickering.
+    drawWaves(g2, d, t) {
+      for (const v of d.waves) {
+        this.glow(g2, v.x, v.y - 8, 26, "rgba(110,225,255,0.45)");
+        for (let i = -3; i <= 3; i++) {
+          const h = DEMON.wave.height * (1 - Math.abs(i) / 4) * (0.7 + 0.3 * Math.sin(t * 30 + i * 2 + v.x * 0.1));
+          g2.fillStyle = Math.abs(i) <= 1 ? "#e8fbff" : i % 2 ? "#3cc8ff" : "#8ff0ff";
+          g2.fillRect(Math.round(v.x + i * 2 - v.dir * Math.abs(i)), Math.round(v.y - h), 2, Math.round(h));
+        }
+        if (Math.random() < 0.6) this.particles.push({ x: v.x + (Math.random() - 0.5) * 10, y: v.y - 4, vx: -v.dir * (30 + Math.random() * 60), vy: -40 - Math.random() * 60, life: 0.25 + Math.random() * 0.25, color: ["#8ff0ff", "#3cc8ff", "#e8fbff"][Math.floor(Math.random() * 3)], g: -40 });
+      }
+    }
+    // Its skull, where the blue fire burns.
+    demonHead(d, t) {
+      const b = d.body;
+      return [b.x + b.w / 2 - b.facing * 2, b.y + b.h - this.demonHover(d, t) - 78];
+    }
+    drawDemon(g2, d, t) {
+      const b = d.body;
+      if (d.phase === "mark" || d.phase === "fall") {
+        const k = d.phase === "mark" ? d.t / DEMON.swoop.mark : 1, w = 20 + 60 * k;
+        g2.fillStyle = `rgba(0,0,0,${(0.25 + 0.45 * k).toFixed(3)})`;
+        g2.beginPath();
+        g2.ellipse(d.markX, d.landY - 1, w / 2, 4 + 3 * k, 0, 0, Math.PI * 2);
+        g2.fill();
+        if (Math.floor(t * 10) % 2) this.glow(g2, d.markX, d.landY - 4, 26 + 30 * k, "rgba(255,60,40,0.3)");
+      }
+      if (d.phase === "gone" || d.phase === "mark") return;
+      const [key, s, x, y, mirror] = this.demonPicture(d, t);
+      const [hx, hy] = this.demonHead(d, t);
+      this.glow(g2, hx, hy, 34, "rgba(110,225,255,0.3)");
+      if (d.phase !== "dazed" && d.phase !== "dying" && d.phase !== "fall") {
+        g2.fillStyle = "rgba(0,0,0,0.28)";
+        g2.beginPath();
+        g2.ellipse(b.x + b.w / 2, d.floor - 1, 26, 4, 0, 0, Math.PI * 2);
+        g2.fill();
+      }
+      if (d.phase === "dying") g2.globalAlpha = Math.max(0, 1 - d.t / DEMON.dying);
+      this.sprite(g2, (b.hurtT > 0 || d.phase === "dying" && Math.floor(t * 16) % 2 ? "flash-" : "") + key, x, y, s.footX, mirror);
+      g2.globalAlpha = 1;
+      if (d.phase === "dazed") {
+        for (let i = 0; i < 4; i++) {
+          const u = t * 5 + i * 1.6;
+          g2.fillStyle = i % 2 ? "#ffffff" : "#ffe27a";
+          g2.fillRect(Math.round(hx + Math.cos(u) * 16), Math.round(hy - 22 + Math.sin(u) * 4), 2, 2);
+        }
+        if (Math.floor(t * 5) % 2) {
+          const words = "CHARGE IT!";
+          text(g2, words, Math.round(hx - textWidth(words) / 2) + 1, Math.round(hy - 45), "#1a0308");
+          text(g2, words, Math.round(hx - textWidth(words) / 2), Math.round(hy - 46), "#ff5a3a");
+        }
+      }
     }
     // The bats of the place, flying across it from one side to the other.
     drawBats(g2, t) {
@@ -3419,8 +4098,10 @@
       const level = levels[i];
       world = new World(level);
       world.invincible = cheat;
-      stage = new Stage(world, assets, openingWords(level.settings.title), wonWords(i, levels.length));
+      const boss = !!world.boss;
+      stage = new Stage(world, assets, openingWords(level.settings.title, boss), wonWords(i, levels.length, boss));
       sound.setMusic(level.settings.music);
+      sound.preload([level.settings.music, levels[i + 1]?.settings.music ?? place.settings.music]);
       paused = false;
       sound.hush(false);
       bank = 0;
@@ -3431,6 +4112,7 @@
       sceneT = 0;
       scenery.look(...panAim(0, place.width, place.height), true);
       sound.setMusic(place.settings.music);
+      sound.preload([place.settings.music, levels[0].settings.music]);
       paused = false;
       sound.hush(false);
     };
@@ -3453,13 +4135,13 @@
       const dt = Math.min(MAX_FRAME, Math.max(0, elapsed));
       sceneT += dt;
       clock += dt;
-      const go = c.jumpPressed || c.restartPressed;
-      if (scene === "title" && go) {
+      const go2 = c.jumpPressed || c.restartPressed;
+      if (scene === "title" && go2) {
         tally = NO_RUN;
         start(0);
         return;
       }
-      if (scene === "end" && go && sceneT > 1.5) {
+      if (scene === "end" && go2 && sceneT > 1.5) {
         show("title");
         return;
       }

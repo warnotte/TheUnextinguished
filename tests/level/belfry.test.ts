@@ -50,10 +50,10 @@ describe('the belfry', () => {
     }
   });
 
-  it('is played third, with its tune', () => {
+  it('is played third, before the bell chamber, with its tune', () => {
     const page = readFileSync('index.html', 'utf8');
     const order = [...page.matchAll(/levels\/(\w+)\.js/g)].map(m => m[1]);
-    expect(order).toEqual(['salle3', 'crypte', 'beffroi']);
+    expect(order).toEqual(['salle3', 'crypte', 'beffroi', 'clocher']);
     expect(page).toContain('assets/music/poursuite.js');
   });
 

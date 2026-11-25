@@ -3,6 +3,7 @@
 
 import { type Actor, MAX_HP } from '../sim/actor';
 import { clockText, type Words } from '../campaign';
+import { DEMON } from '../sim/demon';
 import type { World } from '../sim/world';
 import { VIEW_H, VIEW_W } from './camera';
 import { centered, text, textWidth } from './text';
@@ -23,9 +24,10 @@ export class Hud {
   /** A foe has just been ended. */
   finisher(): void { this.finish = FINISH_WORDS; }
 
-  // The foe whose bar is shown: the nearest shade still standing.
+  // The foe whose bar is shown: the demon while it lives, or else the nearest shade still standing.
   private rival(): Actor | null {
-    const p = this.world.hero;
+    const p = this.world.hero, boss = this.world.boss;
+    if (boss && boss.phase !== 'gone' && boss.phase !== 'dying') return boss.body;
     let best: Actor | null = null, bestD = Infinity;
     for (const f of this.world.foes) {
       if (f.kind !== 'shade' || f.ko > 0) continue;
@@ -45,12 +47,12 @@ export class Hud {
   }
 
   // A bar that empties towards the middle of the screen; the pale part is what the last blow took.
-  private bar(g: CanvasRenderingContext2D, x: number, hp: number, lag: number, fromRight: boolean, color: string, t: number, alarm: boolean): void {
+  private bar(g: CanvasRenderingContext2D, x: number, hp: number, lag: number, fromRight: boolean, color: string, t: number, alarm: boolean, max = MAX_HP): void {
     const px = (bx: number, by: number, w: number, h: number, c: string) => { g.fillStyle = c; g.fillRect(bx, by, w, h); };
     px(x - 2, BAR_Y - 2, BAR_W + 4, BAR_H + 4, '#0a0814');
     px(x - 1, BAR_Y - 1, BAR_W + 2, BAR_H + 2, alarm && Math.floor(t * 8) % 2 ? '#ffffff' : '#9a8fc0');
     px(x, BAR_Y, BAR_W, BAR_H, '#3a0d14');
-    const full = Math.round(BAR_W * hp / MAX_HP), pale = Math.round(BAR_W * lag / MAX_HP);
+    const full = Math.round(BAR_W * hp / max), pale = Math.round(BAR_W * lag / max);
     const start = (w: number) => (fromRight ? x + BAR_W - w : x);
     px(start(pale), BAR_Y, pale, BAR_H, '#fff3d6');
     px(start(full), BAR_Y, full, BAR_H, color);
@@ -73,14 +75,15 @@ export class Hud {
     if (w.invincible) text(g, 'INVINCIBLE', MARGIN + textWidth('MONK') + 12, BAR_Y + BAR_H + 5, '#ffe27a');
     const foe = this.foe;
     if (foe) {
-      const dazed = foe.dazed > 0, x = VIEW_W - MARGIN - BAR_W;
-      this.bar(g, x, foe.hp, this.foeLag, true, '#6dff9a', t, dazed);
-      const label = dazed ? 'DAZED' : 'SHADE';
+      const demon = foe.kind === 'demon', dazed = demon ? w.boss?.phase === 'dazed' : foe.dazed > 0, x = VIEW_W - MARGIN - BAR_W;
+      this.bar(g, x, foe.hp, this.foeLag, true, demon ? '#6fdcff' : '#6dff9a', t, dazed, demon ? DEMON.hp : MAX_HP);
+      const label = dazed ? 'DAZED' : demon ? 'DEMON' : 'SHADE';
       text(g, label, VIEW_W - MARGIN - textWidth(label), BAR_Y + BAR_H + 5, dazed && Math.floor(t * 6) % 2 ? '#ff5a3a' : '#e2d8f0');
     }
 
     const got = w.carried;
     if (w.embers.length) centered(g, `EMBERS ${got}/${w.embers.length}`, VIEW_H - 20, w.doorOpen ? '#ffe27a' : '#e2d8f0');
+    else if (w.boss) centered(g, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? '#ffe27a' : '#e2d8f0');
     const clock = clockText(w.clock);
     text(g, clock, VIEW_W - MARGIN - textWidth(clock), VIEW_H - 20, '#e2d8f0');
 

@@ -20,6 +20,11 @@ describe('the run of the levels', () => {
     expect(openingWords('THE NAVE')).toEqual(['THE NAVE', 'COLLECT THE EMBERS', 'THEN REACH THE DOOR']);
   });
 
+  it('says what to do in the room of a demon, and that it is slain', () => {
+    expect(openingWords('THE BELL CHAMBER', true)).toEqual(['THE BELL CHAMBER', 'SLAY THE DEMON', 'ITS SKELETONS CARRY EMBERS', 'ONLY A FLAMING CHARGE ENDS IT']);
+    expect(wonWords(3, 4, true)).toEqual({ title: 'DEMON SLAIN', lines: ['PRESS JUMP TO GO ON'] });
+  });
+
   it('starts at the level the address asks for, counted from 1, and on the title otherwise', () => {
     expect(firstLevel('?level=2', 2)).toBe(1);
     expect(firstLevel('?level=1', 2)).toBe(0);

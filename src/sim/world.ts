@@ -3,9 +3,10 @@
 
 import { KINDS } from '../level/kinds';
 import type { Level } from '../level/tiled';
-import { type Actor, makeActor, MAX_HP } from './actor';
+import { type Actor, centreX, makeActor, MAX_HP } from './actor';
+import { BELL, DEMON, type Arena, type Demon, demonTouchable, makeDemon, SKELETON, stepDemon, stepSkeleton } from './demon';
 import type { Emit, GameEvent } from './events';
-import type { Grid } from './grid';
+import { type Grid, TILE } from './grid';
 import { stepGhoul } from './ghoul';
 import { control, type Controls, move } from './movement';
 import { SHADE_AGAIN, SHADE_GUARD, SHADE_GUARD_RANGE, SHADE_GUARD_REST, SHADE_PACE, SHADE_REACH, SHADE_STRIKE, thinkShade } from './shade';
@@ -69,6 +70,11 @@ export class World {
   slain = 0;                       // foes ended: ghouls struck down, shades finished
   spilt = 0;                       // blood thrown, his and theirs, in the units of the blood events
   invincible = false;              // the cheat: no blow harms the hero
+  boss: Demon | null = null;       // the demon of the bell chamber, when the level has one
+  readonly graves: { x: number; y: number }[] = [];
+  private bellT: number = BELL.first;
+  private risen = 0;               // skeletons raised so far: every other one wears rags
+  private readonly arena: Arena;
 
   private events: GameEvent[] = [];
   private doorChime = -1;          // seconds until the door is heard opening, -1 when not waiting
@@ -87,6 +93,7 @@ export class World {
       if (kind.role === 'spawn') {
         const actor = makeActor(kind.actor, o.x, o.y);
         if (kind.actor === 'hero') hero = actor;
+        else if (kind.actor === 'demon') { actor.hp = DEMON.hp; this.boss = makeDemon(actor); this.foes.push(actor); }
         else {
           // A moment of grace when the level starts: the shade holds its blow, the ghoul does not burn.
           if (kind.actor === 'shade') actor.cool = START_GRACE; else actor.invul = START_GRACE;
@@ -94,10 +101,22 @@ export class World {
         }
       } else if (kind.role === 'ember') this.embers.push({ x: o.x, y: o.y, taken: false });
       else if (kind.role === 'door') this.door = { x: o.x - DOOR_W / 2, y: o.y - DOOR_H, w: DOOR_W, h: DOOR_H };
+      else if (kind.role === 'grave') this.graves.push({ x: o.x, y: o.y });
     }
     if (!hero) throw new Error(`level "${level.settings.name}" has no hero`);
     this.hero = hero;
     this.wasOpen = this.doorOpen;
+    const world = this;
+    this.arena = {
+      hero, width: level.width, emit: this.emit,
+      get playing() { return world.state === 'play'; },
+      hurt: (dir, damage, unblockable) => {
+        if (hero.invul > 0 || world.state !== 'play') return false;
+        world.hurtHero(dir, damage, unblockable);
+        return true;
+      },
+      shake: seconds => { world.shake = Math.max(world.shake, seconds); },
+    };
   }
 
   /** The embers the hero has in hand: those he took and those he won, less those he spent. */
@@ -117,7 +136,7 @@ export class World {
         this.stepHero(controls);
       }
       for (const foe of this.foes) this.stepFoe(foe);
-      if (this.state === 'play') this.stepItems();
+      if (this.state === 'play') { this.stepItems(); this.stepBell(); }
     }
     const out = this.events;
     this.events = [];
@@ -125,10 +144,10 @@ export class World {
   }
 
   /** The hero takes a blow coming from the given side. */
-  hurtHero(dir: 1 | -1, damage: number = HIT.shade): void {
+  hurtHero(dir: 1 | -1, damage: number = HIT.shade, unblockable = false): void {
     const p = this.hero;
     if (this.state !== 'play' || p.charge > 0) return;
-    if (p.guard && dir === -p.facing) {            // stopped: it costs him a step back
+    if (p.guard && dir === -p.facing && !unblockable) {            // stopped: it costs him a step back
       p.invul = GUARD_SAFE; p.vx = dir * GUARD_PUSH;
       this.hitStop = 0.05;
       this.emit({ type: 'effect', kind: 'hit-spark', x: p.x + p.w / 2 - dir * 8, y: p.y + p.h, flip: dir > 0 });
@@ -228,7 +247,7 @@ export class World {
     if (this.trail <= 0) { this.trail = CHARGE.trail; this.emit({ type: 'flame', x: p.x + p.w / 2, y: p.y + 20, dir: p.facing }); }
     const box = { x: p.facing > 0 ? p.x : p.x - CHARGE.reach, y: p.y, w: p.w + CHARGE.reach, h: p.h };
     for (const foe of this.foes) {
-      if (this.struck.has(foe) || foe.ko > 0 || foe.dead > 0 || !overlap(box, foe)) continue;
+      if (this.struck.has(foe) || foe.ko > 0 || foe.dead > 0 || !this.touchable(foe) || !overlap(box, foe)) continue;
       this.struck.add(foe);
       this.strikeFoe(foe, p.facing, CHARGE_BLOW);
     }
@@ -269,11 +288,20 @@ export class World {
 
   private strikeOf(p: Actor) { return STRIKES[p.attackAir ? 'flying' : p.attackKind]; }
 
-  private canBeHit(f: Actor): boolean { return f.ko <= 0 && f.dead <= 0 && f.invul <= 0; }
+  private canBeHit(f: Actor): boolean { return f.ko <= 0 && f.dead <= 0 && f.invul <= 0 && this.touchable(f); }
+
+  // A skeleton half out of the ground can be struck; the demon not while it is in the air.
+  private touchable(f: Actor): boolean {
+    if (f.kind === 'skeleton') return f.rise <= SKELETON.soft;
+    if (f.kind === 'demon') return !!this.boss && demonTouchable(this.boss);
+    return true;
+  }
 
   private strikeFoe(e: Actor, dir: 1 | -1, blow: Blow): void {
     this.hero.attackHit = true;
     const x = e.x + e.w / 2, y = e.y + e.h, heavy = blow.heavy;
+    if (e.kind === 'skeleton') { this.breakSkeleton(e); return; }
+    if (e.kind === 'demon' && this.boss) { this.strikeDemon(this.boss, dir, blow); return; }
     if (e.kind === 'ghoul') {
       e.dead = 6; e.vx = 0; this.slain++;
       this.hitStop = 0.06; this.shake = 0.14;
@@ -322,6 +350,18 @@ export class World {
 
   private stepFoe(e: Actor): void {
     const p = this.hero, playing = this.state === 'play';
+    if (e.kind === 'skeleton') {
+      stepSkeleton(e, p, this.grid, STEP, playing, this.emit);
+      if (playing && e.dead <= 0 && e.rise <= 0 && p.invul <= 0 && overlap(e, p)) this.hurtHero(centreX(p) >= centreX(e) ? 1 : -1, SKELETON.hurt);
+      return;
+    }
+    if (e.kind === 'demon') {
+      const d = this.boss!;
+      stepDemon(d, this.arena, STEP);
+      this.trickle(e);
+      if (d.phase === 'gone' && this.state === 'play') { this.state = 'won'; this.emit({ type: 'sound', name: 'win' }); }
+      return;
+    }
     if (e.kind === 'ghoul') {
       stepGhoul(e, p, this.grid, STEP, playing, this.emit);
       if (playing && e.dead <= 0 && e.invul <= 0 && p.invul <= 0 && overlap(e, p)) this.hurtHero(p.x + p.w / 2 >= e.x + e.w / 2 ? 1 : -1, HIT.ghoul);
@@ -376,6 +416,85 @@ export class World {
       if (this.doorChime < 0) this.emit({ type: 'sound', name: 'door' });
     }
     const reached = this.door ? overlap(this.door, p) && p.onGround : this.embers.length > 0;
-    if (this.doorOpen && reached) { this.state = 'won'; this.emit({ type: 'sound', name: 'win' }); }
+    if (!this.boss && this.doorOpen && reached) { this.state = 'won'; this.emit({ type: 'sound', name: 'win' }); }
+  }
+
+  // ---- the bell chamber ------------------------------------------------------------------------------
+
+  // The great bell tolls now and then, while the demon lives, and the dead come out of their graves:
+  // never too many at once, and never under the hero's feet.
+  private stepBell(): void {
+    if (!this.graves.length) return;
+    const d = this.boss;
+    if (d && (d.phase === 'dying' || d.phase === 'gone')) return;
+    if ((this.bellT -= STEP) > 0) return;
+    this.bellT = d?.enraged ? BELL.fast : BELL.every;
+    this.emit({ type: 'toll' });
+    this.emit({ type: 'sound', name: 'bell' });
+    this.shake = Math.max(this.shake, 0.25);
+    this.foes = this.foes.filter(f => !(f.kind === 'skeleton' && f.dead > 0));
+    let room = BELL.most - this.foes.filter(f => f.kind === 'skeleton').length;
+    const hx = centreX(this.hero);
+    const spots = this.graves.filter(g => Math.abs(g.x - hx) >= BELL.clear).sort((a, b) => Math.abs(b.x - hx) - Math.abs(a.x - hx));
+    for (const g of spots) {
+      if (room-- <= 0) break;
+      const s = makeActor('skeleton', g.x, g.y);
+      s.rise = SKELETON.rise; s.look = this.risen++ % 2; s.hp = 1;
+      s.facing = hx < g.x ? -1 : 1;
+      this.foes.push(s);
+    }
+  }
+
+  // A skeleton falls apart at the first blow, and the ember it carried is the hero's.
+  private breakSkeleton(e: Actor): void {
+    const x = centreX(e), y = e.y + e.h;
+    e.dead = 1; this.slain++; this.spare++;
+    this.hitStop = 0.05; this.shake = Math.max(this.shake, 0.12);
+    this.emit({ type: 'effect', kind: 'death', x, y, flip: false });
+    this.emit({ type: 'effect', kind: 'collect-burst', x, y: e.y + 12 + EMBER_BURST_DROP, flip: false });
+    this.emit({ type: 'sound', name: 'bones' });
+    this.emit({ type: 'sound', name: 'ember' });
+  }
+
+  // The demon is not thrown by a blow. At the end of its health it stands dazed, for good: then only a
+  // flaming charge ends it.
+  private strikeDemon(d: Demon, dir: 1 | -1, blow: Blow): void {
+    const b = d.body, x = centreX(b), y = b.y + b.h * 0.6;
+    if (d.phase === 'dazed') {
+      if (blow !== CHARGE_BLOW) {
+        this.hitStop = 0.03;
+        this.emit({ type: 'effect', kind: 'hit-spark', x: x - dir * 10, y, flip: dir < 0 });
+        this.emit({ type: 'sound', name: 'block' });
+        return;
+      }
+      d.phase = 'dying'; d.t = 0;
+      this.slain++;
+      this.hitStop = 0.16; this.shake = 0.6; this.slow = SLOW;
+      this.bleed(b, dir, BLOOD.finish * 2, FINISH_CHUNKS * 2);
+      this.bleed(b, dir > 0 ? -1 : 1, BLOOD.back * 2, 0);
+      this.emit({ type: 'effect', kind: 'crit-hit', x, y, flip: dir < 0 });
+      this.emit({ type: 'finisher', x, y: b.y + 30 });
+      this.emit({ type: 'sound', name: 'finish' });
+      this.emit({ type: 'sound', name: 'roar' });
+      for (const f of this.foes) if (f.kind === 'skeleton' && f.dead <= 0) this.breakSkeleton(f);
+      return;
+    }
+    b.hp = Math.max(0, b.hp - blow.damage); b.hurtT = 0.1; d.pressure += blow.damage;
+    const heavy = blow.heavy;
+    this.hitStop = heavy ? 0.08 : 0.05; this.shake = Math.max(this.shake, heavy ? 0.18 : 0.1);
+    this.emit({ type: 'effect', kind: heavy ? 'crit-hit' : 'hit-spark', x: x - dir * 16, y, flip: dir < 0 });
+    this.bleed(b, dir, blow.blood, 0);
+    b.bleed = heavy ? BLEEDING.heavy : BLEEDING.light; b.bleedDir = dir;
+    b.gore = Math.min(1, b.gore + (heavy ? 0.12 : 0.06));
+    this.hero.gore = Math.min(1, this.hero.gore + 0.04);
+    if (!d.enraged && b.hp <= DEMON.hp / 2) { d.enraged = true; this.emit({ type: 'sound', name: 'roar' }); this.shake = 0.3; }
+    if (b.hp <= 0) {
+      d.phase = 'dazed'; d.t = 0;
+      // It sinks to the floor under it, where the hero can come at it: not in the air over a gap.
+      const col = Math.floor(centreX(b) / TILE);
+      for (let r = Math.round(d.floor / TILE); r < this.grid.rows; r++) if (this.grid.floorAt(col, r)) { d.floor = r * TILE; break; }
+      b.lastFloor = Math.round(d.floor / TILE);
+      this.emit({ type: 'sound', name: 'daze' });
+    } else this.emit({ type: 'sound', name: 'hit' });
   }
 }

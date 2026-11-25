@@ -20,7 +20,9 @@ export type Kind =
   | { role: 'decor'; plane: Plane; painter: 'chain-lantern' | 'arch'; lights: readonly LightSpec[] }      // drawn by code; a chain lantern's lights hang from the end of its chain
   | { role: 'spawn'; actor: ActorKind }
   | { role: 'ember' }
-  | { role: 'door' };
+  | { role: 'door' }
+  | { role: 'grave' }                // where the bell raises a skeleton
+  | { role: 'bell' };                // the great bell, hung by its top: it swings when it tolls
 
 const lantern = (dx: number): LightSpec => ({ dx, dy: -80, radius: 48, strength: 0.7, flicker: 0.5, color: CANDLE });
 
@@ -28,6 +30,9 @@ export const KINDS: Readonly<Record<string, Kind>> = {
   hero: { role: 'spawn', actor: 'hero' },
   shade: { role: 'spawn', actor: 'shade' },
   ghoul: { role: 'spawn', actor: 'ghoul' },
+  demon: { role: 'spawn', actor: 'demon' },
+  grave: { role: 'grave' },
+  bell: { role: 'bell' },
   ember: { role: 'ember' },
   door: { role: 'door' },
 
@@ -46,7 +51,7 @@ export const KIND_NAMES: ReadonlySet<string> = new Set(Object.keys(KINDS));
 
 // ---- Pictures -------------------------------------------------------------------------------------
 
-const CHURCH = 'gothicvania-church/';
+const CHURCH = 'gothicvania-church/', CEMETERY = 'gothicvania-cemetery/';
 export const MONK_FRAMES = [
   'idle1', 'idle2', 'idle3', 'idle4', 'walk1', 'walk2', 'walk3', 'walk4', 'walk5', 'walk6', 'jump1', 'jump2', 'fall1', 'fall2',
   'punch1', 'punch2', 'punch3', 'punch4', 'punch5', 'punch6', 'kick1', 'kick2', 'kick3', 'kick4', 'kick5', 'flying-kick1', 'flying-kick2', 'hurt1', 'hurt2',
@@ -65,6 +70,16 @@ export const IMAGES: Readonly<Record<string, string>> = {
   ...Object.fromEntries(range(1, 8).map(i => ['ghoul/' + i, `${CHURCH}ghoul/burning-ghoul${i}.png`])),
   ...Object.fromEntries(range(2, 8).map(i => ['death/' + i, `${CHURCH}fx/enemy-death${i}.png`])),
   ...Object.fromEntries(range(1, 3).map(i => ['orb/' + i, `${CHURCH}fx/fireball${i}.png`])),
+  // The skeletons of the cemetery pack: bare (0) or in rags (1), walking and coming out of the ground.
+  ...Object.fromEntries([0, 1].flatMap(look => range(1, 8).map(i => [`skeleton/${look}/${i}`, `${CEMETERY}skeleton/skeleton${look ? '-clothed' : ''}-${i}.png`]))),
+  ...Object.fromEntries([0, 1].flatMap(look => range(1, 6).map(i => [`skeleton-rise/${look}/${i}`, `${CEMETERY}skeleton/skeleton-rise${look ? '-clothed' : ''}-${i}.png`]))),
+};
+
+/** Strips of frames cut into one picture each, so that every frame can be lit like the monk: "demon/idle/3". */
+export interface Strip { file: string; w: number; h: number; frames: number; footX: number; footY: number }
+export const STRIPS: Readonly<Record<string, Strip>> = {
+  'demon/idle': { file: 'gothicvania-patreon/demon/demon-idle.png', w: 160, h: 144, frames: 6, footX: 61, footY: 126 },
+  'demon/attack': { file: 'gothicvania-patreon/demon/demon-attack.png', w: 240, h: 192, frames: 11, footX: 135, footY: 166 },
 };
 
 // ---- Animated sheets (rendered with pixelfx; frame size, pivot and columns as its JSON gives them) -

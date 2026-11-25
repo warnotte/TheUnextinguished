@@ -71,8 +71,10 @@ function run(assets: Assets, levels: Level[]): void {
     const level = levels[i];
     world = new World(level);
     world.invincible = cheat;
-    stage = new Stage(world, assets, openingWords(level.settings.title), wonWords(i, levels.length));
+    const boss = !!world.boss;
+    stage = new Stage(world, assets, openingWords(level.settings.title, boss), wonWords(i, levels.length, boss));
     sound.setMusic(level.settings.music);
+    sound.preload([level.settings.music, levels[i + 1]?.settings.music ?? place.settings.music]);     // the next one, or the end's
     paused = false; sound.hush(false); bank = 0;
   };
   const show = (s: 'title' | 'end'): void => {
@@ -80,6 +82,7 @@ function run(assets: Assets, levels: Level[]): void {
     scene = s; sceneT = 0;
     scenery.look(...panAim(0, place.width, place.height), true);
     sound.setMusic(place.settings.music);
+    sound.preload([place.settings.music, levels[0].settings.music]);                                 // the first level's, for jump
     paused = false; sound.hush(false);
   };
   if (asked === null) show('title'); else start(asked);

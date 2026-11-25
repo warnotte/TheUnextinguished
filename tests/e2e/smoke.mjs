@@ -78,23 +78,39 @@ await game(() => {
 await page.waitForFunction(() => __game.world.state === 'won', null, { timeout: 4000 }).catch(() => {});
 check('reaching the open door wins the level', await game(() => __game.world.state === 'won'));
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/won.png' });
+// Watch, frame by frame, how long the next level stays without its music.
+await game(() => {
+  window.__gap = null;
+  let since = null;
+  const watch = now => {
+    if (since === null && __game.level === 1) since = now;
+    if (since !== null && __game.sound.musicPlaying) { window.__gap = now - since; return; }
+    requestAnimationFrame(watch);
+  };
+  requestAnimationFrame(watch);
+});
 await page.keyboard.press('Space');
 await page.waitForTimeout(600);
 const second = await game(() => ({ index: __game.level, name: __game.world.level.settings.name, state: __game.world.state }));
 check('jump then starts the next level', second.index === 1 && second.name !== first && second.state === 'play', JSON.stringify(second));
+const gap = await game(() => window.__gap);
+check('its music starts with it, without a silence', gap !== null && gap < 40, `${gap === null ? 'never' : Math.round(gap) + ' ms'}`);
 await page.waitForTimeout(600);
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/second.png' });
 
-// The last level won leads to the end, which tells the run, then back to the title.
-await game(() => __game.start(2));
+// The last level, the bell chamber: its demon, its bell, its skeletons.
+await game(() => __game.start(3));
 await page.waitForTimeout(300);
-await game(() => {
-  const w = __game.world, h = w.hero, d = w.door;
-  for (const f of w.foes) { f.cool = 99; f.stun = 99; f.dead = 99; }
-  for (const m of w.embers) m.taken = true;
-  Object.assign(h, { x: d.x + 9, y: d.y + d.h - h.h, vx: 0, vy: 0, onGround: true });
-});
+const chamber = await game(() => ({ name: __game.world.level.settings.name, boss: !!__game.world.boss, door: __game.world.door }));
+check('the last level is the bell chamber, with its demon and no door', chamber.name === 'clocher' && chamber.boss && chamber.door === null, JSON.stringify(chamber));
+await game(() => { __game.world.invincible = true; });
+await page.waitForFunction(() => __game.world.foes.some(f => f.kind === 'skeleton'), null, { timeout: 8000 }).catch(() => {});
+check('the bell tolls and raises skeletons', await game(() => __game.world.foes.some(f => f.kind === 'skeleton')));
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/chamber.png' });
+// The demon ended: the room is won, which leads to the end, which tells the run, then back to the title.
+await game(() => { const d = __game.world.boss; d.phase = 'dying'; d.t = 99; });
 await page.waitForFunction(() => __game.world.state === 'won', null, { timeout: 4000 }).catch(() => {});
+check('the demon ended wins the room', await game(() => __game.world.state === 'won'));
 await page.keyboard.press('Space');
 await page.waitForTimeout(1800);
 const end = await game(() => ({ scene: __game.scene, run: __game.run }));

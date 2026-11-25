@@ -1,7 +1,8 @@
 // The stage: everything that is seen of a world. It keeps what only the eye needs (effects in
 // flight, particles, the camera) and draws a frame, plane by plane, through the camera.
 
-import { EFFECTS, effectDuration, KINDS, SHEETS } from '../level/kinds';
+import { EFFECTS, effectDuration, KINDS, SHEETS, STRIPS } from '../level/kinds';
+import { DEMON, type Demon, SKELETON } from '../sim/demon';
 import type { Actor } from '../sim/actor';
 import type { GameEvent, SoundName } from '../sim/events';
 import { TILE } from '../sim/grid';
@@ -26,7 +27,8 @@ interface Loop { sheet: string; x: number; y: number; phase: number; front: bool
 // The hero's strikes last this long (the frames of the animation are spread over them).
 const PUNCH_T = 0.36, KICK_T = 0.42, SWEEP_T = 0.42, SHADE_STRIKE_T = 0.16;
 const FIRE = ['#fff3c4', '#ffc93c', '#ff8a2a', '#e0401c'];
-const MONK_ANCHOR = 40, GHOUL_ANCHOR = 28;
+const MONK_ANCHOR = 40, GHOUL_ANCHOR = 28, SKELETON_ANCHOR = 26;
+const DEMON_GLOW: [number, number, number] = [110, 225, 255];        // the blue fire of its skull and of its breath
 // The picture closes in on a finishing blow: how far, and when (seconds: in, held until, back out by).
 const ZOOM = 1.5, ZOOM_IN = 0.1, ZOOM_HOLD = 0.42, ZOOM_OUT = 0.7;
 // A flash of lightning: the light that comes in through each opening on the sky (at its brightest;
@@ -63,6 +65,9 @@ export class Stage {
   private heardNow: SoundName[] = [];                   // what the stage itself makes heard: the thunder
   private readonly openings: { x: number; y: number }[] = [];     // the middle of each opening on the sky, where a flash comes in
   private flashSheet: HTMLCanvasElement | null = null;
+  private readonly bells: { x: number; y: number }[] = [];        // where each great bell hangs
+  private swing = { amp: 0, t: 0 };                               // how far the bells swing since their last toll
+  private rings: { x: number; y: number; t: number }[] = [];      // the sound of a toll, seen going out
 
   /** With `scenery`, only the place is drawn: nobody in it, no words over it, and the camera looks where it is told. */
   constructor(private readonly world: World, private readonly assets: Assets, opening: string[], private readonly won: Words, private readonly scenery = false) {
@@ -91,6 +96,7 @@ export class Stage {
     this.stains.width = level.width; this.stains.height = level.height;
     level.objects.forEach((o, i) => {
       const kind = KINDS[o.kind];
+      if (kind && kind.role === 'bell') this.bells.push({ x: o.x, y: o.y });
       if (kind && kind.role === 'decor' && 'sheet' in kind) this.loops.push({ sheet: kind.sheet, x: o.x, y: o.y, phase: i * 17, front: kind.plane === 'front' });
     });
     const [fx, fy] = this.focus();
@@ -131,6 +137,10 @@ export class Stage {
         // The trail of the charge: fire left behind, that rises and goes out.
         for (let i = 0; i < 6; i++) this.particles.push({ x: e.x - e.dir * Math.random() * 14, y: e.y - 16 + Math.random() * 30, vx: -e.dir * (30 + Math.random() * 130), vy: -10 - Math.random() * 70, life: 0.2 + Math.random() * 0.35, color: FIRE[Math.floor(Math.random() * FIRE.length)], g: -90 });
       }
+      else if (e.type === 'toll') {
+        this.swing = { amp: 0.34, t: 0 };
+        for (const b of this.bells) this.rings.push({ x: b.x, y: b.y + 40, t: 0 });
+      }
       else if (e.type === 'dust') {
         for (let i = 0; i < e.count; i++) this.particles.push({ x: e.x + (Math.random() - 0.5) * 12, y: e.y - 2, vx: (Math.random() - 0.5) * 80, vy: -Math.random() * 50, life: 0.2 + Math.random() * 0.15, color: '#8d7fa8', g: 120 });
       }
@@ -155,6 +165,14 @@ export class Stage {
     if (this.storm?.update(dt).thunder) this.heardNow.push('thunder');
     for (const fx of this.effects) fx.t += dt;
     this.effects = this.effects.filter(fx => fx.t < effectDuration(fx.kind));
+    this.swing.t += dt; this.swing.amp *= Math.exp(-0.45 * dt);
+    for (const r of this.rings) r.t += dt;
+    this.rings = this.rings.filter(r => r.t < 1.1);
+    const boss = this.world.boss;
+    if (boss && boss.phase === 'breath') {          // the blue fire pours out of it
+      const b = boss.body, f = b.facing, from = b.x + b.w / 2 + f * 20;
+      for (let i = 0; i < 5; i++) this.particles.push({ x: from + f * Math.random() * 30, y: boss.floor - 50 + Math.random() * 20, vx: f * (180 + Math.random() * 220), vy: 40 + Math.random() * 90, life: 0.25 + Math.random() * 0.3, color: ['#e8fbff', '#8ff0ff', '#3cc8ff', '#1d7fd8'][Math.floor(Math.random() * 4)], g: 60 });
+    }
     for (const q of this.particles) { q.life -= dt; q.vy += q.g * dt; q.x += q.vx * dt; q.y += q.vy * dt; }
     this.particles = this.particles.filter(q => q.life > 0);
     // Each ember that waits throws a spark now and then.
@@ -202,7 +220,7 @@ export class Stage {
     g.setTransform(1, 0, 0, 1, 0, 0);
 
     // The light falls on the wall and on what hangs on it; the bodies throw their shadows there.
-    const moving = this.movingLights();
+    const moving = this.movingLights(t);
     const casters = this.casters(t);
     this.lights.draw(g, cx, cy, level.settings.darkness, this.restingLights(), moving, t, casters);
     if (this.storm && this.storm.glow > 0.02) this.lightning(g, casters, cx, cy, this.storm.glow);
@@ -228,13 +246,17 @@ export class Stage {
 
     // What burns or glows is not darkened; the hero takes the light of where he stands.
     g.translate(-cx, -cy);
+    this.drawBells(g);                               // it hangs in front of the opening, over the sky
     this.drawEmbers(g, t);
     if (!this.scenery) {
+      if (w.boss) { this.drawDemon(g, w.boss, t); this.drawWaves(g, w.boss, t); }
+      for (const f of w.foes) if (f.kind === 'skeleton') this.drawSkeleton(g, f, t);
       for (const f of w.foes) if (f.kind === 'ghoul') this.drawGhoul(g, f, t);
       for (const f of w.foes) if (f.kind === 'shade') this.drawMonk(g, f, t);
       this.drawMonk(g, w.hero, t);
     }
     for (const fx of this.effects) this.drawEffect(g, fx);
+    this.drawRings(g);
     for (const q of this.particles) { g.fillStyle = q.color; g.fillRect(Math.round(q.x), Math.round(q.y), 2, 2); }
     for (const d of this.blood.drops) { g.fillStyle = BLOOD_COLORS[d.shade]; g.fillRect(Math.round(d.x), Math.round(d.y), d.size, d.size); }
     g.setTransform(1, 0, 0, 1, 0, 0);
@@ -276,7 +298,7 @@ export class Stage {
     return out;
   }
 
-  private movingLights(): Light[] {
+  private movingLights(t: number): Light[] {
     const w = this.world, p = w.hero;
     const out: Light[] = [];
     this.own.clear();
@@ -289,6 +311,14 @@ export class Stage {
       if (f.kind === 'shade' && f.ko <= 0) carry(f, { x: f.x + 7, y: f.y + 18, radius: 78, strength: 0.7, flicker: 0, color: [90, 255, 150] });
       if (f.kind === 'ghoul' && f.dead <= 0) carry(f, { x: f.x + 7, y: f.y + 8, radius: 104, strength: 0.95, flicker: 0, color: [255, 140, 60] });
     }
+    const d = w.boss;
+    if (d && d.phase !== 'gone' && d.phase !== 'rise' && d.phase !== 'mark') {
+      const b = d.body, head = this.demonHead(d, t);
+      const fierce = d.phase === 'windup' ? 0.5 + d.t / DEMON.breath.windup : d.phase === 'breath' ? 1.4 : d.phase === 'dying' ? 1.6 * (1 - d.t / DEMON.dying) : 0.8;
+      carry(b, { x: head[0], y: head[1], radius: 130, strength: fierce, flicker: 0, color: DEMON_GLOW });
+      if (d.phase === 'breath') out.push({ x: b.x + b.w / 2 + b.facing * 80, y: d.floor - 26, radius: 200, strength: 1.3, flicker: 0, color: DEMON_GLOW });
+    }
+    if (d) for (const v of d.waves) out.push({ x: v.x, y: v.y - 10, radius: 80, strength: 0.9, flicker: 0, color: DEMON_GLOW });
     for (const fx of this.effects) if (fx.t < 0.35) out.push({ x: fx.x, y: fx.y - 26, radius: 130, strength: 1 - fx.t / 0.35, flicker: 0, color: [255, 236, 200] });
     return out;
   }
@@ -303,8 +333,17 @@ export class Stage {
       out.push({ x: cx, y: a.y + a.h / 2, feet, own: this.own.get(a) ?? null, draw: k => this.sprite(k, key, cx, feet, MONK_ANCHOR, a.facing < 0) });
     };
     monk(w.hero);
+    if (w.boss && w.boss.phase !== 'gone' && w.boss.phase !== 'rise' && w.boss.phase !== 'mark') {
+      const d = w.boss, b = d.body, [key, s, x, y, mirror] = this.demonPicture(d, t);
+      out.push({ x: b.x + b.w / 2, y: b.y + b.h / 2, feet: b.y + b.h, own: this.own.get(b) ?? null, draw: k => this.sprite(k, 'shadow-' + key, x, y, s.footX, mirror) });
+    }
     for (const f of w.foes) {
-      if (f.kind === 'shade') monk(f);
+      if (f.kind === 'demon') continue;
+      if (f.kind === 'skeleton') {
+        if (f.dead > 0) continue;
+        const cx = f.x + f.w / 2, feet = f.y + f.h, key = 'shadow-' + this.skeletonFrame(f);
+        out.push({ x: cx, y: f.y + f.h / 2, feet, own: null, draw: k => this.sprite(k, key, cx, feet, SKELETON_ANCHOR, f.facing > 0) });
+      } else if (f.kind === 'shade') monk(f);
       else if (f.dead <= 0) {
         const cx = f.x + f.w / 2, feet = f.y + f.h, key = 'shadow-ghoul/' + (1 + Math.floor(f.animT * 12) % 8);
         out.push({ x: cx, y: f.y + f.h / 2, feet, own: this.own.get(f) ?? null, draw: k => this.sprite(k, key, cx, feet, GHOUL_ANCHOR, f.facing > 0) });
@@ -345,6 +384,118 @@ export class Stage {
     g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'lighter'; g.filter = 'blur(1px)';
     g.drawImage(this.flashSheet, 0, 0);
     g.restore();
+  }
+
+  // ---- the bell chamber ---------------------------------------------------------------------------
+
+  // The great bell: bronze, hung from a beam by its crown, swinging after it has tolled.
+  private drawBells(g: CanvasRenderingContext2D): void {
+    const angle = this.swing.amp * Math.sin(this.swing.t * 3.4);
+    for (const b of this.bells) {
+      g.fillStyle = '#2a1a14'; g.fillRect(b.x - 34, b.y - 6, 68, 8);               // the beam
+      g.fillStyle = '#4a3020'; g.fillRect(b.x - 34, b.y - 6, 68, 2);
+      g.save();
+      g.translate(b.x, b.y + 2); g.rotate(angle);
+      const bronze = g.createLinearGradient(-30, 0, 30, 0);
+      bronze.addColorStop(0, '#2a1c0c'); bronze.addColorStop(0.3, '#7d5a28'); bronze.addColorStop(0.45, '#a88446'); bronze.addColorStop(0.7, '#4e3517'); bronze.addColorStop(1, '#1e1408');
+      g.fillStyle = '#5a3f1c'; g.fillRect(-6, 0, 12, 7);                              // the crown
+      g.fillStyle = bronze;
+      g.beginPath();
+      g.moveTo(-15, 7); g.quadraticCurveTo(-17, 26, -22, 42); g.quadraticCurveTo(-31, 52, -32, 58);
+      g.lineTo(32, 58); g.quadraticCurveTo(31, 52, 22, 42); g.quadraticCurveTo(17, 26, 15, 7); g.closePath();
+      g.fill();
+      g.fillStyle = 'rgba(255,230,170,0.35)'; g.fillRect(-28, 50, 56, 2);            // the lip catches the light
+      g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(-30, 56, 60, 2);
+      g.fillStyle = '#2a1c0c'; g.fillRect(-3, 58, 6, 6);                              // the clapper, under it
+      g.restore();
+    }
+  }
+
+  // A toll, seen: a ring that goes out from the bell and fades.
+  private drawRings(g: CanvasRenderingContext2D): void {
+    g.save(); g.globalCompositeOperation = 'lighter';
+    for (const r of this.rings) {
+      g.strokeStyle = `rgba(255,220,160,${(0.35 * (1 - r.t / 1.1)).toFixed(3)})`; g.lineWidth = 2;
+      g.beginPath(); g.ellipse(r.x, r.y, 30 + r.t * 260, 12 + r.t * 100, 0, 0, Math.PI * 2); g.stroke();
+    }
+    g.restore();
+  }
+
+  private skeletonFrame(e: Actor): string {
+    if (e.rise > 0) return `skeleton-rise/${e.look}/${1 + Math.min(5, Math.floor((1 - e.rise / SKELETON.rise) * 6))}`;
+    return `skeleton/${e.look}/${1 + Math.floor(e.animT * 10) % 8}`;
+  }
+
+  private drawSkeleton(g: CanvasRenderingContext2D, e: Actor, t: number): void {
+    if (e.dead > 0 || (e.invul > 0 && Math.floor(t * 20) % 2)) return;
+    const cx = e.x + e.w / 2, feet = e.y + e.h, key = this.skeletonFrame(e);
+    if (e.rise <= 0) { g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(Math.round(cx - 9), Math.round(feet), 18, 2); }
+    this.picture(g, this.litSprite(key, cx, e.y + 20, e.facing > 0, null), cx, feet, SKELETON_ANCHOR, e.facing > 0);     // the pictures face left
+  }
+
+  // Where the demon floats above its floor: a slow sway, lower when it is spent.
+  private demonHover(d: Demon, t: number): number {
+    if (d.phase === 'dazed') return 0;
+    if (d.phase === 'dying') return -14 * (d.t / DEMON.dying);
+    return 6 + 3 * Math.sin(t * 2.6);
+  }
+
+  // The frame it shows, the strip it comes from, and where it is drawn: [key, strip, x, bottom of the picture, mirrored].
+  private demonPicture(d: Demon, t: number): [string, (typeof STRIPS)[string], number, number, boolean] {
+    const b = d.body;
+    let strip = 'demon/idle', n = 1 + Math.floor(b.animT * 8) % 6;
+    if (d.phase === 'windup') { strip = 'demon/attack'; n = 1 + Math.min(6, Math.floor((d.t / DEMON.breath.windup) * 7)); }
+    else if (d.phase === 'breath') { strip = 'demon/attack'; n = 8 + Math.min(3, Math.floor((d.t / DEMON.breath.time) * 4)); }
+    else if (d.phase === 'buffet') {                // the wings rise, then strike
+      const { at, time } = DEMON.buffet;
+      strip = 'demon/attack'; n = d.t < at ? 1 + Math.floor((d.t / at) * 3) : 4 + Math.min(2, Math.floor(((d.t - at) / (time - at)) * 3));
+    }
+    else if (d.phase === 'dazed' || d.phase === 'dying') n = 4;
+    const s = STRIPS[strip], feet = b.y + b.h - this.demonHover(d, t);
+    const shake = d.phase === 'dazed' ? Math.round(Math.sin(t * 9) * 2) : 0;
+    return [`${strip}/${n}`, s, b.x + b.w / 2 + shake, feet + (s.h - s.footY), b.facing > 0];     // the pictures face left
+  }
+
+  // Its waves of fire: a few blue tongues, leaning the way they run, flickering.
+  private drawWaves(g: CanvasRenderingContext2D, d: Demon, t: number): void {
+    for (const v of d.waves) {
+      this.glow(g, v.x, v.y - 8, 26, 'rgba(110,225,255,0.45)');
+      for (let i = -3; i <= 3; i++) {
+        const h = DEMON.wave.height * (1 - Math.abs(i) / 4) * (0.7 + 0.3 * Math.sin(t * 30 + i * 2 + v.x * 0.1));
+        g.fillStyle = Math.abs(i) <= 1 ? '#e8fbff' : i % 2 ? '#3cc8ff' : '#8ff0ff';
+        g.fillRect(Math.round(v.x + i * 2 - v.dir * Math.abs(i)), Math.round(v.y - h), 2, Math.round(h));
+      }
+      if (Math.random() < 0.6) this.particles.push({ x: v.x + (Math.random() - 0.5) * 10, y: v.y - 4, vx: -v.dir * (30 + Math.random() * 60), vy: -40 - Math.random() * 60, life: 0.25 + Math.random() * 0.25, color: ['#8ff0ff', '#3cc8ff', '#e8fbff'][Math.floor(Math.random() * 3)], g: -40 });
+    }
+  }
+
+  // Its skull, where the blue fire burns.
+  private demonHead(d: Demon, t: number): [number, number] {
+    const b = d.body;
+    return [b.x + b.w / 2 - b.facing * 2, b.y + b.h - this.demonHover(d, t) - 78];
+  }
+
+  private drawDemon(g: CanvasRenderingContext2D, d: Demon, t: number): void {
+    const b = d.body;
+    if (d.phase === 'mark' || d.phase === 'fall') {
+      // Its shadow on the floor where it will come down, darker and wider as it comes.
+      const k = d.phase === 'mark' ? d.t / DEMON.swoop.mark : 1, w = 20 + 60 * k;
+      g.fillStyle = `rgba(0,0,0,${(0.25 + 0.45 * k).toFixed(3)})`;
+      g.beginPath(); g.ellipse(d.markX, d.landY - 1, w / 2, 4 + 3 * k, 0, 0, Math.PI * 2); g.fill();
+      if (Math.floor(t * 10) % 2) this.glow(g, d.markX, d.landY - 4, 26 + 30 * k, 'rgba(255,60,40,0.3)');
+    }
+    if (d.phase === 'gone' || d.phase === 'mark') return;
+    const [key, s, x, y, mirror] = this.demonPicture(d, t);
+    const [hx, hy] = this.demonHead(d, t);
+    this.glow(g, hx, hy, 34, 'rgba(110,225,255,0.3)');
+    if (d.phase !== 'dazed' && d.phase !== 'dying' && d.phase !== 'fall') { g.fillStyle = 'rgba(0,0,0,0.28)'; g.beginPath(); g.ellipse(b.x + b.w / 2, d.floor - 1, 26, 4, 0, 0, Math.PI * 2); g.fill(); }
+    if (d.phase === 'dying') g.globalAlpha = Math.max(0, 1 - d.t / DEMON.dying);
+    this.sprite(g, (b.hurtT > 0 || (d.phase === 'dying' && Math.floor(t * 16) % 2) ? 'flash-' : '') + key, x, y, s.footX, mirror);
+    g.globalAlpha = 1;
+    if (d.phase === 'dazed') {
+      for (let i = 0; i < 4; i++) { const u = t * 5 + i * 1.6; g.fillStyle = i % 2 ? '#ffffff' : '#ffe27a'; g.fillRect(Math.round(hx + Math.cos(u) * 16), Math.round(hy - 22 + Math.sin(u) * 4), 2, 2); }
+      if (Math.floor(t * 5) % 2) { const words = 'CHARGE IT!'; text(g, words, Math.round(hx - textWidth(words) / 2) + 1, Math.round(hy - 45), '#1a0308'); text(g, words, Math.round(hx - textWidth(words) / 2), Math.round(hy - 46), '#ff5a3a'); }
+    }
   }
 
   // The bats of the place, flying across it from one side to the other.

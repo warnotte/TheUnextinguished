@@ -2,7 +2,7 @@
 
 import { TILE } from './grid';
 
-export type ActorKind = 'hero' | 'shade' | 'ghoul';
+export type ActorKind = 'hero' | 'shade' | 'ghoul' | 'skeleton' | 'demon';
 
 export interface Actor {
   kind: ActorKind;
@@ -28,20 +28,25 @@ export interface Actor {
   gore: number;                                    // 0 clean to 1 soaked: the blood it wears
   bleed: number; bleedDir: 1 | -1; bleedTick: number;      // seconds it goes on bleeding after a blow, and which way
   dead: number;
+  rise: number;                                    // a skeleton: seconds left coming out of the ground
+  look: number;                                    // which of its pictures an actor wears (a skeleton: bare or in rags)
 }
 
 export const ACTOR_W = 14, ACTOR_H = 40;
+// The bodies that are not the size of a man.
+const SIZE: Partial<Record<ActorKind, [number, number]>> = { skeleton: [16, 44], demon: [48, 92] };
 export const MAX_HP = 6;
 
 /** An actor standing with its feet on feetY, centred on centreX. */
 export function makeActor(kind: ActorKind, centreX: number, feetY: number): Actor {
+  const [w, h] = SIZE[kind] ?? [ACTOR_W, ACTOR_H];
   return {
-    kind, x: centreX - ACTOR_W / 2, y: feetY - ACTOR_H, w: ACTOR_W, h: ACTOR_H, vx: 0, vy: 0, facing: 1,
+    kind, x: centreX - w / 2, y: feetY - h, w, h, vx: 0, vy: 0, facing: 1,
     onGround: true, climbing: false, blocked: false, lastFloor: Math.round(feetY / TILE), spawnX: centreX, spawnY: feetY,
     animT: 0, attackT: 0, attackKind: 'punch', attackAir: false, attackHit: false, sinceAttack: 9,
     invul: 0, hurtT: 0, hp: MAX_HP, coyote: 0, buffer: 0,
     stun: 0, ko: 0, windup: 0, strike: 0, recover: 0, struck: false, cool: 0, airDir: 0, climbDir: 1, dead: 0,
-    strikeBuffer: 0, guard: false, guardT: 0, guardCool: 0, chain: 0, charge: 0, motion: 0, motionT: 0, motionDir: 1, dazed: 0, gore: 0, bleed: 0, bleedDir: 1, bleedTick: 0,
+    strikeBuffer: 0, guard: false, guardT: 0, guardCool: 0, chain: 0, charge: 0, motion: 0, motionT: 0, motionDir: 1, dazed: 0, gore: 0, bleed: 0, bleedDir: 1, bleedTick: 0, rise: 0, look: 0,
   };
 }
 

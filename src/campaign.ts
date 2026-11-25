@@ -8,14 +8,16 @@ export function afterWin(index: number, count: number): number | 'end' {
   return index + 1 < count ? index + 1 : 'end';
 }
 
-/** What the panel says when level `index` is won. */
-export function wonWords(index: number, count: number): Words {
-  if (index + 1 < count) return { title: 'ROOM CLEARED', lines: ['PRESS JUMP FOR THE NEXT ROOM'] };
-  return { title: 'ROOM CLEARED', lines: ['PRESS JUMP TO GO ON'] };
+/** What the panel says when level `index` is won; `boss` for the room of a demon. */
+export function wonWords(index: number, count: number, boss = false): Words {
+  const title = boss ? 'DEMON SLAIN' : 'ROOM CLEARED';
+  if (index + 1 < count) return { title, lines: ['PRESS JUMP FOR THE NEXT ROOM'] };
+  return { title, lines: ['PRESS JUMP TO GO ON'] };
 }
 
-/** What is written over a level when it starts. */
-export function openingWords(title: string): string[] {
+/** What is written over a level when it starts; `boss` for the room of a demon. */
+export function openingWords(title: string, boss = false): string[] {
+  if (boss) return [title, 'SLAY THE DEMON', 'ITS SKELETONS CARRY EMBERS', 'ONLY A FLAMING CHARGE ENDS IT'];
   return [title, 'COLLECT THE EMBERS', 'THEN REACH THE DOOR'];
 }
 
