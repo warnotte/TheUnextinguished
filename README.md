@@ -14,22 +14,25 @@ spreads into red clouds. For adults.
 Open `index.html` by double-click (after a build, see below). No server, no network. The game opens
 on its title, which shows the controls; jump starts it.
 
-H shows what collides over the picture: stone in red, platforms in yellow, ladders in green, what
-hurts in magenta, the line of the hills in cyan, the bodies and the reach of a blow; H again hides it.
-
 | | Keyboard | Gamepad |
 |---|---|---|
 | Move | arrows, or Q / D | stick or d-pad |
 | Climb | ↑ ↓, or Z / S | stick or d-pad |
-| Jump | Space | A |
-| Strike | X or Ctrl | X or B |
-| Guard | C or Shift, or hold ↓ | LB or RB, or hold ↓ |
-| Flaming charge | V; or ↓, then → (or ←), then strike | Y; or ↓, then → (or ←), then strike |
+| Jump | Space, or K | A |
+| Strike | X or Ctrl, or J | X or B |
+| Guard | C or Shift, or L, or hold ↓ | LB or RB, or hold ↓ |
+| Flaming charge | V or I; or ↓, then → (or ←), then strike | Y; or ↓, then → (or ←), then strike |
 | Pause | P | Select |
-| Restart | R | Start |
+| Restart | R or Enter | Start |
 | Music on / off | M | |
 | Full screen | F, or a double click on the picture | |
+| What collides (H again to hide it) | H | |
 | Cheat: the monk cannot be harmed (G again to stop) | G | |
+
+J, K, L and I are the same moves under the right hand, for whoever moves with Q, Z, S and D.
+
+H shows what collides over the picture: stone in red, platforms in yellow, ladders in green, what
+hurts in magenta, the line of the hills in cyan, the bodies and the reach of a blow; H again hides it.
 
 The duel:
 
