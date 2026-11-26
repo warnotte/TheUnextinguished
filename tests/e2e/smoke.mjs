@@ -15,7 +15,13 @@ page.on('requestfailed', r => errors.push('request failed: ' + r.url()));
 const results = [];
 const check = (name, ok, detail = '') => { results.push(ok); console.log((ok ? 'ok   ' : 'FAIL ') + name + (detail ? '  ' + detail : '')); };
 const game = fn => page.evaluate(fn);
+const keys = async (...codes) => { for (const k of codes) { await page.keyboard.press(k); await page.waitForTimeout(50); } };
 
+await page.addInitScript(() => {
+  const edges = [], connect = AudioNode.prototype.connect;
+  window.__edges = edges;
+  AudioNode.prototype.connect = function (to, ...rest) { edges.push([this, to]); return connect.call(this, to, ...rest); };
+});
 await page.goto(pathToFileURL('index.html').href);
 await page.waitForFunction(() => window.__game, null, { timeout: 15000 }).catch(() => {});
 check('the game starts', await game(() => !!window.__game), await page.locator('#status').textContent());
@@ -30,10 +36,50 @@ const full = await game(() => [!!document.fullscreenElement, document.getElement
 await page.keyboard.press('KeyF');
 await page.waitForTimeout(400);
 check('F puts the picture on the full screen, and F again takes it back', full[0] && full[1] % 640 === 0 && (await game(() => !document.fullscreenElement)), String(full));
+// The options, from the title: jump does not start the game while they are open; ASH is kept.
+await page.keyboard.press('KeyO');
+await page.waitForTimeout(150);
+check('O on the title opens the options', await game(() => !!__game.options));
+await page.keyboard.press('Space');
+await page.waitForTimeout(250);
+check('jump on the options does not start the game', await game(() => __game.scene === 'title' && !!__game.options));
+await keys('ArrowDown', 'ArrowDown', 'ArrowRight');
+await page.waitForTimeout(150);
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/options.png' });
+check('down, down, right turns the blood to ash', await game(() => __game.settings.blood === 'ash'));
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+const keptOptions = await game(() => JSON.parse(localStorage.getItem('unextinguished.options') || '{}'));
+check('Escape closes them, and the choice is kept', await game(() => !__game.options) && keptOptions.blood === 'ash', JSON.stringify(keptOptions));
+await page.reload();
+await page.waitForFunction(() => window.__game, null, { timeout: 15000 });
+await page.waitForTimeout(300);
+check('the options are the same when the game is opened again', await game(() => __game.settings.blood === 'ash'));
+await keys('KeyO', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'KeyO');
+await page.waitForTimeout(150);
+check('O closes them too; the blood is red again', await game(() => !__game.options && __game.settings.blood === 'red'));
+
 await page.keyboard.press('Space');
 await page.waitForTimeout(400);
 check('jump on the title starts the first level', await game(() => __game.scene === 'play' && __game.level === 0 && __game.world.state === 'play'));
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/start.png' });
+
+// The levels of the music and of the sounds: kept, and laid on the mix at once.
+const mix = await game(() => { __game.sound.setLevels(3, 9); const m = __game.sound.mixNow; __game.sound.setLevels(7, 7); return [__game.sound.musicLevel, __game.sound.soundsLevel, m.sounds, m.music]; });
+check('the sound takes the levels of the options', mix[0] === 7 && mix[1] === 7 && Math.abs(mix[2] - (9 / 7) ** 2) < 1e-3 && (mix[3] === null || Math.abs(mix[3] - 0.12 * (3 / 7) ** 2) < 1e-3), mix.join(' '));
+
+// The echo of the hall and the wind are sounds too: the level of SOUNDS governs them, as it does the blows.
+const astray = await game(() => {
+  const snd = __game.sound, edges = window.__edges, out = [];
+  // From a node, the nodes reached without passing through the bus of the sounds.
+  const reach = from => { const seen = new Set([from]), todo = [from]; while (todo.length) { const n = todo.pop(); for (const [a, b] of edges) if (a === n && b !== snd.bus && !seen.has(b)) { seen.add(b); todo.push(b); } } return seen; };
+  const outside = n => n instanceof DynamicsCompressorNode || n instanceof AudioDestinationNode;
+  if ([...reach(snd.hall)].some(outside)) out.push('the echo of the hall');
+  const wind = edges.map(([a]) => a).find(a => a instanceof AudioBufferSourceNode && a.buffer === snd.noise && a.loop);
+  if (!wind) out.push('no wind found'); else if ([...reach(wind)].some(outside)) out.push('the wind');
+  return out;
+});
+check('SOUNDS governs the echo of the hall and the wind as well', astray.length === 0, astray.join(', '));
 
 const size = await game(() => { const c = document.getElementById('screen'); return [c.width, c.height, c.getBoundingClientRect().width]; });
 check('the picture is 640 x 360, shown at a whole scale', size[0] === 640 && size[1] === 360 && size[2] % 640 === 0, size.join(' '));
@@ -61,6 +107,39 @@ await page.keyboard.press('KeyP');
 await page.waitForTimeout(200);
 check('P again goes on', await game(() => !__game.paused && __game.world.clock > 0));
 
+// The options from the pause: the game stays paused, the hero does not jump, the level goes on as it was.
+await game(() => { const h = __game.world.hero; Object.assign(h, { x: 100, y: 432 - h.h, vx: 0, vy: 0, onGround: true, lastFloor: 27 }); });
+await page.waitForTimeout(200);
+await page.keyboard.press('KeyP');
+await page.waitForTimeout(100);
+const before = await game(() => ({ clock: __game.world.clock, y: __game.world.hero.y, world: __game.world }));
+await page.keyboard.press('KeyO');
+await page.waitForTimeout(100);
+check('O in the pause opens the options', await game(() => !!__game.options && __game.paused));
+const heard = await game(() => __game.sound.mixNow.music);
+check('the music is heard at its true level while it is set, not at the hush of the pause', heard === null || Math.abs(heard - 0.12) < 1e-3, String(heard));
+await keys('Space', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'ArrowDown', 'Space');
+await page.waitForTimeout(200);
+const after = await game(() => ({ clock: __game.world.clock, y: __game.world.hero.y, paused: __game.paused, options: !!__game.options, ash: __game.stage.ash }));
+check('back in the pause, the music is hushed again', await game(() => { const m = __game.sound.mixNow.music; return m === null || Math.abs(m - 0.036) < 1e-3; }));
+check('BACK returns to the pause: nothing moved, the level is the same, the blood is ash', !after.options && after.paused && after.clock === before.clock && after.y === before.y && after.ash, JSON.stringify(after));
+await page.keyboard.press('KeyP');
+await page.waitForTimeout(100);
+// A shade struck with the blood turned to ash: no blood, ash in the air.
+await game(() => {
+  const w = __game.world, h = w.hero, sh = w.foes.find(f => f.kind === 'shade');
+  w.invincible = true; sh.cool = 99;
+  Object.assign(h, { x: sh.x - 26, y: sh.y + sh.h - h.h, vx: 0, vy: 0, facing: 1, onGround: true, lastFloor: sh.lastFloor });
+});
+for (let i = 0; i < 4; i++) { await page.keyboard.press('KeyX'); await page.waitForTimeout(90); }
+const ashen = await game(() => ({ drops: __game.stage.blood.drops.length, ash: __game.stage.particles.filter(q => q.drag).length }));
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/ash.png' });
+check('with ash, a blow throws ash and no blood', ashen.drops === 0 && ashen.ash > 0, JSON.stringify(ashen));
+await game(() => { __game.world.invincible = false; });
+await keys('KeyP', 'KeyO', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'Escape', 'KeyP');
+await page.waitForTimeout(100);
+check('the blood is red again', await game(() => __game.settings.blood === 'red' && !__game.stage.ash && !__game.paused));
+
 // The camera follows the hero up the room.
 await game(() => { const h = __game.world.hero; Object.assign(h, { x: 60, y: 96 - h.h, vx: 0, vy: 0, onGround: true, lastFloor: 6 }); });
 await page.waitForTimeout(1200);
@@ -80,6 +159,10 @@ check('reaching the open door wins the level', await game(() => __game.world.sta
 await page.waitForTimeout(400);
 check('a time good enough for the board asks for a name', await game(() => !!__game.naming));
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/name.png' });
+await page.keyboard.press('KeyO');
+await page.waitForTimeout(100);
+check('while a name is given, O writes a letter and opens nothing', await game(() => !__game.options && __game.naming?.name.shown.startsWith('O')));
+await page.keyboard.press('Backspace');
 await page.keyboard.type('ace');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(200);

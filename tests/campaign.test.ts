@@ -54,6 +54,8 @@ describe('the tally of a run', () => {
   it('is written on the last screen', () => {
     expect(endWords({ time: 754, slain: 23, spilt: 4817, falls: 3 })).toEqual(['TIME 12:34', 'FOES SNUFFED OUT 23', 'BLOOD SPILT 48.2 L', 'KNOCKED OUT 3 TIMES']);
     expect(endWords({ time: 60, slain: 1, spilt: 0, falls: 1 }).slice(1)).toEqual(['FOES SNUFFED OUT 1', 'BLOOD SPILT 0.0 L', 'KNOCKED OUT ONCE']);
+    // With the blood turned to ash, the end says nothing of blood.
+    expect(endWords({ time: 754, slain: 23, spilt: 4817, falls: 3 }, undefined, false)).toEqual(['TIME 12:34', 'FOES SNUFFED OUT 23', 'KNOCKED OUT 3 TIMES']);
     expect(endWords({ time: 60, slain: 1, spilt: 0, falls: 0 })[3]).toBe('NEVER KNOCKED OUT');
   });
 });

@@ -8,6 +8,7 @@
 // The effects are made on the spot: each is a few layers (a low body, a crack of noise, something
 // wet), sent through a compressor and, for a share, through the echo of a stone hall.
 
+import { levelGain } from './options';
 import type { SoundName } from './sim/events';
 
 const MUSIC_VOLUME = 0.12;       // under the effects: louder, the drums of the tunes cover them
@@ -32,11 +33,26 @@ export class Sound {
   private asked = false;
   private on = true;
   private hushed = false;
+  private musicLv = 7;                          // the levels of the options, 0 to 10; 7 is the mix as made
+  private soundsLv = 7;
   private reader: BaseAudioContext | null = null;                     // reads the tunes before sound is allowed
   private readonly reading = new Map<string, Promise<AudioBuffer>>();  // the tunes read, or being read
 
   get musicPlaying(): boolean { return this.gain !== null && this.ac !== null && this.ac.state === 'running'; }
   get musicOn(): boolean { return this.on; }
+  get musicLevel(): number { return this.musicLv; }
+  get soundsLevel(): number { return this.soundsLv; }
+  /** The gains in the mix now: the music's (null while no tune plays) and the effects'. */
+  get mixNow(): { music: number | null; sounds: number } {
+    return { music: this.gain ? this.gain.gain.value : null, sounds: this.bus ? this.bus.gain.value : levelGain(this.soundsLv) };
+  }
+
+  /** The levels of the options, 0 to 10: they are laid on the mix at once. */
+  setLevels(music: number, sounds: number): void {
+    this.musicLv = music; this.soundsLv = sounds;
+    this.settle();
+    if (this.bus) this.bus.gain.value = levelGain(sounds);
+  }
 
   /** Names the tune of the level, and the one played once before it; it starts as soon as sound is allowed. The same tune goes on. */
   setMusic(name: string, intro = ''): void {
@@ -61,6 +77,7 @@ export class Sound {
     squeeze.threshold.value = -16; squeeze.ratio.value = 5; squeeze.attack.value = 0.003; squeeze.release.value = 0.18;
     squeeze.connect(ac.destination);
     this.bus = ac.createGain();
+    this.bus.gain.value = levelGain(this.soundsLv);
     this.bus.connect(squeeze);
 
     // One second of white noise, used by every hiss, crack and squelch.
@@ -85,7 +102,7 @@ export class Sound {
     this.hall.buffer = impulse;
     const back = ac.createGain();
     back.gain.value = HALL;
-    this.hall.connect(back).connect(squeeze);
+    this.hall.connect(back).connect(this.bus);                 // the echo is a sound: the level of the sounds governs it
 
     // The wind: low noise that swells and falls slowly.
     const air = ac.createBufferSource(), low = ac.createBiquadFilter(), level = ac.createGain(), swell = ac.createOscillator(), depth = ac.createGain();
@@ -94,7 +111,7 @@ export class Sound {
     level.gain.value = WIND;
     swell.frequency.value = 0.11; depth.gain.value = WIND * 0.6;
     swell.connect(depth).connect(level.gain);
-    air.connect(low).connect(level).connect(squeeze);
+    air.connect(low).connect(level).connect(this.bus);
     air.start(); swell.start();
   }
 
@@ -153,7 +170,7 @@ export class Sound {
     }).catch(() => { this.asked = false; });
   }
 
-  private level(): number { return !this.on ? 0 : this.hushed ? MUSIC_VOLUME * 0.3 : MUSIC_VOLUME; }
+  private level(): number { return !this.on ? 0 : MUSIC_VOLUME * levelGain(this.musicLv) * (this.hushed ? 0.3 : 1); }
   private settle(): void { if (this.gain && this.ac) { this.gain.gain.cancelScheduledValues(this.ac.currentTime); this.gain.gain.value = this.level(); } }
 
   toggleMusic(): boolean { this.on = !this.on; this.settle(); return this.on; }
@@ -165,8 +182,8 @@ export class Sound {
     if (!this.gain || !this.ac || !this.on || this.hushed) return;
     const t = this.ac.currentTime;
     this.gain.gain.cancelScheduledValues(t);
-    this.gain.gain.setValueAtTime(MUSIC_VOLUME * 0.35, t);
-    this.gain.gain.linearRampToValueAtTime(MUSIC_VOLUME, t + seconds);
+    this.gain.gain.setValueAtTime(this.level() * 0.35, t);
+    this.gain.gain.linearRampToValueAtTime(this.level(), t + seconds);
   }
 
   // The end of every layer: a quick rise, a fall to nothing, then out to the mix and to the hall.

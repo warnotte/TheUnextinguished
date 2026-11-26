@@ -49,6 +49,22 @@ describe('Input', () => {
     expect(input.read().viewPressed).toBe(false);
   });
 
+  it('reads O as a press: the options', () => {
+    const keys = new Keys(), input = new Input(keys, () => []);
+    keys.down('KeyO');
+    expect(input.read().optionsPressed).toBe(true);
+    expect(input.read().optionsPressed).toBe(false);
+  });
+
+  it('reads Y and Select apart on the gamepad, once each: what opens the options', () => {
+    let pads: (PadLike | null)[] = [pad([0, 0], [3])];
+    const input = new Input(new Keys(), () => pads);
+    expect(input.read().pad).toMatchObject({ options: true, select: false });
+    expect(input.read().pad).toMatchObject({ options: false });
+    pads = [pad([0, 0], [8])];
+    expect(input.read().pad).toMatchObject({ options: false, select: true });
+  });
+
   it('reads G as a press: the cheat', () => {
     const keys = new Keys(), input = new Input(keys, () => []);
     keys.down('KeyG');

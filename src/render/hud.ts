@@ -134,6 +134,6 @@ export class Hud {
     };
     if (w.state === 'won') this.wonPanel(g, t, clock, won);
     else if (w.state === 'lost' && w.slow <= 0) panel([['KNOCKED OUT', '#ff7a6a', 4], ['PRESS JUMP TO TRY AGAIN', '#9d93b8']]);
-    else if (paused) panel([['PAUSED', '#ffe27a', 4], ['PRESS P TO GO ON', '#9d93b8']]);
+    else if (paused) panel([['PAUSED', '#ffe27a', 4], ['PRESS P TO GO ON', '#9d93b8'], ['O OPTIONS', '#9d93b8']]);
   }
 }

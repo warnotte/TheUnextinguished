@@ -72,11 +72,12 @@ export function addRun(run: Readonly<Run>, w: { clock: number; slain: number; sp
 
 const BLOOD_PER_LITRE = 100;     // a shade holds about six litres, a little more than a man
 
-/** The lines of the last screen; `record`, the best run, when the run went from the title to the end. */
-export function endWords(run: Readonly<Run>, record?: { best: number; isNew: boolean }): string[] {
+/** The lines of the last screen; `record`, the best run, when the run went from the title to the end; `blood` false when it was turned to ash. */
+export function endWords(run: Readonly<Run>, record?: { best: number; isNew: boolean }, blood = true): string[] {
   const falls = run.falls === 0 ? 'NEVER KNOCKED OUT' : run.falls === 1 ? 'KNOCKED OUT ONCE' : `KNOCKED OUT ${run.falls} TIMES`;
   const best = !record ? '' : record.isNew ? '   NEW RECORD!' : `   BEST ${clockText(record.best)}`;
-  return [`TIME ${clockText(run.time)}${best}`, `FOES SNUFFED OUT ${run.slain}`, `BLOOD SPILT ${(run.spilt / BLOOD_PER_LITRE).toFixed(1)} L`, falls];
+  const spilt = blood ? [`BLOOD SPILT ${(run.spilt / BLOOD_PER_LITRE).toFixed(1)} L`] : [];
+  return [`TIME ${clockText(run.time)}${best}`, `FOES SNUFFED OUT ${run.slain}`, ...spilt, falls];
 }
 
 // ---- the title and the end, seen over a level that nobody plays ---------------------------------

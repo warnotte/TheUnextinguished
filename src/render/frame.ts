@@ -11,6 +11,7 @@ import type { GameEvent, SoundName } from '../sim/events';
 import { TILE } from '../sim/grid';
 import type { World } from '../sim/world';
 import type { Assets } from './assets';
+import { ashFrom } from './ash';
 import { Blood, BLOOD_COLORS } from './blood';
 import { Grade } from './grade';
 import { Lens } from './lens';
@@ -25,7 +26,7 @@ import type { Initials } from '../initials';
 import { Hud } from './hud';
 import { text, textWidth } from './text';
 
-interface Particle { x: number; y: number; vx: number; vy: number; life: number; color: string; g: number }
+interface Particle { x: number; y: number; vx: number; vy: number; life: number; color: string; g: number; drag?: number }
 interface Playing { kind: string; x: number; y: number; t: number; flip: boolean }
 interface Loop { sheet: string; x: number; y: number; phase: number; front: boolean }
 
@@ -88,6 +89,8 @@ export class Stage {
   private readonly wading = new Map<Actor, number>();             // px each body has waded since its last splash
   /** H: what collides, drawn over the picture. */
   collisions = false;
+  /** The blood turned to ash (an option, for the younger players): blows throw ash, and no blood is drawn. */
+  ash = false;
   private readonly flocks: { x: number; y: number; t: number; birds: { dx: number; dy: number; vx: number; vy: number; flap: number }[] }[] = [];     // t: seconds since they flew, -1 perched
   private ripples: { x: number; t: number; size: number }[] = [];  // rings on the water, in level x
   private feet = { x: 0, walked: 0, bloody: 0, side: 1 };          // the hero's steps: the blood his feet carry
@@ -183,6 +186,7 @@ export class Stage {
     for (const e of events) {
       if (e.type === 'effect') { if (EFFECTS[e.kind]) this.effects.push({ kind: e.kind, x: e.x, y: e.y, t: 0, flip: e.flip }); }
       else if (e.type === 'blood') {
+        if (this.ash) { this.particles.push(...ashFrom(e.x, e.y, e.dir, e.amount, Math.random)); continue; }
         this.blood.spurt(e.x, e.y, e.dir, e.amount, e.chunks);
         // A heavy blow throws some of it at the screen; a finishing blow a lot.
         if (e.amount >= 50) this.lens.splash(e.x - this.camera.x, e.y - this.camera.y, e.amount >= 100 ? 9 : 3);
@@ -241,7 +245,7 @@ export class Stage {
     const level = this.world.level;
     this.rainfall(dt);
     this.wade(dt);
-    this.steps();
+    if (!this.ash) this.steps();
     for (const r of this.rings) r.t += dt;
     this.rings = this.rings.filter(r => r.t < 1.1);
     const fall = this.world.fall;
@@ -253,7 +257,11 @@ export class Stage {
       const b = boss.body, f = b.facing, from = b.x + b.w / 2 + f * 20;
       for (let i = 0; i < 5; i++) this.particles.push({ x: from + f * Math.random() * 30, y: boss.floor - 50 + Math.random() * 20, vx: f * (180 + Math.random() * 220), vy: 40 + Math.random() * 90, life: 0.25 + Math.random() * 0.3, color: ['#e8fbff', '#8ff0ff', '#3cc8ff', '#1d7fd8'][Math.floor(Math.random() * 4)], g: 60 });
     }
-    for (const q of this.particles) { q.life -= dt; q.vy += q.g * dt; q.x += q.vx * dt; q.y += q.vy * dt; }
+    for (const q of this.particles) {
+      q.life -= dt; q.vy += q.g * dt;
+      if (q.drag) { const k = Math.exp(-q.drag * dt); q.vx *= k; q.vy *= k; }
+      q.x += q.vx * dt; q.y += q.vy * dt;
+    }
     this.particles = this.particles.filter(q => q.life > 0);
     // Each ember that waits throws a spark now and then.
     for (const m of this.world.embers) {
@@ -283,10 +291,10 @@ export class Stage {
     g.imageSmoothingEnabled = false;
     g.fillStyle = '#0a0814'; g.fillRect(0, 0, VIEW_W, VIEW_H);
     g.drawImage(this.backdrop, -cx, -cy);
-    g.drawImage(this.stains, -cx, -cy);
+    if (!this.ash) g.drawImage(this.stains, -cx, -cy);
 
     g.translate(-cx, -cy);
-    this.drawRuns(g);
+    if (!this.ash) this.drawRuns(g);
     g.setTransform(1, 0, 0, 1, 0, 0);
 
     g.translate(-cx, -cy);
@@ -350,7 +358,7 @@ export class Stage {
     for (const fx of this.effects) this.drawEffect(g, fx);
     this.drawRings(g);
     for (const q of this.particles) { g.fillStyle = q.color; g.fillRect(Math.round(q.x), Math.round(q.y), 2, 2); }
-    for (const d of this.blood.drops) {
+    if (!this.ash) for (const d of this.blood.drops) {
       g.fillStyle = BLOOD_COLORS[d.shade]; g.fillRect(Math.round(d.x), Math.round(d.y), d.size, d.size);
       if (Math.abs(d.vx) + Math.abs(d.vy) > 220) {               // a fast drop draws a short tail behind it
         g.fillStyle = BLOOD_COLORS[Math.max(0, d.shade - 1)];
@@ -358,7 +366,7 @@ export class Stage {
         g.fillRect(Math.round(d.x - d.vx * 0.022), Math.round(d.y - d.vy * 0.022), 1, 1);
       }
     }
-    this.drawPools(g, t, cx);
+    if (!this.ash) this.drawPools(g, t, cx);
     g.setTransform(1, 0, 0, 1, 0, 0);
     this.lights.haze(g);
 
@@ -377,7 +385,7 @@ export class Stage {
     this.grade.glow(g);
     this.closeIn(g, cx, cy);
     this.grade.vignette(g);
-    this.drawLens(g);
+    if (!this.ash) this.drawLens(g);
     if (this.collisions) this.drawCollisions(g, cx, cy);
     if (!this.scenery) this.hud.draw(g, t, paused, this.won);
   }
@@ -1062,7 +1070,7 @@ export class Stage {
     deep.addColorStop(0, 'rgba(26,66,104,0.42)'); deep.addColorStop(1, 'rgba(6,18,40,0.84)');
     g.fillStyle = deep; g.fillRect(0, top, VIEW_W, VIEW_H - top);
     // The blood in it: clouds that swell and fade, a film on the surface.
-    for (const c of this.blood.clouds) {
+    if (!this.ash) for (const c of this.blood.clouds) {
       const x = c.x - cx, y = c.y - cy;
       if (x < -40 || x > VIEW_W + 40 || y < -40 || y > VIEW_H + 40) continue;
       const red = c.shade >= 2 ? '150,14,22' : '110,8,16';
@@ -1279,7 +1287,7 @@ export class Stage {
     const frame = this.monkFrame(a, t);
     if (shade || flash) this.sprite(g, set + frame, cx, feet, MONK_ANCHOR, a.facing < 0);
     else this.picture(g, this.litSprite(set + frame, cx, a.y + 18, a.facing < 0, this.own.get(a) ?? null, MONK_ANCHOR), cx, feet, MONK_ANCHOR, a.facing < 0);
-    if (a.gore > 0 && !flash) { g.globalAlpha = Math.min(1, a.gore * 1.2); this.sprite(g, 'gore/' + frame, cx, feet, MONK_ANCHOR, a.facing < 0); g.globalAlpha = 1; }
+    if (a.gore > 0 && !flash && !this.ash) { g.globalAlpha = Math.min(1, a.gore * 1.2); this.sprite(g, 'gore/' + frame, cx, feet, MONK_ANCHOR, a.facing < 0); g.globalAlpha = 1; }
     if (guarding) {
       // The guard: a pale arc in front, brighter for a moment when it has just stopped a blow.
       g.fillStyle = a.invul > 0 || (shade && a.vx !== 0) ? '#ffffff' : shade ? 'rgba(150,255,190,0.8)' : 'rgba(190,215,255,0.8)';

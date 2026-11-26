@@ -4,6 +4,7 @@
 import { VIEW_H, VIEW_W } from './camera';
 import { clockText } from '../campaign';
 import { type Initials, NAME_LENGTH } from '../initials';
+import { LEVELS, OPTION_LINES, type OptionsMenu } from '../options';
 import type { Entry } from '../records';
 import { PLACES } from '../records';
 import { centered, text, textWidth } from './text';
@@ -68,9 +69,8 @@ const CONTROLS: [string, string, string][] = [
   ['CHARGE', 'V', 'Y'],
 ];
 
-/** The title: the name, what each key does, and what starts the game. */
-/** The title: the controls, or a table of the board (`page`), in turn. */
-export function drawTitle(g: CanvasRenderingContext2D, t: number, page: { title: string; entries: Entry[] } | null = null): void {
+/** The title: the controls, or a table of the board (`page`), in turn; or the options, while they are open. */
+export function drawTitle(g: CanvasRenderingContext2D, t: number, page: { title: string; entries: Entry[] } | null = null, menu: OptionsMenu | null = null, musicOn = true): void {
   g.setTransform(1, 0, 0, 1, 0, 0);
   veil(g);
   sparks(g, t);
@@ -78,6 +78,7 @@ export function drawTitle(g: CanvasRenderingContext2D, t: number, page: { title:
   centered(g, 'A GOTHIC PLATFORM FIGHTER', 104, '#c9bfe0');
 
   const px = 160, pw = 320, py = 128;
+  if (menu) { drawOptions(g, t, menu, musicOn); return; }
   panel(g, px, py, pw, 136);
   if (page) drawTable(g, page.title, page.entries, px, py, pw);
   else {
@@ -91,7 +92,38 @@ export function drawTitle(g: CanvasRenderingContext2D, t: number, page: { title:
   }
 
   if (blink(t)) centered(g, 'PRESS JUMP TO START', 286, GOLD, 3);
-  centered(g, 'F FULL SCREEN    M MUSIC    P PAUSE    H COLLISIONS', 334, DIM);
+  centered(g, 'F FULL SCREEN    M MUSIC    P PAUSE    H COLLISIONS    O OPTIONS', 334, DIM);
+}
+
+/** How the options are worked. Not Escape: in full screen the browser takes it for itself. */
+export const OPTIONS_HINT = 'ARROWS CHOOSE AND CHANGE  O BACK';
+
+/**
+ * The options, in a panel in the middle of the picture: the line chosen in gold, the levels as ten
+ * squares, the blood red or ash, and how to work it under them.
+ */
+export function drawOptions(g: CanvasRenderingContext2D, t: number, menu: OptionsMenu, musicOn: boolean): void {
+  const px = 150, pw = 340, py = 124, ph = 152;
+  g.fillStyle = 'rgba(10,8,20,0.94)'; g.fillRect(px, py, pw, ph);
+  g.strokeStyle = 'rgba(154,143,192,0.8)'; g.lineWidth = 2; g.strokeRect(px + 1, py + 1, pw - 2, ph - 2);
+  centered(g, 'OPTIONS', py + 12, GOLD);
+  const o = menu.options;
+  OPTION_LINES.forEach((what, i) => {
+    const y = py + 36 + i * 22, here = i === menu.line;
+    if (here && blink(t * 2)) text(g, '>', px + 22, y, GOLD);
+    text(g, what, px + 38, y, here ? GOLD : PALE);
+    const vx = px + 150;
+    if (what === 'MUSIC' && !musicOn) text(g, 'OFF', vx, y, DIM);
+    else if (what === 'MUSIC' || what === 'SOUNDS') {
+      const level = what === 'MUSIC' ? o.music : o.sounds;
+      for (let k = 0; k < LEVELS; k++) {
+        const x = vx + k * 15;
+        if (k < level) { g.fillStyle = here ? GOLD : PALE; g.fillRect(x, y, 11, 10); }
+        else { g.strokeStyle = DIM; g.lineWidth = 1; g.strokeRect(x + 0.5, y + 0.5, 10, 9); }
+      }
+    } else if (what === 'BLOOD') text(g, o.blood === 'red' ? 'RED' : 'ASH', vx, y, o.blood === 'red' ? '#ff6a5a' : '#b3aeb8');
+  });
+  centered(g, OPTIONS_HINT, py + ph - 22, DIM);
 }
 
 /** The end: the name again, what the run cost, and the name asked for if the run goes on the board. */

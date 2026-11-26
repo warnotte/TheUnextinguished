@@ -1,5 +1,119 @@
 "use strict";
 (() => {
+  // src/options.ts
+  var LEVELS = 10;
+  var MIDDLE = 7;
+  var DEFAULT_OPTIONS = Object.freeze({ music: MIDDLE, sounds: MIDDLE, blood: "red" });
+  var KEY = "unextinguished.options";
+  function loadOptions(store) {
+    let kept = null;
+    try {
+      kept = JSON.parse(store.get(KEY) ?? "null");
+    } catch {
+      kept = null;
+    }
+    const o = kept && typeof kept === "object" ? kept : {};
+    const level = (v, fallback) => typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(LEVELS, Math.round(v))) : fallback;
+    return {
+      music: level(o.music, DEFAULT_OPTIONS.music),
+      sounds: level(o.sounds, DEFAULT_OPTIONS.sounds),
+      blood: o.blood === "ash" || o.blood === "red" ? o.blood : DEFAULT_OPTIONS.blood
+    };
+  }
+  function saveOptions(store, o) {
+    store.set(KEY, JSON.stringify({ music: o.music, sounds: o.sounds, blood: o.blood }));
+  }
+  function levelGain(level) {
+    return (level / MIDDLE) ** 2;
+  }
+  var OPTION_LINES = ["MUSIC", "SOUNDS", "BLOOD", "BACK"];
+  var OptionsMenu = class {
+    line = 0;
+    done = false;
+    /** What the last move changed, or null. */
+    changed = null;
+    options;
+    constructor(o) {
+      this.options = { ...o };
+    }
+    up() {
+      this.changed = null;
+      this.line = Math.max(0, this.line - 1);
+    }
+    down() {
+      this.changed = null;
+      this.line = Math.min(OPTION_LINES.length - 1, this.line + 1);
+    }
+    left() {
+      this.turn(-1);
+    }
+    right() {
+      this.turn(1);
+    }
+    /** Jump or A: the blood turns, BACK closes; on a level it does nothing. */
+    confirm() {
+      this.changed = null;
+      if (OPTION_LINES[this.line] === "BLOOD") this.turn(1);
+      else if (OPTION_LINES[this.line] === "BACK") this.done = true;
+    }
+    back() {
+      this.changed = null;
+      this.done = true;
+    }
+    turn(by) {
+      this.changed = null;
+      const o = this.options, what = OPTION_LINES[this.line];
+      if (what === "MUSIC" || what === "SOUNDS") {
+        const key = what === "MUSIC" ? "music" : "sounds", was = o[key];
+        o[key] = Math.max(0, Math.min(LEVELS, was + by));
+        if (o[key] !== was) this.changed = key;
+      } else if (what === "BLOOD") {
+        o.blood = o.blood === "red" ? "ash" : "red";
+        this.changed = "blood";
+      }
+    }
+  };
+  var UP = ["ArrowUp", "z", "Z", "w", "W"];
+  var DOWN = ["ArrowDown", "s", "S"];
+  var LEFT = ["ArrowLeft", "q", "Q", "a", "A"];
+  var RIGHT = ["ArrowRight", "d", "D"];
+  var CONFIRM = ["Enter", " ", "k", "K"];
+  var BACK = ["Escape", "o", "O", "Backspace"];
+  function feedOptions(menu, typed, pad) {
+    let last = null;
+    const after = () => {
+      if (menu.changed) last = menu.changed;
+    };
+    for (const k of typed) {
+      if (menu.done) break;
+      if (UP.includes(k)) menu.up();
+      else if (DOWN.includes(k)) menu.down();
+      else if (LEFT.includes(k)) menu.left();
+      else if (RIGHT.includes(k)) menu.right();
+      else if (CONFIRM.includes(k)) menu.confirm();
+      else if (BACK.includes(k)) menu.back();
+      after();
+    }
+    if (!menu.done) {
+      if (pad.up) menu.up();
+      if (pad.down) menu.down();
+      if (pad.left) {
+        menu.left();
+        after();
+      }
+      if (pad.right) {
+        menu.right();
+        after();
+      }
+      if (pad.confirm) {
+        menu.confirm();
+        after();
+      }
+      if (pad.back || pad.finish) menu.back();
+    }
+    return last;
+  }
+
   // src/audio.ts
   var MUSIC_VOLUME = 0.12;
   var HALL = 0.9;
@@ -19,6 +133,9 @@
     asked = false;
     on = true;
     hushed = false;
+    musicLv = 7;
+    // the levels of the options, 0 to 10; 7 is the mix as made
+    soundsLv = 7;
     reader = null;
     // reads the tunes before sound is allowed
     reading = /* @__PURE__ */ new Map();
@@ -28,6 +145,23 @@
     }
     get musicOn() {
       return this.on;
+    }
+    get musicLevel() {
+      return this.musicLv;
+    }
+    get soundsLevel() {
+      return this.soundsLv;
+    }
+    /** The gains in the mix now: the music's (null while no tune plays) and the effects'. */
+    get mixNow() {
+      return { music: this.gain ? this.gain.gain.value : null, sounds: this.bus ? this.bus.gain.value : levelGain(this.soundsLv) };
+    }
+    /** The levels of the options, 0 to 10: they are laid on the mix at once. */
+    setLevels(music, sounds) {
+      this.musicLv = music;
+      this.soundsLv = sounds;
+      this.settle();
+      if (this.bus) this.bus.gain.value = levelGain(sounds);
     }
     /** Names the tune of the level, and the one played once before it; it starts as soon as sound is allowed. The same tune goes on. */
     setMusic(name2, intro = "") {
@@ -70,6 +204,7 @@
       squeeze.release.value = 0.18;
       squeeze.connect(ac.destination);
       this.bus = ac.createGain();
+      this.bus.gain.value = levelGain(this.soundsLv);
       this.bus.connect(squeeze);
       this.noise = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
       const d = this.noise.getChannelData(0);
@@ -93,7 +228,7 @@
       this.hall.buffer = impulse;
       const back = ac.createGain();
       back.gain.value = HALL;
-      this.hall.connect(back).connect(squeeze);
+      this.hall.connect(back).connect(this.bus);
       const air = ac.createBufferSource(), low = ac.createBiquadFilter(), level = ac.createGain(), swell = ac.createOscillator(), depth = ac.createGain();
       air.buffer = this.noise;
       air.loop = true;
@@ -103,7 +238,7 @@
       swell.frequency.value = 0.11;
       depth.gain.value = WIND * 0.6;
       swell.connect(depth).connect(level.gain);
-      air.connect(low).connect(level).connect(squeeze);
+      air.connect(low).connect(level).connect(this.bus);
       air.start();
       swell.start();
     }
@@ -169,7 +304,7 @@
       });
     }
     level() {
-      return !this.on ? 0 : this.hushed ? MUSIC_VOLUME * 0.3 : MUSIC_VOLUME;
+      return !this.on ? 0 : MUSIC_VOLUME * levelGain(this.musicLv) * (this.hushed ? 0.3 : 1);
     }
     settle() {
       if (this.gain && this.ac) {
@@ -192,8 +327,8 @@
       if (!this.gain || !this.ac || !this.on || this.hushed) return;
       const t = this.ac.currentTime;
       this.gain.gain.cancelScheduledValues(t);
-      this.gain.gain.setValueAtTime(MUSIC_VOLUME * 0.35, t);
-      this.gain.gain.linearRampToValueAtTime(MUSIC_VOLUME, t + seconds);
+      this.gain.gain.setValueAtTime(this.level() * 0.35, t);
+      this.gain.gain.linearRampToValueAtTime(this.level(), t + seconds);
     }
     // The end of every layer: a quick rise, a fall to nothing, then out to the mix and to the hall.
     shape(node, l, t) {
@@ -487,10 +622,11 @@
     return { time: run2.time + w.clock, slain: run2.slain + w.slain, spilt: run2.spilt + w.spilt, falls: run2.falls + (w.state === "lost" ? 1 : 0) };
   }
   var BLOOD_PER_LITRE = 100;
-  function endWords(run2, record) {
+  function endWords(run2, record, blood = true) {
     const falls = run2.falls === 0 ? "NEVER KNOCKED OUT" : run2.falls === 1 ? "KNOCKED OUT ONCE" : `KNOCKED OUT ${run2.falls} TIMES`;
     const best = !record ? "" : record.isNew ? "   NEW RECORD!" : `   BEST ${clockText(record.best)}`;
-    return [`TIME ${clockText(run2.time)}${best}`, `FOES SNUFFED OUT ${run2.slain}`, `BLOOD SPILT ${(run2.spilt / BLOOD_PER_LITRE).toFixed(1)} L`, falls];
+    const spilt = blood ? [`BLOOD SPILT ${(run2.spilt / BLOOD_PER_LITRE).toFixed(1)} L`] : [];
+    return [`TIME ${clockText(run2.time)}${best}`, `FOES SNUFFED OUT ${run2.slain}`, ...spilt, falls];
   }
   function titleLevel(levels) {
     const omen = levels.findIndex((l) => l.settings.omen);
@@ -612,7 +748,8 @@
     full: ["KeyF"],
     cheat: ["KeyG"],
     win: ["KeyN"],
-    view: ["KeyH"]
+    view: ["KeyH"],
+    options: ["KeyO"]
   };
   var STICK = 0.4;
   var STICK_UP = 0.5;
@@ -639,14 +776,14 @@
     keys = /* @__PURE__ */ new Set();
     taps = /* @__PURE__ */ new Set();
     // pressed since the last read: a tap shorter than a frame still counts
-    held = { jump: false, attack: false, special: false, restart: false, music: false, pause: false, full: false, cheat: false, win: false, view: false };
+    held = { jump: false, attack: false, special: false, restart: false, music: false, pause: false, full: false, cheat: false, win: false, view: false, options: false };
     typed = [];
-    padHeld = { up: false, down: false, left: false, right: false, confirm: false, back: false, finish: false };
+    padHeld = { up: false, down: false, left: false, right: false, confirm: false, back: false, finish: false, options: false, select: false };
     /** The state of the controls now. Call once per frame: presses are reported on the frame they happen. */
     read() {
       const key = (name2) => KEYS[name2].some((code) => this.keys.has(code) || this.taps.has(code));
-      const now = { left: key("left"), right: key("right"), up: key("up"), down: key("down"), jump: key("jump"), attack: key("attack"), guard: key("guard"), special: key("special"), restart: key("restart"), music: key("music"), pause: key("pause"), full: key("full"), cheat: key("cheat"), win: key("win"), view: key("view") };
-      const padNow = { up: false, down: false, left: false, right: false, confirm: false, back: false, finish: false };
+      const now = { left: key("left"), right: key("right"), up: key("up"), down: key("down"), jump: key("jump"), attack: key("attack"), guard: key("guard"), special: key("special"), restart: key("restart"), music: key("music"), pause: key("pause"), full: key("full"), cheat: key("cheat"), win: key("win"), view: key("view"), options: key("options") };
+      const padNow = { up: false, down: false, left: false, right: false, confirm: false, back: false, finish: false, options: false, select: false };
       for (const pad of this.pads()) {
         if (!pad || !pad.connected) continue;
         const b = (i) => !!pad.buttons[i]?.pressed, ax = pad.axes[0] ?? 0, ay = pad.axes[1] ?? 0;
@@ -657,6 +794,8 @@
         padNow.confirm ||= b(0);
         padNow.back ||= b(1);
         padNow.finish ||= b(9);
+        padNow.options ||= b(3);
+        padNow.select ||= b(8);
         now.left ||= ax < -STICK || b(14);
         now.right ||= ax > STICK || b(15);
         now.up ||= ay < -STICK_UP || b(12);
@@ -689,6 +828,7 @@
         cheatPressed: pressed("cheat"),
         winPressed: pressed("win"),
         viewPressed: pressed("view"),
+        optionsPressed: pressed("options"),
         any: Object.values(now).some(Boolean),
         typed: this.typed,
         pad: Object.fromEntries(Object.entries(padNow).map(([k, v]) => [k, v && !this.padHeld[k]]))
@@ -1038,7 +1178,7 @@
 
   // src/levels.ts
   var table = globalThis.LEVELS ?? {};
-  var LEVELS = table;
+  var LEVELS2 = table;
   var LEVEL_NAMES = Object.keys(table);
 
   // src/render/camera.ts
@@ -3361,6 +3501,40 @@
     return { image: (key) => get(images, key, "picture"), sheet: (name2) => get(sheets, name2, "sheet") };
   }
 
+  // src/render/ash.ts
+  var GREYS = ["#2c2a30", "#46434b", "#625e68", "#8a8590", "#b3aeb8"];
+  var EMBERS = ["#ffd27a", "#ffb347", "#ff9a3c"];
+  function ashFrom(x, y, dir, amount, random) {
+    const bits = [];
+    const flakes = 3 + Math.round(Math.min(amount, 160) * 0.3);
+    for (let i = 0; i < flakes; i++) {
+      bits.push({
+        x: x + (random() - 0.5) * 8,
+        y: y + (random() - 0.5) * 10,
+        vx: dir * (20 + random() * 110) + (random() - 0.5) * 40,
+        vy: -(30 + random() * 120),
+        life: 0.9 + random() * 1.2,
+        color: GREYS[Math.floor(random() * GREYS.length)],
+        g: 30 + random() * 60,
+        drag: 1.5 + random() * 1.5
+      });
+    }
+    const embers = amount >= 20 ? 1 + Math.round(Math.min(amount, 160) * 0.05) : 0;
+    for (let i = 0; i < embers; i++) {
+      bits.push({
+        x: x + (random() - 0.5) * 6,
+        y: y + (random() - 0.5) * 8,
+        vx: dir * (10 + random() * 60),
+        vy: -(40 + random() * 90),
+        life: 0.4 + random() * 0.6,
+        color: EMBERS[Math.floor(random() * EMBERS.length)],
+        g: -(40 + random() * 60),
+        drag: 1
+      });
+    }
+    return bits;
+  }
+
   // src/render/blood.ts
   var DROP_CAP = 1500;
   var RUN_CAP = 800;
@@ -4859,7 +5033,7 @@
 
   // src/records.ts
   var PLACES = 5;
-  var KEY = "unextinguished.board";
+  var KEY2 = "unextinguished.board";
   var OLD_KEY = "unextinguished.best";
   function browserStore() {
     return {
@@ -4898,7 +5072,7 @@
   var Board = class {
     constructor(store) {
       this.store = store;
-      const saved = read(store, KEY);
+      const saved = read(store, KEY2);
       if (saved && typeof saved === "object") {
         if (typeof saved.lastName === "string") this.lastName = saved.lastName.slice(0, NAME_LENGTH);
         const tables = saved.tables;
@@ -4939,7 +5113,7 @@
     }
     save() {
       try {
-        this.store.set(KEY, JSON.stringify({ tables: this.tables, lastName: this.lastName }));
+        this.store.set(KEY2, JSON.stringify({ tables: this.tables, lastName: this.lastName }));
       } catch {
       }
     }
@@ -5083,13 +5257,17 @@
     ["GUARD", "C", "LB"],
     ["CHARGE", "V", "Y"]
   ];
-  function drawTitle(g2, t, page = null) {
+  function drawTitle(g2, t, page = null, menu = null, musicOn = true) {
     g2.setTransform(1, 0, 0, 1, 0, 0);
     veil(g2);
     sparks(g2, t);
     name(g2, t);
     centered(g2, "A GOTHIC PLATFORM FIGHTER", 104, "#c9bfe0");
     const px = 160, pw = 320, py = 128;
+    if (menu) {
+      drawOptions(g2, t, menu, musicOn);
+      return;
+    }
     panel(g2, px, py, pw, 136);
     if (page) drawTable(g2, page.title, page.entries, px, py, pw);
     else {
@@ -5105,7 +5283,40 @@
       centered(g2, "THE CHARGE COSTS AN EMBER", py + 116, DIM);
     }
     if (blink(t)) centered(g2, "PRESS JUMP TO START", 286, GOLD, 3);
-    centered(g2, "F FULL SCREEN    M MUSIC    P PAUSE    H COLLISIONS", 334, DIM);
+    centered(g2, "F FULL SCREEN    M MUSIC    P PAUSE    H COLLISIONS    O OPTIONS", 334, DIM);
+  }
+  var OPTIONS_HINT = "ARROWS CHOOSE AND CHANGE  O BACK";
+  function drawOptions(g2, t, menu, musicOn) {
+    const px = 150, pw = 340, py = 124, ph = 152;
+    g2.fillStyle = "rgba(10,8,20,0.94)";
+    g2.fillRect(px, py, pw, ph);
+    g2.strokeStyle = "rgba(154,143,192,0.8)";
+    g2.lineWidth = 2;
+    g2.strokeRect(px + 1, py + 1, pw - 2, ph - 2);
+    centered(g2, "OPTIONS", py + 12, GOLD);
+    const o = menu.options;
+    OPTION_LINES.forEach((what, i) => {
+      const y = py + 36 + i * 22, here = i === menu.line;
+      if (here && blink(t * 2)) text(g2, ">", px + 22, y, GOLD);
+      text(g2, what, px + 38, y, here ? GOLD : PALE);
+      const vx = px + 150;
+      if (what === "MUSIC" && !musicOn) text(g2, "OFF", vx, y, DIM);
+      else if (what === "MUSIC" || what === "SOUNDS") {
+        const level = what === "MUSIC" ? o.music : o.sounds;
+        for (let k = 0; k < LEVELS; k++) {
+          const x = vx + k * 15;
+          if (k < level) {
+            g2.fillStyle = here ? GOLD : PALE;
+            g2.fillRect(x, y, 11, 10);
+          } else {
+            g2.strokeStyle = DIM;
+            g2.lineWidth = 1;
+            g2.strokeRect(x + 0.5, y + 0.5, 10, 9);
+          }
+        }
+      } else if (what === "BLOOD") text(g2, o.blood === "red" ? "RED" : "ASH", vx, y, o.blood === "red" ? "#ff6a5a" : "#b3aeb8");
+    });
+    centered(g2, OPTIONS_HINT, py + ph - 22, DIM);
   }
   function drawEnd(g2, t, lines, naming = null, note = null) {
     g2.setTransform(1, 0, 0, 1, 0, 0);
@@ -5300,7 +5511,7 @@
       };
       if (w.state === "won") this.wonPanel(g2, t, clock, won);
       else if (w.state === "lost" && w.slow <= 0) panel2([["KNOCKED OUT", "#ff7a6a", 4], ["PRESS JUMP TO TRY AGAIN", "#9d93b8"]]);
-      else if (paused) panel2([["PAUSED", "#ffe27a", 4], ["PRESS P TO GO ON", "#9d93b8"]]);
+      else if (paused) panel2([["PAUSED", "#ffe27a", 4], ["PRESS P TO GO ON", "#9d93b8"], ["O OPTIONS", "#9d93b8"]]);
     }
   };
 
@@ -5463,6 +5674,8 @@
     // px each body has waded since its last splash
     /** H: what collides, drawn over the picture. */
     collisions = false;
+    /** The blood turned to ash (an option, for the younger players): blows throw ash, and no blood is drawn. */
+    ash = false;
     flocks = [];
     // t: seconds since they flew, -1 perched
     ripples = [];
@@ -5516,6 +5729,10 @@
         if (e.type === "effect") {
           if (EFFECTS[e.kind]) this.effects.push({ kind: e.kind, x: e.x, y: e.y, t: 0, flip: e.flip });
         } else if (e.type === "blood") {
+          if (this.ash) {
+            this.particles.push(...ashFrom(e.x, e.y, e.dir, e.amount, Math.random));
+            continue;
+          }
           this.blood.spurt(e.x, e.y, e.dir, e.amount, e.chunks);
           if (e.amount >= 50) this.lens.splash(e.x - this.camera.x, e.y - this.camera.y, e.amount >= 100 ? 9 : 3);
         } else if (e.type === "finisher") {
@@ -5577,7 +5794,7 @@
       const level = this.world.level;
       this.rainfall(dt);
       this.wade(dt);
-      this.steps();
+      if (!this.ash) this.steps();
       for (const r of this.rings) r.t += dt;
       this.rings = this.rings.filter((r) => r.t < 1.1);
       const fall = this.world.fall;
@@ -5592,6 +5809,11 @@
       for (const q of this.particles) {
         q.life -= dt;
         q.vy += q.g * dt;
+        if (q.drag) {
+          const k = Math.exp(-q.drag * dt);
+          q.vx *= k;
+          q.vy *= k;
+        }
         q.x += q.vx * dt;
         q.y += q.vy * dt;
       }
@@ -5625,9 +5847,9 @@
       g2.fillStyle = "#0a0814";
       g2.fillRect(0, 0, VIEW_W, VIEW_H);
       g2.drawImage(this.backdrop, -cx, -cy);
-      g2.drawImage(this.stains, -cx, -cy);
+      if (!this.ash) g2.drawImage(this.stains, -cx, -cy);
       g2.translate(-cx, -cy);
-      this.drawRuns(g2);
+      if (!this.ash) this.drawRuns(g2);
       g2.setTransform(1, 0, 0, 1, 0, 0);
       g2.translate(-cx, -cy);
       this.drawLoops(g2, t, false);
@@ -5698,7 +5920,7 @@
         g2.fillStyle = q.color;
         g2.fillRect(Math.round(q.x), Math.round(q.y), 2, 2);
       }
-      for (const d of this.blood.drops) {
+      if (!this.ash) for (const d of this.blood.drops) {
         g2.fillStyle = BLOOD_COLORS[d.shade];
         g2.fillRect(Math.round(d.x), Math.round(d.y), d.size, d.size);
         if (Math.abs(d.vx) + Math.abs(d.vy) > 220) {
@@ -5707,7 +5929,7 @@
           g2.fillRect(Math.round(d.x - d.vx * 0.022), Math.round(d.y - d.vy * 0.022), 1, 1);
         }
       }
-      this.drawPools(g2, t, cx);
+      if (!this.ash) this.drawPools(g2, t, cx);
       g2.setTransform(1, 0, 0, 1, 0, 0);
       this.lights.haze(g2);
       g2.translate(-cx, -cy);
@@ -5727,7 +5949,7 @@
       this.grade.glow(g2);
       this.closeIn(g2, cx, cy);
       this.grade.vignette(g2);
-      this.drawLens(g2);
+      if (!this.ash) this.drawLens(g2);
       if (this.collisions) this.drawCollisions(g2, cx, cy);
       if (!this.scenery) this.hud.draw(g2, t, paused, this.won);
     }
@@ -6586,7 +6808,7 @@
       deep.addColorStop(1, "rgba(6,18,40,0.84)");
       g2.fillStyle = deep;
       g2.fillRect(0, top, VIEW_W, VIEW_H - top);
-      for (const c of this.blood.clouds) {
+      if (!this.ash) for (const c of this.blood.clouds) {
         const x = c.x - cx, y = c.y - cy;
         if (x < -40 || x > VIEW_W + 40 || y < -40 || y > VIEW_H + 40) continue;
         const red = c.shade >= 2 ? "150,14,22" : "110,8,16";
@@ -6839,7 +7061,7 @@
       const frame = this.monkFrame(a, t);
       if (shade || flash) this.sprite(g2, set + frame, cx, feet, MONK_ANCHOR, a.facing < 0);
       else this.picture(g2, this.litSprite(set + frame, cx, a.y + 18, a.facing < 0, this.own.get(a) ?? null, MONK_ANCHOR), cx, feet, MONK_ANCHOR, a.facing < 0);
-      if (a.gore > 0 && !flash) {
+      if (a.gore > 0 && !flash && !this.ash) {
         g2.globalAlpha = Math.min(1, a.gore * 1.2);
         this.sprite(g2, "gore/" + frame, cx, feet, MONK_ANCHOR, a.facing < 0);
         g2.globalAlpha = 1;
@@ -7016,6 +7238,20 @@
     let result = null;
     let naming = null;
     let endLines = [], endNote = null;
+    const store = browserStore();
+    let settings = loadOptions(store);
+    let options = null;
+    const ashen = () => settings.blood === "ash";
+    sound.setLevels(settings.music, settings.sounds);
+    scenery.ash = ashen();
+    const apply = (o, changed) => {
+      settings = { ...o };
+      saveOptions(store, settings);
+      if (changed === "music" && !sound.musicOn) sound.toggleMusic();
+      sound.setLevels(settings.music, settings.sounds);
+      for (const st of [stage, scenery, ending]) if (st) st.ash = ashen();
+      if (changed === "sounds") sound.play("hit");
+    };
     const pages = [null, { title: "BEST RUNS", key: "run" }, ...levels.map((l) => ({ title: l.settings.title, key: l.settings.name }))];
     const leave = () => {
       if (world) tally = addRun(tally, world);
@@ -7035,6 +7271,7 @@
       naming = null;
       const boss = !!world.boss;
       stage = new Stage(world, assets, openingWords(level.settings.title, boss ? "boss" : world.fall ? "fall" : ""), wonWords(i, levels.length, boss));
+      stage.ash = ashen();
       sound.setMusic(level.settings.music, level.settings.intro);
       const next = levels[i + 1]?.settings;
       sound.preload([level.settings.music, level.settings.intro, next?.music ?? place.settings.music, next?.intro ?? ""].filter(Boolean));
@@ -7050,12 +7287,13 @@
       endNote = null;
       if (s === "end") {
         const counts = fromTitle && !runCheated, at = counts ? board.place("run", tally.time) : null;
-        endLines = endWords(tally, counts ? { best: board.best("run") ?? tally.time, isNew: at === 0 } : void 0);
+        endLines = endWords(tally, counts ? { best: board.best("run") ?? tally.time, isNew: at === 0 } : void 0, !ashen());
         if (at !== null) naming = { name: new Initials(board.lastName), key: "run", time: tally.time };
       }
       if (s === "end" && endPlace !== place) {
         ending = new Stage(new World(endPlace), assets, [], { title: "", lines: [] }, true);
         ending.dawn();
+        ending.ash = ashen();
       }
       const where = s === "end" ? endPlace : place, st = s === "end" ? ending : scenery;
       st.look(...panAim(0, where.width, where.height), true);
@@ -7069,7 +7307,11 @@
       fromTitle = false;
       start(asked);
     }
-    window.__game = { get world() {
+    window.__game = { get options() {
+      return options;
+    }, get settings() {
+      return settings;
+    }, get world() {
       return world;
     }, get scene() {
       return scene;
@@ -7107,7 +7349,7 @@
       st.draw(g, clock, false);
       if (scene === "title") {
         const page = pages[titlePage(sceneT, pages.length)];
-        drawTitle(g, sceneT, page && { title: page.title, entries: board.table(page.key) });
+        drawTitle(g, sceneT, page && { title: page.title, entries: board.table(page.key) }, options, sound.musicOn);
       } else drawEnd(g, sceneT, endLines, naming?.name ?? null, endNote);
       if (trial) text(g, "TEST  RECORDS APART", 8, 8, "#ff8a2a");
     };
@@ -7151,7 +7393,8 @@
         st.setResult(result, naming?.name ?? null);
       }
       st.collisions = collisions;
-      st.draw(g, clock, paused);
+      st.draw(g, clock, paused && !options);
+      if (options) drawOptions(g, clock, options, sound.musicOn);
       if (trial) text(g, "TEST  N WINS THE LEVEL", 16, VIEW_H - 20, "#ff8a2a");
     };
     const frame = (now) => {
@@ -7169,6 +7412,14 @@
           naming = null;
         }
         Object.assign(c, { jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, pausePressed: false });
+      } else if (options) {
+        const menu = options, changed = feedOptions(menu, c.typed, c.pad);
+        if (changed) apply(menu.options, changed);
+        if (menu.done) {
+          options = null;
+          if (scene === "play" && paused) sound.hush(true);
+        }
+        Object.assign(c, { x: 0, up: false, down: false, jump: false, guard: false, jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, pausePressed: false, winPressed: false });
       } else {
         if (c.musicPressed) sound.toggleMusic();
         if (c.fullPressed) toggleFull();
@@ -7180,6 +7431,16 @@
             levelCheated = true;
             runCheated = true;
           }
+        }
+        const playing = scene === "play" && world?.state === "play";
+        const open = scene === "title" ? c.optionsPressed || c.pad.select : playing && (c.optionsPressed || paused && c.pad.options);
+        if (open) {
+          if (scene === "play") {
+            paused = true;
+            sound.hush(false);
+          }
+          options = new OptionsMenu(settings);
+          Object.assign(c, { jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, pausePressed: false });
         }
       }
       if (scene === "play" && world && stage) play(world, stage, c, elapsed);
@@ -7199,7 +7460,7 @@
     }
     let levels;
     try {
-      levels = LEVEL_NAMES.map((name2) => parseLevel(LEVELS[name2], KIND_NAMES, name2));
+      levels = LEVEL_NAMES.map((name2) => parseLevel(LEVELS2[name2], KIND_NAMES, name2));
     } catch (err) {
       showError("LEVEL ERROR", err);
       return;

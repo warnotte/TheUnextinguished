@@ -7,7 +7,7 @@ This repository holds the engine and its levels. A level is a file; nothing of a
 the code. It is a duel game on ladders and walkways: collect the embers, reach the door, and fight
 what hunts you. Blows draw blood, which runs down the walls and stays on the floors, gathers in
 pools that shine while they are fresh, and follows the hero's feet for a few steps. In water it
-spreads into red clouds. For adults.
+spreads into red clouds. For adults; the options turn the blood to ash for younger players.
 
 ## Play
 
@@ -26,6 +26,7 @@ on its title, which shows the controls; jump starts it.
 | Restart | R or Enter | Start |
 | Music on / off | M | |
 | Full screen | F, or a double click on the picture | |
+| Options: music, sounds, blood | O | Select on the title, Y in the pause |
 | What collides (H again to hide it) | H | |
 | Cheat: the monk cannot be harmed (G again to stop) | G | |
 
@@ -33,6 +34,13 @@ J, K, L and I are the same moves under the right hand, for whoever moves with Q,
 
 H shows what collides over the picture: stone in red, platforms in yellow, ladders in green, what
 hurts in magenta, the line of the hills in cyan, the bodies and the reach of a blow; H again hides it.
+
+O opens the options, on the title or during a level (which it pauses): how loud the music and the
+sounds are, from 0 to 10, and the blood. RED is the game as it is; ASH is for younger players: the
+blows throw grey ash and a few embers instead of blood, nothing stains the place or the bodies, and
+the end does not count the blood spilt. Up and down choose a line, left and right change it, Escape
+(or O, or B on the gamepad) closes them. They are kept in the browser, and change nothing of the
+game itself.
 
 The duel:
 

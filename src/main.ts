@@ -5,6 +5,7 @@
 import { Sound } from './audio';
 import { addRun, afterWin, endWords, firstLevel, type LevelResult, NO_RUN, openingWords, panAim, type Run, testMode, titleLevel, titlePage, wonWords } from './campaign';
 import { feedName, Initials } from './initials';
+import { feedOptions, loadOptions, type Changed, type Options, OptionsMenu, saveOptions } from './options';
 import { type Frame, Input } from './input';
 import { KIND_NAMES } from './level/kinds';
 import { type Level, parseLevel } from './level/tiled';
@@ -14,7 +15,7 @@ import { type Assets, loadAssets } from './render/assets';
 import { VIEW_H, VIEW_W } from './render/camera';
 import { Stage } from './render/frame';
 import { centered } from './render/text';
-import { drawEnd, drawTitle } from './render/title';
+import { drawEnd, drawOptions, drawTitle } from './render/title';
 import { apart, Board, browserStore, seedBoard } from './records';
 import { text } from './render/text';
 import { STEP, World } from './sim/world';
@@ -78,6 +79,22 @@ function run(assets: Assets, levels: Level[]): void {
   let result: LevelResult | null = null;              // the level in hand, once won, against the board
   let naming: { name: Initials; key: string; time: number } | null = null;     // a name being given for the board
   let endLines: string[] = [], endNote: string | null = null;
+  // The options: kept in the browser (the trial mode has no options of its own); the screen, while it is open.
+  const store = browserStore();
+  let settings: Options = loadOptions(store);
+  let options: OptionsMenu | null = null;
+  const ashen = (): boolean => settings.blood === 'ash';
+  sound.setLevels(settings.music, settings.sounds);
+  scenery.ash = ashen();
+  // A setting changed on the screen: heard and seen at once, and kept.
+  const apply = (o: Options, changed: Changed): void => {
+    settings = { ...o };
+    saveOptions(store, settings);
+    if (changed === 'music' && !sound.musicOn) sound.toggleMusic();          // turned up: it is wanted again
+    sound.setLevels(settings.music, settings.sounds);
+    for (const st of [stage, scenery, ending]) if (st) st.ash = ashen();
+    if (changed === 'sounds') sound.play('hit');                            // to hear how loud the sounds now are
+  };
   // The pages of the title, in turn: the controls, then the board of the runs and of each level.
   const pages = [null, { title: 'BEST RUNS', key: 'run' }, ...levels.map(l => ({ title: l.settings.title, key: l.settings.name }))];
 
@@ -93,6 +110,7 @@ function run(assets: Assets, levels: Level[]): void {
     result = null; naming = null;
     const boss = !!world.boss;
     stage = new Stage(world, assets, openingWords(level.settings.title, boss ? 'boss' : world.fall ? 'fall' : ''), wonWords(i, levels.length, boss));
+    stage.ash = ashen();
     sound.setMusic(level.settings.music, level.settings.intro);
     const next = levels[i + 1]?.settings;                                                            // the next one, or the end's
     sound.preload([level.settings.music, level.settings.intro, next?.music ?? place.settings.music, next?.intro ?? ''].filter(Boolean));
@@ -105,10 +123,10 @@ function run(assets: Assets, levels: Level[]): void {
     if (s === 'end') {
       // A whole run, from the title and without the cheat: its time goes on the board, if good enough.
       const counts = fromTitle && !runCheated, at = counts ? board.place('run', tally.time) : null;
-      endLines = endWords(tally, counts ? { best: board.best('run') ?? tally.time, isNew: at === 0 } : undefined);
+      endLines = endWords(tally, counts ? { best: board.best('run') ?? tally.time, isNew: at === 0 } : undefined, !ashen());
       if (at !== null) naming = { name: new Initials(board.lastName), key: 'run', time: tally.time };
     }
-    if (s === 'end' && endPlace !== place) { ending = new Stage(new World(endPlace), assets, [], { title: '', lines: [] }, true); ending.dawn(); }
+    if (s === 'end' && endPlace !== place) { ending = new Stage(new World(endPlace), assets, [], { title: '', lines: [] }, true); ending.dawn(); ending.ash = ashen(); }
     const where = s === 'end' ? endPlace : place, st = s === 'end' ? ending : scenery;
     st.look(...panAim(0, where.width, where.height), true);
     sound.setMusic(s === 'end' && endPlace.settings.ending ? endPlace.settings.ending : place.settings.music);
@@ -116,7 +134,7 @@ function run(assets: Assets, levels: Level[]): void {
     paused = false; sound.hush(false);
   };
   if (asked === null) show('title'); else { fromTitle = false; start(asked); }
-  (window as any).__game = { get world() { return world; }, get scene() { return scene; }, get paused() { return paused; }, get level() { return index; }, get run() { return tally; }, get stage() { return stage; }, get naming() { return naming; }, board, scenery, sound, start };
+  (window as any).__game = { get options() { return options; }, get settings() { return settings; }, get world() { return world; }, get scene() { return scene; }, get paused() { return paused; }, get level() { return index; }, get run() { return tally; }, get stage() { return stage; }, get naming() { return naming; }, board, scenery, sound, start };
 
   // The title and the end: the place lives on, nobody plays in it.
   const showScene = (c: Frame, elapsed: number): void => {
@@ -132,7 +150,7 @@ function run(assets: Assets, levels: Level[]): void {
     st.draw(g, clock, false);
     if (scene === 'title') {
       const page = pages[titlePage(sceneT, pages.length)];
-      drawTitle(g, sceneT, page && { title: page.title, entries: board.table(page.key) });
+      drawTitle(g, sceneT, page && { title: page.title, entries: board.table(page.key) }, options, sound.musicOn);
     } else drawEnd(g, sceneT, endLines, naming?.name ?? null, endNote);
     if (trial) text(g, 'TEST  RECORDS APART', 8, 8, '#ff8a2a');
   };
@@ -173,7 +191,8 @@ function run(assets: Assets, levels: Level[]): void {
       st.setResult(result, naming?.name ?? null);
     }
     st.collisions = collisions;
-    st.draw(g, clock, paused);
+    st.draw(g, clock, paused && !options);
+    if (options) drawOptions(g, clock, options, sound.musicOn);
     if (trial) text(g, 'TEST  N WINS THE LEVEL', 16, VIEW_H - 20, '#ff8a2a');
   };
 
@@ -192,11 +211,25 @@ function run(assets: Assets, levels: Level[]): void {
         naming = null;
       }
       Object.assign(c, { jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, pausePressed: false });
+    } else if (options) {
+      // The options are open: the keys work them, and do nothing else; the game waits.
+      const menu = options, changed = feedOptions(menu, c.typed, c.pad);
+      if (changed) apply(menu.options, changed);
+      if (menu.done) { options = null; if (scene === 'play' && paused) sound.hush(true); }
+      Object.assign(c, { x: 0, up: false, down: false, jump: false, guard: false, jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, pausePressed: false, winPressed: false });
     } else {
       if (c.musicPressed) sound.toggleMusic();
       if (c.fullPressed) toggleFull();
       if (c.viewPressed) collisions = !collisions;
       if (c.cheatPressed) { cheat = !cheat; if (world) world.invincible = cheat; if (cheat) { levelCheated = true; runCheated = true; } }
+      // The options: O, or Select, on the title; O, or Y in the pause, during a level (O pauses it first).
+      const playing = scene === 'play' && world?.state === 'play';
+      const open = scene === 'title' ? c.optionsPressed || c.pad.select : playing && (c.optionsPressed || (paused && c.pad.options));
+      if (open) {
+        if (scene === 'play') { paused = true; sound.hush(false); }          // the music is heard as it is set
+        options = new OptionsMenu(settings);
+        Object.assign(c, { jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, pausePressed: false });
+      }
     }
     if (scene === 'play' && world && stage) play(world, stage, c, elapsed);
     else showScene(c, elapsed);
