@@ -3,7 +3,8 @@
 // first level comes the title, after the last the end; both are written over a level nobody plays.
 
 import { Sound } from './audio';
-import { addRun, afterWin, endWords, firstLevel, NO_RUN, openingWords, panAim, type Run, titleLevel, wonWords } from './campaign';
+import { addRun, afterWin, endWords, firstLevel, type LevelResult, NO_RUN, openingWords, panAim, type Run, testMode, titleLevel, titlePage, wonWords } from './campaign';
+import { feedName, Initials } from './initials';
 import { type Frame, Input } from './input';
 import { KIND_NAMES } from './level/kinds';
 import { type Level, parseLevel } from './level/tiled';
@@ -14,7 +15,8 @@ import { VIEW_H, VIEW_W } from './render/camera';
 import { Stage } from './render/frame';
 import { centered } from './render/text';
 import { drawEnd, drawTitle } from './render/title';
-import { type BestTime, browserStore, Records } from './records';
+import { apart, Board, browserStore, seedBoard } from './records';
+import { text } from './render/text';
 import { STEP, World } from './sim/world';
 
 const canvas = document.getElementById('screen') as HTMLCanvasElement;
@@ -62,11 +64,18 @@ function run(assets: Assets, levels: Level[]): void {
   let index = 0;
   let world: World | null = null, stage: Stage | null = null;
   let last = 0, bank = 0, clock = 0, paused = false;
-  const records = new Records(browserStore());
-  let recorded = false;                  // the time of the level in hand has been compared with the best
+  // The trial mode ("?test"): a board of its own, with a few names on it, and N to win a level at once.
+  const trial = testMode(location.search);
+  const board = new Board(trial ? apart(browserStore()) : browserStore());
+  if (trial) seedBoard(board, ['run', ...levels.map(l => l.settings.name)]);
   let fromTitle = false;                 // the run began on the title: its time is a run's time
-  let runRecord: BestTime | undefined;
   let cheat = false;                     // G: the hero cannot be harmed, from level to level, until G again
+  let levelCheated = false, runCheated = false;      // the cheat was on: no place on the board
+  let result: LevelResult | null = null;              // the level in hand, once won, against the board
+  let naming: { name: Initials; key: string; time: number } | null = null;     // a name being given for the board
+  let endLines: string[] = [], endNote: string | null = null;
+  // The pages of the title, in turn: the controls, then the board of the runs and of each level.
+  const pages = [null, { title: 'BEST RUNS', key: 'run' }, ...levels.map(l => ({ title: l.settings.title, key: l.settings.name }))];
 
   // What the attempt now ending adds to the run: its time, its dead, its blood, his fall.
   const leave = (): void => { if (world) tally = addRun(tally, world); world = null; stage = null; };
@@ -76,43 +85,60 @@ function run(assets: Assets, levels: Level[]): void {
     const level = levels[i];
     world = new World(level);
     world.invincible = cheat;
-    recorded = false;
+    levelCheated = cheat; runCheated ||= cheat;
+    result = null; naming = null;
     const boss = !!world.boss;
-    stage = new Stage(world, assets, openingWords(level.settings.title, boss), wonWords(i, levels.length, boss));
-    sound.setMusic(level.settings.music);
-    sound.preload([level.settings.music, levels[i + 1]?.settings.music ?? place.settings.music]);     // the next one, or the end's
+    stage = new Stage(world, assets, openingWords(level.settings.title, boss ? 'boss' : world.fall ? 'fall' : ''), wonWords(i, levels.length, boss));
+    sound.setMusic(level.settings.music, level.settings.intro);
+    const next = levels[i + 1]?.settings;                                                            // the next one, or the end's
+    sound.preload([level.settings.music, level.settings.intro, next?.music ?? place.settings.music, next?.intro ?? ''].filter(Boolean));
     paused = false; sound.hush(false); bank = 0;
   };
   const show = (s: 'title' | 'end'): void => {
     leave();
     scene = s; sceneT = 0;
-    runRecord = s === 'end' && fromTitle ? records.record('run', tally.time) : undefined;
+    naming = null; endNote = null;
+    if (s === 'end') {
+      // A whole run, from the title and without the cheat: its time goes on the board, if good enough.
+      const counts = fromTitle && !runCheated, at = counts ? board.place('run', tally.time) : null;
+      endLines = endWords(tally, counts ? { best: board.best('run') ?? tally.time, isNew: at === 0 } : undefined);
+      if (at !== null) naming = { name: new Initials(board.lastName), key: 'run', time: tally.time };
+    }
     scenery.look(...panAim(0, place.width, place.height), true);
     sound.setMusic(place.settings.music);
     sound.preload([place.settings.music, levels[0].settings.music]);                                 // the first level's, for jump
     paused = false; sound.hush(false);
   };
   if (asked === null) show('title'); else { fromTitle = false; start(asked); }
-  (window as any).__game = { get world() { return world; }, get scene() { return scene; }, get paused() { return paused; }, get level() { return index; }, get run() { return tally; }, get stage() { return stage; }, scenery, sound, start };
+  (window as any).__game = { get world() { return world; }, get scene() { return scene; }, get paused() { return paused; }, get level() { return index; }, get run() { return tally; }, get stage() { return stage; }, get naming() { return naming; }, board, scenery, sound, start };
 
   // The title and the end: the place lives on, nobody plays in it.
   const showScene = (c: Frame, elapsed: number): void => {
     const dt = Math.min(MAX_FRAME, Math.max(0, elapsed));
     sceneT += dt; clock += dt;
     const go = c.jumpPressed || c.restartPressed;
-    if (scene === 'title' && go) { tally = NO_RUN; fromTitle = true; start(0); return; }
-    if (scene === 'end' && go && sceneT > 1.5) { show('title'); return; }
+    if (scene === 'title' && go) { tally = NO_RUN; fromTitle = true; runCheated = cheat; start(0); return; }
+    if (scene === 'end' && go && sceneT > 1.5 && !naming) { show('title'); return; }
     scenery.look(...panAim(sceneT, place.width, place.height));
     scenery.update(dt);
     for (const name of scenery.heard()) sound.play(name);
     scenery.draw(g, clock, false);
-    if (scene === 'title') drawTitle(g, sceneT, records.best('run')); else drawEnd(g, sceneT, endWords(tally, runRecord));
+    if (scene === 'title') {
+      const page = pages[titlePage(sceneT, pages.length)];
+      drawTitle(g, sceneT, page && { title: page.title, entries: board.table(page.key) });
+    } else drawEnd(g, sceneT, endLines, naming?.name ?? null, endNote);
+    if (trial) text(g, 'TEST  RECORDS APART', 8, 8, '#ff8a2a');
   };
 
   const play = (w: World, st: Stage, c: Frame, elapsed: number): void => {
+    if (trial && c.winPressed && w.state === 'play') {
+      // The trial: the level is won at once, in a time drawn by chance, so that the board can be tried.
+      w.clock = 15 + Math.random() * 120; w.state = 'won';
+      sound.play('win');
+    }
     if (c.pausePressed && w.state === 'play') { paused = !paused; sound.hush(paused); }
     if (c.restartPressed) { start(index); return; }
-    if (w.state !== 'play' && w.slow <= 0 && c.jumpPressed) {
+    if (w.state !== 'play' && w.slow <= 0 && c.jumpPressed && !naming) {
       const next = w.state === 'won' ? afterWin(index, levels.length) : index;
       if (next === 'end') show('end'); else start(next);
       return;
@@ -132,8 +158,15 @@ function run(assets: Assets, levels: Level[]): void {
         clock += STEP;
       }
     }
-    if (w.state === 'won' && !recorded) { recorded = true; st.setRecord(records.record(w.level.settings.name, w.clock)); }
+    if (w.state === 'won' && !result) {
+      // The level won, against the board: a time good enough asks for a name.
+      const key = w.level.settings.name, at = levelCheated ? null : board.place(key, w.clock);
+      result = { time: w.clock, best: board.best(key), place: at, cheated: levelCheated };
+      if (at !== null) naming = { name: new Initials(board.lastName), key, time: w.clock };
+      st.setResult(result, naming?.name ?? null);
+    }
     st.draw(g, clock, paused);
+    if (trial) text(g, 'TEST  N WINS THE LEVEL', 16, VIEW_H - 20, '#ff8a2a');
   };
 
   const frame = (now: number): void => {
@@ -141,9 +174,21 @@ function run(assets: Assets, levels: Level[]): void {
     last = now;
     const c = input.read();
     if (c.any) sound.unlock();
-    if (c.musicPressed) sound.toggleMusic();
-    if (c.fullPressed) toggleFull();
-    if (c.cheatPressed) { cheat = !cheat; if (world) world.invincible = cheat; }
+    const giving = naming;
+    if (giving) {
+      // A name is being given: the keys write it, and do nothing else.
+      feedName(giving.name, c.typed, c.pad);
+      if (giving.name.done) {
+        const at = board.add(giving.key, giving.name.text, giving.time);
+        if (scene === 'play') stage?.setNamed(giving.name.text, at); else endNote = `${giving.name.text} IS NUMBER ${at + 1}`;
+        naming = null;
+      }
+      Object.assign(c, { jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, pausePressed: false });
+    } else {
+      if (c.musicPressed) sound.toggleMusic();
+      if (c.fullPressed) toggleFull();
+      if (c.cheatPressed) { cheat = !cheat; if (world) world.invincible = cheat; if (cheat) { levelCheated = true; runCheated = true; } }
+    }
     if (scene === 'play' && world && stage) play(world, stage, c, elapsed);
     else showScene(c, elapsed);
     requestAnimationFrame(frame);

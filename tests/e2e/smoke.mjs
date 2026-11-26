@@ -77,9 +77,15 @@ await game(() => {
 });
 await page.waitForFunction(() => __game.world.state === 'won', null, { timeout: 4000 }).catch(() => {});
 check('reaching the open door wins the level', await game(() => __game.world.state === 'won'));
-await page.waitForTimeout(100);
-const kept = await game(() => JSON.parse(localStorage.getItem('unextinguished.best') || '{}'));
-check('its time is kept as the best, for the next game too', kept.salle3 > 0, JSON.stringify(kept));
+await page.waitForTimeout(400);
+check('a time good enough for the board asks for a name', await game(() => !!__game.naming));
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/name.png' });
+await page.keyboard.type('ace');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(200);
+const board = () => game(() => JSON.parse(localStorage.getItem('unextinguished.board') || '{}'));
+const kept = await board();
+check('the name typed is written on the board, kept for the next game too', kept.tables?.salle3?.[0]?.name === 'ACE' && !(await game(() => !!__game.naming)), JSON.stringify(kept.tables?.salle3));
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/won.png' });
 // Watch, frame by frame, how long the next level stays without its music.
 await game(() => {
@@ -114,14 +120,50 @@ await page.locator('#screen').screenshot({ path: 'tests/e2e/out/chamber.png' });
 await game(() => { const d = __game.world.boss; d.phase = 'dying'; d.t = 99; });
 await page.waitForFunction(() => __game.world.state === 'won', null, { timeout: 4000 }).catch(() => {});
 check('the demon ended wins the room', await game(() => __game.world.state === 'won'));
+await page.waitForTimeout(300);
+await page.keyboard.type('ace');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(200);
+await page.keyboard.press('Space');
+await page.waitForTimeout(600);
+// After the demon, the tower falls: the last level, the collapse coming down after the hero.
+const falling = await game(() => ({ name: __game.world.level.settings.name, fall: !!__game.world.fall }));
+check('after the demon the tower falls', falling.name === 'effondrement' && falling.fall, JSON.stringify(falling));
+await page.waitForTimeout(2600);
+check('and comes down', await game(() => __game.world.fall.y > -20));
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/fall.png' });
+await game(() => { const w = __game.world, h = w.hero, d = w.door; Object.assign(h, { x: d.x + 9, y: d.y + d.h - h.h, vx: 0, vy: 0, onGround: true, climbing: false, lastFloor: 41 }); });
+await page.waitForFunction(() => __game.world.state === 'won', null, { timeout: 4000 }).catch(() => {});
+check('its door at the foot is the way out', await game(() => __game.world.state === 'won'));
+await page.waitForTimeout(300);
+if (await game(() => !!__game.naming)) { await page.keyboard.type('ace'); await page.keyboard.press('Enter'); await page.waitForTimeout(200); }
 await page.keyboard.press('Space');
 await page.waitForTimeout(1800);
 const end = await game(() => ({ scene: __game.scene, run: __game.run }));
 check('the last level won leads to the end, with the tally of the run', end.scene === 'end' && end.run.time > 1, JSON.stringify(end));
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/end.png' });
+check('a whole run from the title asks for a name too', await game(() => !!__game.naming));
+await page.keyboard.type('ace');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(300);
+check('and writes it on the board of the runs', (await board()).tables?.run?.[0]?.name === 'ACE');
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/end-named.png' });
+await page.waitForTimeout(1200);
 await page.keyboard.press('Space');
 await page.waitForTimeout(300);
 check('jump on the end goes back to the title', await game(() => __game.scene === 'title'));
+
+// The trial mode: N wins a level at once, and its board is kept apart from the real one.
+await page.goto(pathToFileURL('index.html').href + '?test&level=1');
+await page.waitForFunction(() => window.__game && __game.world, null, { timeout: 15000 });
+await page.waitForTimeout(300);
+await page.keyboard.press('KeyN');
+await page.waitForTimeout(400);
+check('in the trial mode, N wins the level and the board asks for a name', await game(() => __game.world.state === 'won' && !!__game.naming));
+await page.keyboard.type('try'); await page.keyboard.press('Enter');
+await page.waitForTimeout(200);
+const apartBoards = await game(() => ({ trial: JSON.parse(localStorage.getItem('trial.unextinguished.board') || '{}'), real: JSON.parse(localStorage.getItem('unextinguished.board') || '{}') }));
+check('and writes it on a board apart, the real one left alone', apartBoards.trial.tables?.salle3?.some(e => e.name === 'TRY') && !apartBoards.real.tables?.salle3?.some(e => e.name === 'TRY'));
 
 check('no error in the console, no file missing', errors.length === 0, errors.join(' | '));
 console.log(results.every(Boolean) ? `ALL ${results.length} CHECKS PASS` : `${results.filter(v => !v).length} of ${results.length} CHECKS FAIL`);

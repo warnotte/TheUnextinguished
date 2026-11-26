@@ -13,6 +13,9 @@
     hall = null;
     noise = null;
     tune = "";
+    intro = "";
+    // played once before the tune, its tail ringing over the start
+    introSource = null;
     asked = false;
     on = true;
     hushed = false;
@@ -26,15 +29,19 @@
     get musicOn() {
       return this.on;
     }
-    /** Names the tune of the level; it starts as soon as sound is allowed. */
-    setMusic(name2) {
+    /** Names the tune of the level, and the one played once before it; it starts as soon as sound is allowed. The same tune goes on. */
+    setMusic(name2, intro = "") {
       if (name2 === this.tune) return;
       this.tune = name2;
-      try {
-        this.source?.stop();
-      } catch {
+      this.intro = intro;
+      for (const s of [this.source, this.introSource]) {
+        try {
+          s?.stop();
+        } catch {
+        }
       }
       this.source = null;
+      this.introSource = null;
       this.gain = null;
       this.asked = false;
       if (this.ac) this.startMusic();
@@ -131,21 +138,32 @@
       return reading;
     }
     startMusic() {
-      const ac = this.ac, tune = this.tune;
+      const ac = this.ac, tune = this.tune, intro = this.intro;
       if (!ac || this.asked) return;
       const reading = this.read(tune);
       if (!reading) return;
       this.asked = true;
-      reading.then((buffer) => {
+      const once = intro ? this.read(intro) : null;
+      Promise.all([reading, once ?? Promise.resolve(null)]).then(([buffer, first]) => {
         if (tune !== this.tune || this.gain) return;
+        this.gain = ac.createGain();
+        this.gain.gain.value = this.level();
+        this.gain.connect(ac.destination);
+        let at = ac.currentTime;
+        if (first) {
+          const opening = ac.createBufferSource();
+          opening.buffer = first;
+          opening.connect(this.gain);
+          opening.start(at);
+          this.introSource = opening;
+          at += globalThis.MUSIC_ONCE?.[intro] ?? first.duration;
+        }
         const source = ac.createBufferSource();
         this.source = source;
         source.buffer = buffer;
         source.loop = true;
-        this.gain = ac.createGain();
-        this.gain.gain.value = this.level();
-        source.connect(this.gain).connect(ac.destination);
-        source.start();
+        source.connect(this.gain);
+        source.start(at);
       }).catch(() => {
         this.asked = false;
       });
@@ -380,6 +398,16 @@
           this.tone("sawtooth", 1500, 520, { at: 0.2, dur: 0.5, vol: 0.12, hall: 0.6 }, 11);
           this.hiss("highpass", 3e3, 5200, { dur: 0.6, vol: 0.12, hall: 0.6 });
           break;
+        case "crash":
+          this.duck(1);
+          this.hiss("highpass", 2600, 900, { dur: 0.12, vol: 0.55, hall: 0.6 });
+          this.tone("sine", 70, 30, { dur: 0.9, vol: 0.8, hall: 0.4 });
+          this.hiss("lowpass", 1800, 160, { dur: 1.1, vol: 0.55, hall: 0.6 });
+          for (let i = 0; i < 9; i++) {
+            const at = 0.08 + Math.random() * 0.8, f = 300 + Math.random() * 900;
+            this.tone("triangle", f, f * 0.5, { at, dur: 0.06, vol: 0.18, hall: 0.4 });
+          }
+          break;
         case "win":
           this.duck(1.2);
           [587.3, 740, 880, 1174.7].forEach((f, i) => {
@@ -401,17 +429,33 @@
     if (index + 1 < count) return { title, lines: ["PRESS JUMP FOR THE NEXT ROOM"] };
     return { title, lines: ["PRESS JUMP TO GO ON"] };
   }
-  function openingWords(title, boss = false) {
-    if (boss) return [title, "SLAY THE DEMON", "ITS SKELETONS CARRY EMBERS", "ONLY A FLAMING CHARGE ENDS IT"];
+  function openingWords(title, kind = "") {
+    if (kind === "fall") return [title, "THE TOWER FALLS", "RUN DOWN TO THE DOOR"];
+    if (kind === "boss") return [title, "SLAY THE DEMON", "ITS SKELETONS CARRY EMBERS", "ONLY A FLAMING CHARGE ENDS IT"];
     return [title, "COLLECT THE EMBERS", "THEN REACH THE DOOR"];
   }
   function firstLevel(search, count) {
     const asked = Number(new URLSearchParams(search).get("level"));
     return Number.isInteger(asked) && asked >= 1 && asked <= count ? asked - 1 : null;
   }
+  function testMode(search) {
+    return new URLSearchParams(search).has("test");
+  }
   function clockText(seconds) {
     const s = Math.floor(seconds);
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }
+  var FIRST_PAGE = 9;
+  var PAGE = 5;
+  function titlePage(t, count) {
+    const round = FIRST_PAGE + PAGE * (count - 1), u = t % round;
+    return u < FIRST_PAGE ? 0 : 1 + Math.floor((u - FIRST_PAGE) / PAGE);
+  }
+  function boardWords(r) {
+    if (r.cheated) return "NO RECORD WITH THE CHEAT";
+    if (r.place === 0) return "NEW RECORD!";
+    if (r.place !== null) return `NUMBER ${r.place + 1} ON THE BOARD`;
+    return r.best !== null ? `BEST ${clockText(r.best)}` : "";
   }
   var NO_RUN = Object.freeze({ time: 0, slain: 0, spilt: 0, falls: 0 });
   function addRun(run2, w) {
@@ -434,6 +478,98 @@
     return [x, y];
   }
 
+  // src/initials.ts
+  var LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-! ";
+  var NAME_LENGTH = 7;
+  var BLANK = LETTERS.length - 1;
+  var Initials = class {
+    letters;
+    changed = false;
+    // a letter has been turned, typed or rubbed out
+    typed = false;
+    // a letter has been typed: the keyboard writes a new name
+    /** The letter under the cursor. */
+    at = 0;
+    done = false;
+    /** `last`: the name given the last time, offered again. */
+    constructor(last) {
+      const start = last.trim() ? last.toUpperCase() : "A";
+      this.letters = Array.from({ length: NAME_LENGTH }, (_, i) => {
+        const k = start[i] === void 0 ? -1 : LETTERS.indexOf(start[i]);
+        return k < 0 ? BLANK : k;
+      });
+    }
+    /** The name as it stands, blanks and all: what is shown while it is given. */
+    get shown() {
+      return this.letters.map((i) => LETTERS[i]).join("");
+    }
+    /** The name as it is written down: without its blanks at the end, never empty. */
+    get text() {
+      return this.shown.trimEnd() || "???";
+    }
+    up() {
+      this.turn(1);
+    }
+    down() {
+      this.turn(LETTERS.length - 1);
+    }
+    turn(by) {
+      if (this.done) return;
+      this.letters[this.at] = (this.letters[this.at] + by) % LETTERS.length;
+      this.changed = true;
+    }
+    /** The letter under the cursor is the right one: on to the next, or done after the last. */
+    confirm() {
+      if (this.done) return;
+      if (this.at < NAME_LENGTH - 1) this.at++;
+      else this.done = true;
+    }
+    /** The name is complete. Untouched, it is the one offered; changed, it ends with the letter under the cursor. */
+    finish() {
+      if (this.done) return;
+      if (this.changed) for (let i = this.at + 1; i < NAME_LENGTH; i++) this.letters[i] = BLANK;
+      this.done = true;
+    }
+    back() {
+      if (!this.done && this.at > 0) this.at--;
+    }
+    /** Rubs out the letter before the cursor, and moves back onto it. */
+    rubOut() {
+      if (this.done) return;
+      if (this.at > 0) this.at--;
+      this.letters[this.at] = BLANK;
+      this.changed = true;
+    }
+    /** A key typed: a letter the font knows is put under the cursor, and the cursor moves on. */
+    type(key) {
+      const i = LETTERS.indexOf(key.toUpperCase());
+      if (this.done || key.length !== 1 || i < 0 || i === BLANK) return false;
+      if (!this.typed) for (let k = this.at; k < NAME_LENGTH; k++) this.letters[k] = BLANK;
+      this.typed = true;
+      this.changed = true;
+      this.letters[this.at] = i;
+      if (this.at < NAME_LENGTH - 1) this.at++;
+      else this.done = true;
+      return true;
+    }
+  };
+  function feedName(name2, typed, pad) {
+    for (const k of typed) {
+      if (k === "Enter") name2.finish();
+      else if (k === "Backspace") name2.rubOut();
+      else if (k === "ArrowUp") name2.up();
+      else if (k === "ArrowDown") name2.down();
+      else if (k === "ArrowLeft") name2.back();
+      else if (k === "ArrowRight" || k === " ") name2.confirm();
+      else name2.type(k);
+    }
+    if (pad.up) name2.up();
+    if (pad.down) name2.down();
+    if (pad.left || pad.back) name2.back();
+    if (pad.right || pad.confirm) name2.confirm();
+    if (pad.finish) name2.finish();
+  }
+
   // src/input.ts
   var KEYS = {
     left: ["ArrowLeft", "KeyA"],
@@ -448,7 +584,8 @@
     music: ["KeyM"],
     pause: ["KeyP"],
     full: ["KeyF"],
-    cheat: ["KeyG"]
+    cheat: ["KeyG"],
+    win: ["KeyN"]
   };
   var STICK = 0.4;
   var STICK_UP = 0.5;
@@ -459,6 +596,7 @@
         const e = event;
         this.keys.add(e.code);
         if (!e.repeat) this.taps.add(e.code);
+        if (typeof e.key === "string" && e.key && (!e.repeat || e.key === "Backspace")) this.typed.push(e.key);
         if ((e.code.startsWith("Arrow") || e.code === "Space") && e.preventDefault) e.preventDefault();
       });
       target.addEventListener("keyup", (event) => {
@@ -467,20 +605,31 @@
       target.addEventListener("blur", () => {
         this.keys.clear();
         this.taps.clear();
+        this.typed = [];
       });
     }
     pads;
     keys = /* @__PURE__ */ new Set();
     taps = /* @__PURE__ */ new Set();
     // pressed since the last read: a tap shorter than a frame still counts
-    held = { jump: false, attack: false, special: false, restart: false, music: false, pause: false, full: false, cheat: false };
+    held = { jump: false, attack: false, special: false, restart: false, music: false, pause: false, full: false, cheat: false, win: false };
+    typed = [];
+    padHeld = { up: false, down: false, left: false, right: false, confirm: false, back: false, finish: false };
     /** The state of the controls now. Call once per frame: presses are reported on the frame they happen. */
     read() {
       const key = (name2) => KEYS[name2].some((code) => this.keys.has(code) || this.taps.has(code));
-      const now = { left: key("left"), right: key("right"), up: key("up"), down: key("down"), jump: key("jump"), attack: key("attack"), guard: key("guard"), special: key("special"), restart: key("restart"), music: key("music"), pause: key("pause"), full: key("full"), cheat: key("cheat") };
+      const now = { left: key("left"), right: key("right"), up: key("up"), down: key("down"), jump: key("jump"), attack: key("attack"), guard: key("guard"), special: key("special"), restart: key("restart"), music: key("music"), pause: key("pause"), full: key("full"), cheat: key("cheat"), win: key("win") };
+      const padNow = { up: false, down: false, left: false, right: false, confirm: false, back: false, finish: false };
       for (const pad of this.pads()) {
         if (!pad || !pad.connected) continue;
         const b = (i) => !!pad.buttons[i]?.pressed, ax = pad.axes[0] ?? 0, ay = pad.axes[1] ?? 0;
+        padNow.up ||= ay < -STICK_UP || b(12);
+        padNow.down ||= ay > STICK_UP || b(13);
+        padNow.left ||= ax < -STICK || b(14);
+        padNow.right ||= ax > STICK || b(15);
+        padNow.confirm ||= b(0);
+        padNow.back ||= b(1);
+        padNow.finish ||= b(9);
         now.left ||= ax < -STICK || b(14);
         now.right ||= ax > STICK || b(15);
         now.up ||= ay < -STICK_UP || b(12);
@@ -511,8 +660,13 @@
         pausePressed: pressed("pause"),
         fullPressed: pressed("full"),
         cheatPressed: pressed("cheat"),
-        any: Object.values(now).some(Boolean)
+        winPressed: pressed("win"),
+        any: Object.values(now).some(Boolean),
+        typed: this.typed,
+        pad: Object.fromEntries(Object.entries(padNow).map(([k, v]) => [k, v && !this.padHeld[k]]))
       };
+      this.padHeld = padNow;
+      this.typed = [];
       this.taps.clear();
       return frame;
     }
@@ -754,7 +908,10 @@
       bats: typeof p.bats === "number" ? p.bats : 0,
       sky: p.sky === true,
       snow: p.snow === true,
-      storm: p.storm === true
+      storm: p.storm === true,
+      omen: p.omen === true,
+      intro: typeof p.intro === "string" ? p.intro : "",
+      collapse: typeof p.collapse === "number" && p.collapse > 0 ? p.collapse : 0
     };
     return { grid: new Grid(map.width, map.height, cells), objects, settings, width: map.width * TILE, height: map.height * TILE };
   }
@@ -1267,6 +1424,56 @@
     e.cool = GHOST.driven;
   }
 
+  // src/sim/fall.ts
+  var FALL = {
+    grace: 2,
+    // seconds the tower holds before it starts to come down
+    top: -60,
+    // px: where the collapse starts, over the top of the level
+    every: 0.3,
+    // seconds between two stones
+    ahead: 10,
+    // px under the collapse where a stone breaks off
+    rock: 1,
+    // what a stone costs the hero: the guard does not stop it
+    gravity: 900
+  };
+  function makeFall(speed) {
+    return { y: FALL.top, speed, t: 0, next: FALL.every, rocks: [], seed: 2654435769 };
+  }
+  function chance(f) {
+    f.seed = f.seed + 1831565813 >>> 0;
+    let z = f.seed;
+    z = Math.imul(z ^ z >>> 15, z | 1);
+    z ^= z + Math.imul(z ^ z >>> 7, z | 61);
+    return ((z ^ z >>> 14) >>> 0) / 4294967296;
+  }
+  var touches = (r, a) => r.x + r.size / 2 > a.x && r.x - r.size / 2 < a.x + a.w && r.y + r.size / 2 > a.y && r.y - r.size / 2 < a.y + a.h;
+  function stepFall(f, a, crush, dt) {
+    f.t += dt;
+    if (f.t > FALL.grace) f.y += f.speed * dt;
+    if ((f.next -= dt) <= 0) {
+      f.next = FALL.every;
+      f.rocks.push({ x: 24 + chance(f) * (a.width - 48), y: f.y + FALL.ahead, vy: 30, size: 7 + Math.floor(chance(f) * 8) });
+    }
+    const hero = a.hero;
+    f.rocks = f.rocks.filter((r) => {
+      r.vy += FALL.gravity * dt;
+      r.y += r.vy * dt;
+      if (a.playing && touches(r, hero)) {
+        a.hurt(hero.x + hero.w / 2 >= r.x ? 1 : -1, FALL.rock, true);
+        a.emit({ type: "debris", x: r.x, y: r.y, count: 8 });
+        return false;
+      }
+      if (a.grid.solidAt(Math.floor(r.x / TILE), Math.floor((r.y + r.size / 2) / TILE))) {
+        a.emit({ type: "debris", x: r.x, y: r.y, count: 6 });
+        return false;
+      }
+      return r.y < a.grid.rows * TILE + 40;
+    });
+    if (a.playing && hero.y < f.y) crush();
+  }
+
   // src/sim/demon.ts
   var BELL = {
     first: 4,
@@ -1320,14 +1527,18 @@
     // what its landing costs a hero on the ground near it
     wave: { speed: 210, life: 1.7, half: 7, height: 16, damage: 1 },
     // enraged, its landing sends fire along the floor, each way
-    dying: 2.4
+    dying: 2.4,
     // seconds it burns before the room is won
+    // Its entrance, out of the storm and through the great opening: when the flash comes, when it breaks
+    // through the stone, when it lands; then it fights.
+    enter: { time: 2.6, flash: 0.2, through: 1, land: 1.6 }
+    // in time with its tune, "arrival": 150 a minute, the landing on the second bar
   };
-  function makeDemon(body) {
-    return { body, phase: "wait", t: 0, rest: 0.6, floor: feetY(body), markX: centreX(body), landY: feetY(body), hit: false, enraged: false, pressure: 0, again: false, waves: [] };
+  function makeDemon(body, from = { x: body.x + body.w / 2, y: body.y - 200 }) {
+    return { body, from, phase: "enter", t: 0, rest: 0.6, floor: feetY(body), markX: centreX(body), landY: feetY(body), hit: false, enraged: false, pressure: 0, again: false, waves: [] };
   }
   function demonTouchable(d) {
-    return d.phase !== "rise" && d.phase !== "mark" && d.phase !== "fall" && d.phase !== "dying" && d.phase !== "gone";
+    return d.phase !== "enter" && d.phase !== "rise" && d.phase !== "mark" && d.phase !== "fall" && d.phase !== "dying" && d.phase !== "gone";
   }
   var overlap2 = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   function breathBox(d) {
@@ -1363,6 +1574,29 @@
     }
     d.waves = d.waves.filter((v) => v.t < DEMON.wave.life && v.x > TILE && v.x < a.width - TILE && d.phase !== "dying" && d.phase !== "gone");
     switch (d.phase) {
+      case "enter": {
+        const e = DEMON.enter, was = d.t - dt, now = d.t, at = (k) => was < k && now >= k;
+        if (at(e.flash)) a.emit({ type: "lightning" });
+        if (at(e.through)) {
+          a.emit({ type: "debris", x: d.from.x, y: d.from.y, count: 46 });
+          a.emit({ type: "sound", name: "crash" });
+          a.shake(0.3);
+        }
+        if (at(e.land)) {
+          a.shake(0.55);
+          a.emit({ type: "effect", kind: "heavy-landing", x: centreX(b), y: d.floor, flip: false });
+          a.emit({ type: "dust", x: centreX(b), y: d.floor, count: 30 });
+          a.emit({ type: "sound", name: "slam" });
+          a.emit({ type: "sound", name: "roar" });
+          a.emit({ type: "toll" });
+          a.emit({ type: "sound", name: "bell" });
+        }
+        if (d.t >= e.time) {
+          go(d, "drift");
+          d.rest = 0.8;
+        }
+        break;
+      }
       case "wait":
         if (d.t >= DEMON.start) go(d, "drift");
         break;
@@ -1661,7 +1895,8 @@
           if (kind.actor === "hero") hero = actor;
           else if (kind.actor === "demon") {
             actor.hp = DEMON.hp;
-            this.boss = makeDemon(actor);
+            const arch = level.objects.filter((a) => a.kind === "arch").sort((p, q) => Number(q.props.width ?? 80) - Number(p.props.width ?? 80))[0];
+            this.boss = makeDemon(actor, arch ? { x: arch.x, y: arch.y - Number(arch.props.height ?? 88) / 2 } : void 0);
             this.foes.push(actor);
           } else {
             if (kind.actor === "shade" || kind.actor === "skull") actor.cool = START_GRACE;
@@ -1692,6 +1927,7 @@
           world.shake = Math.max(world.shake, seconds);
         }
       };
+      if (level.settings.collapse > 0) this.fall = makeFall(level.settings.collapse);
     }
     level;
     grid;
@@ -1713,6 +1949,8 @@
     // the cheat: no blow harms the hero
     boss = null;
     // the demon of the bell chamber, when the level has one
+    fall = null;
+    // the tower coming down, when the level falls
     graves = [];
     bellT = BELL.first;
     risen = 0;
@@ -1753,6 +1991,7 @@
           this.stepItems();
           this.stepBell();
         }
+        if (this.fall && this.state === "play") stepFall(this.fall, this.arena, () => this.crush(), STEP);
       }
       const out = this.events;
       this.events = [];
@@ -2161,6 +2400,22 @@
         this.state = "won";
         this.emit({ type: "sound", name: "win" });
       }
+    }
+    // The collapse has caught the hero: he is under the stone.
+    crush() {
+      const p = this.hero;
+      if (this.invincible) {
+        p.y = Math.max(p.y, (this.fall?.y ?? p.y) + 1);
+        return;
+      }
+      p.hp = 0;
+      this.state = "lost";
+      this.slow = SLOW;
+      this.bleed(p, 1, BLOOD.finish, FINISH_CHUNKS);
+      this.bleed(p, -1, BLOOD.finish, FINISH_CHUNKS);
+      this.emit({ type: "debris", x: p.x + p.w / 2, y: p.y, count: 30 });
+      this.emit({ type: "sound", name: "crash" });
+      this.emit({ type: "sound", name: "ko" });
     }
     // ---- the bell chamber ------------------------------------------------------------------------------
     // The great bell tolls now and then, while the demon lives, and the dead come out of their graves:
@@ -3262,6 +3517,10 @@
       if (this.glow < 5e-3) this.glow = 0;
       return { thunder };
     }
+    /** A strike now, whatever the calm: the calm starts again from it. */
+    strikeNow() {
+      this.strike();
+    }
     strike() {
       const r = this.rand, [c0, c1] = STORM.calm, [s0, s1] = STORM.sound;
       this.wait = c0 + r() * (c1 - c0);
@@ -3304,6 +3563,103 @@
     k.restore();
   }
 
+  // src/records.ts
+  var PLACES = 5;
+  var KEY = "unextinguished.board";
+  var OLD_KEY = "unextinguished.best";
+  function browserStore() {
+    return {
+      get: (key) => {
+        try {
+          return globalThis.localStorage?.getItem(key) ?? null;
+        } catch {
+          return null;
+        }
+      },
+      set: (key, value) => {
+        try {
+          globalThis.localStorage?.setItem(key, value);
+        } catch {
+        }
+      }
+    };
+  }
+  function apart(store, prefix = "trial.") {
+    return { get: (key) => store.get(prefix + key), set: (key, value) => store.set(prefix + key, value) };
+  }
+  function seedBoard(board, keys) {
+    const names = ["BROTHER", "ABBOT", "NOVICE", "PRIOR", "BELLMAN"];
+    for (const key of keys) {
+      const base = key === "run" ? 900 : 120;
+      board.seed(key, names.slice(0, 4).map((name2, i) => ({ name: name2, time: Math.round(base * [0.7, 0.85, 1.1, 1.4][i]) })));
+    }
+  }
+  var read = (store, key) => {
+    try {
+      return JSON.parse(store.get(key) ?? "null");
+    } catch {
+      return null;
+    }
+  };
+  var Board = class {
+    constructor(store) {
+      this.store = store;
+      const saved = read(store, KEY);
+      if (saved && typeof saved === "object") {
+        if (typeof saved.lastName === "string") this.lastName = saved.lastName.slice(0, NAME_LENGTH);
+        const tables = saved.tables;
+        if (tables && typeof tables === "object") for (const [key, list] of Object.entries(tables)) {
+          if (!Array.isArray(list)) continue;
+          const good = list.filter((e) => e && typeof e.name === "string" && typeof e.time === "number" && e.time > 0).map((e) => ({ name: String(e.name).slice(0, NAME_LENGTH), time: e.time }));
+          if (good.length) this.tables[key] = good.sort((a, b) => a.time - b.time).slice(0, PLACES);
+        }
+      }
+      const old = read(store, OLD_KEY);
+      if (old && typeof old === "object") for (const [key, time] of Object.entries(old)) {
+        if (typeof time === "number" && time > 0 && !this.tables[key]) this.tables[key] = [{ name: "???", time }];
+      }
+    }
+    store;
+    tables = {};
+    /** The last name given, to offer it again. */
+    lastName = "";
+    /** The table of a level (by its name) or of the runs ("run"), fastest first. */
+    table(key) {
+      return [...this.tables[key] ?? []];
+    }
+    best(key) {
+      return this.tables[key]?.[0]?.time ?? null;
+    }
+    /** The place (0 the first) a time would take in a table, or null when it is not good enough. */
+    place(key, time) {
+      const list = this.tables[key] ?? [];
+      const at = list.findIndex((e) => time < e.time);
+      if (at >= 0) return at;
+      return list.length < PLACES ? list.length : null;
+    }
+    /** Fills a table that is empty, without offering its names to anyone. */
+    seed(key, entries) {
+      if (this.tables[key]?.length) return;
+      this.tables[key] = [...entries].sort((a, b) => a.time - b.time).slice(0, PLACES);
+      this.save();
+    }
+    save() {
+      try {
+        this.store.set(KEY, JSON.stringify({ tables: this.tables, lastName: this.lastName }));
+      } catch {
+      }
+    }
+    /** Writes a time in, under a name; its place is returned. */
+    add(key, name2, time) {
+      const list = this.tables[key] ?? [], at = this.place(key, time) ?? PLACES;
+      list.splice(at, 0, { name: name2.slice(0, NAME_LENGTH), time });
+      this.tables[key] = list.slice(0, PLACES);
+      this.lastName = name2.slice(0, NAME_LENGTH);
+      this.save();
+      return at;
+    }
+  };
+
   // src/render/text.ts
   var FONT = {
     A: "010101111101101",
@@ -3343,6 +3699,7 @@
     8: "111101111101111",
     9: "111101111001110",
     ":": "000010000010000",
+    "?": "111001010000010",
     ".": "000000000000010",
     "!": "010010010000010",
     "/": "001001010100100",
@@ -3360,6 +3717,139 @@
   var textWidth = (str, scale = 2) => str.length * 4 * scale - scale;
   function centered(g2, str, y, color, scale = 2) {
     text(g2, str, Math.round((VIEW_W - textWidth(str, scale)) / 2), y, color, scale);
+  }
+
+  // src/render/title.ts
+  var FIRE2 = ["#fff3c4", "#ffc93c", "#ff8a2a", "#e0401c"];
+  var PALE = "#e2d8f0";
+  var DIM = "#9d93b8";
+  var GOLD = "#ffe27a";
+  var hash3 = (a, b) => {
+    const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+    return s - Math.floor(s);
+  };
+  function veil(g2) {
+    g2.fillStyle = "rgba(8,6,18,0.32)";
+    g2.fillRect(0, 0, VIEW_W, VIEW_H);
+    const top = g2.createLinearGradient(0, 0, 0, 130);
+    top.addColorStop(0, "rgba(8,6,18,0.85)");
+    top.addColorStop(1, "rgba(8,6,18,0)");
+    g2.fillStyle = top;
+    g2.fillRect(0, 0, VIEW_W, 130);
+    const low = g2.createLinearGradient(0, VIEW_H - 90, 0, VIEW_H);
+    low.addColorStop(0, "rgba(8,6,18,0)");
+    low.addColorStop(1, "rgba(8,6,18,0.9)");
+    g2.fillStyle = low;
+    g2.fillRect(0, VIEW_H - 90, VIEW_W, 90);
+  }
+  function sparks(g2, t) {
+    g2.save();
+    g2.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 46; i++) {
+      const speed = 14 + hash3(i, 1) * 30, life = VIEW_H + 60;
+      const y = VIEW_H + 20 - (t * speed + hash3(i, 2) * life) % life;
+      const x = hash3(i, 3) * VIEW_W + Math.sin(t * (0.6 + hash3(i, 4)) + i) * 10;
+      g2.fillStyle = FIRE2[i % 3];
+      g2.globalAlpha = 0.35 + 0.65 * Math.min(1, (y + 40) / VIEW_H);
+      g2.fillRect(Math.round(x), Math.round(y), i % 5 === 0 ? 2 : 1, i % 5 === 0 ? 2 : 1);
+    }
+    g2.restore();
+  }
+  function name(g2, t) {
+    const big = 7, word = "UNEXTINGUISHED", y = 56, h = 5 * big;
+    g2.save();
+    g2.globalCompositeOperation = "lighter";
+    const glow = g2.createRadialGradient(VIEW_W / 2, y + h / 2, 10, VIEW_W / 2, y + h / 2, 260);
+    glow.addColorStop(0, `rgba(255,120,40,${0.32 + 0.06 * Math.sin(t * 4.3) + 0.04 * Math.sin(t * 11)})`);
+    glow.addColorStop(1, "rgba(255,120,40,0)");
+    g2.fillStyle = glow;
+    g2.fillRect(0, y - 80, VIEW_W, h + 160);
+    g2.restore();
+    centered(g2, "THE", 36, PALE, 3);
+    const x = Math.round((VIEW_W - textWidth(word, big)) / 2);
+    text(g2, word, x + 4, y + 4, "#4a0a0c", big);
+    const flame = g2.createLinearGradient(0, y, 0, y + h);
+    flame.addColorStop(0, FIRE2[0]);
+    flame.addColorStop(0.45, FIRE2[1]);
+    flame.addColorStop(1, FIRE2[3]);
+    text(g2, word, x, y, flame, big);
+  }
+  function panel(g2, x, y, w, h) {
+    g2.fillStyle = "rgba(10,8,20,0.78)";
+    g2.fillRect(x, y, w, h);
+    g2.strokeStyle = "rgba(154,143,192,0.7)";
+    g2.lineWidth = 2;
+    g2.strokeRect(x + 1, y + 1, w - 2, h - 2);
+  }
+  var blink = (t) => t % 1.1 < 0.8;
+  var CONTROLS = [
+    ["MOVE", "ARROWS", "STICK"],
+    ["JUMP", "SPACE", "A"],
+    ["STRIKE", "X", "X"],
+    ["GUARD", "C", "LB"],
+    ["CHARGE", "V", "Y"]
+  ];
+  function drawTitle(g2, t, page = null) {
+    g2.setTransform(1, 0, 0, 1, 0, 0);
+    veil(g2);
+    sparks(g2, t);
+    name(g2, t);
+    centered(g2, "A GOTHIC PLATFORM FIGHTER", 104, "#c9bfe0");
+    const px = 160, pw = 320, py = 128;
+    panel(g2, px, py, pw, 136);
+    if (page) drawTable(g2, page.title, page.entries, px, py, pw);
+    else {
+      const col = [px + 24, px + 128, px + 228];
+      text(g2, "KEYBOARD", col[1], py + 12, GOLD);
+      text(g2, "GAMEPAD", col[2], py + 12, GOLD);
+      CONTROLS.forEach(([what, key, pad], i) => {
+        const y = py + 32 + i * 16;
+        text(g2, what, col[0], y, DIM);
+        text(g2, key, col[1], y, PALE);
+        text(g2, pad, col[2], y, PALE);
+      });
+      centered(g2, "THE CHARGE COSTS AN EMBER", py + 116, DIM);
+    }
+    if (blink(t)) centered(g2, "PRESS JUMP TO START", 286, GOLD, 3);
+    centered(g2, "F FULL SCREEN    M MUSIC    P PAUSE", 334, DIM);
+  }
+  function drawEnd(g2, t, lines, naming = null, note = null) {
+    g2.setTransform(1, 0, 0, 1, 0, 0);
+    veil(g2);
+    sparks(g2, t);
+    name(g2, t);
+    centered(g2, "EVERY ROOM IS CLEARED", 104, "#c9bfe0");
+    const py = 132, ph = 30 + lines.length * 26;
+    panel(g2, 130, py, 380, ph);
+    lines.forEach((line, i) => centered(g2, line, py + 18 + i * 26, i === lines.length - 1 ? DIM : PALE, 3));
+    if (naming && !naming.done) {
+      centered(g2, "A RUN FOR THE BOARD  ENTER YOUR NAME", 272, GOLD);
+      drawName(g2, naming, 288, t);
+      centered(g2, "TYPE IT  THEN ENTER     GAMEPAD  UP DOWN  A  START", 322, DIM);
+      return;
+    }
+    if (note) centered(g2, note, 274, GOLD);
+    if (t > 1.5 && blink(t)) centered(g2, "PRESS JUMP", 300, GOLD, 3);
+  }
+  function drawTable(g2, title, entries, px, py, pw) {
+    centered(g2, title, py + 12, GOLD);
+    for (let i = 0; i < PLACES; i++) {
+      const e = entries[i], y = py + 36 + i * 18, color = e ? i === 0 ? GOLD : PALE : DIM;
+      text(g2, `${i + 1}`, px + 40, y, color);
+      text(g2, e ? e.name : "-------", px + 76, y, color);
+      const time = e ? clockText(e.time) : "-:--";
+      text(g2, time, px + pw - 40 - textWidth(time), y, color);
+    }
+  }
+  function drawName(g2, name2, y, t) {
+    const step = 22, x0 = Math.round((VIEW_W - step * NAME_LENGTH) / 2) + 3;
+    const shown = name2.shown;
+    for (let i = 0; i < NAME_LENGTH; i++) {
+      const x = x0 + i * step, here = i === name2.at && !name2.done;
+      if (!(here && Math.floor(t * 5) % 2)) text(g2, shown[i], x, y, here ? GOLD : PALE, 4);
+      g2.fillStyle = here ? GOLD : DIM;
+      g2.fillRect(x - 1, y + 23, 14, 2);
+    }
   }
 
   // src/render/hud.ts
@@ -3381,8 +3871,10 @@
     foeLag = MAX_HP;
     finish = 0;
     foe = null;
-    /** The best time of the level, once it is won. */
-    record = null;
+    /** The level won, against the board; the name being given for it; the name once written. */
+    result = null;
+    naming = null;
+    named = null;
     /** A foe has just been ended. */
     finisher() {
       this.finish = FINISH_WORDS;
@@ -3429,6 +3921,43 @@
       px(start(full), BAR_Y, full, 2, "rgba(255,255,255,0.35)");
       for (let i = 1; i < MAX_HP; i++) px(x + Math.round(BAR_W * i / MAX_HP), BAR_Y, 1, BAR_H, "rgba(10,8,20,0.55)");
     }
+    // The panel of a level won: its time, its place on the board, the name asked for, what comes next.
+    wonPanel(g2, t, clock, won) {
+      const r = this.result, n = this.naming, words = r ? boardWords(r) : "";
+      const asking = !!n && !n.done, h = asking ? 206 : 112 + (words ? 22 : 0) + (this.named ? 22 : 0), y = Math.round((VIEW_H - h) / 2) - 6;
+      g2.fillStyle = "rgba(10,8,20,0.9)";
+      g2.fillRect(110, y, 420, h);
+      g2.strokeStyle = "#9a8fc0";
+      g2.lineWidth = 2;
+      g2.strokeRect(111, y + 1, 418, h - 2);
+      let at = y + 18;
+      centered(g2, won.title, at, "#ffe27a", 4);
+      at += 32;
+      centered(g2, `TIME ${clock}`, at, "#e2d8f0");
+      at += 22;
+      if (words) {
+        centered(g2, words, at, r?.cheated ? "#ff7a6a" : r?.place === 0 ? Math.floor(t * 4) % 2 ? "#ffe27a" : "#ff8a2a" : r?.place !== null ? "#ffe27a" : "#9d93b8");
+        at += 22;
+      }
+      if (asking) {
+        centered(g2, "ENTER YOUR NAME", at + 4, "#e2d8f0");
+        at += 26;
+        drawName(g2, n, at, t);
+        at += 38;
+        centered(g2, "TYPE IT  THEN ENTER", at, "#9d93b8");
+        at += 16;
+        centered(g2, "GAMEPAD  UP DOWN  A  START", at, "#9d93b8");
+        return;
+      }
+      if (this.named) {
+        centered(g2, `${this.named.name} IS NUMBER ${this.named.place + 1}`, at, "#ffe27a");
+        at += 22;
+      }
+      for (const line of won.lines) {
+        centered(g2, line, at + 6, "#9d93b8");
+        at += 22;
+      }
+    }
     draw(g2, t, paused, won) {
       const w = this.world, p = w.hero;
       const strip = g2.createLinearGradient(0, VIEW_H - 34, 0, VIEW_H);
@@ -3462,7 +3991,8 @@
         centered(g2, words, y + 3, "#1a0308", scale);
         centered(g2, words, y, hot ? "#ff3b3b" : "#ffe27a", scale);
       } else if (w.state === "play" && this.banner > 0) {
-        this.opening.forEach((line, i) => centered(g2, line, 40 + i * 16, i === 0 ? "#ffe27a" : "#e2d8f0"));
+        const top2 = w.boss ? 188 : 40;
+        this.opening.forEach((line, i) => centered(g2, line, top2 + i * 16, i === 0 ? "#ffe27a" : "#e2d8f0"));
       } else if (w.state === "play" && w.doorOpen && w.door && Math.floor(t * 2) % 2) centered(g2, "THE DOOR IS OPEN", 40, "#ffe27a");
       const panel2 = (lines) => {
         const h = 44 + lines.length * 24, y = Math.round((VIEW_H - h) / 2) - 10;
@@ -3473,8 +4003,7 @@
         g2.strokeRect(121, y + 1, 398, h - 2);
         lines.forEach(([str, color, scale], i) => centered(g2, str, y + 20 + i * 26, color, scale ?? 2));
       };
-      const best = !this.record ? [] : this.record.isNew ? [["NEW RECORD!", Math.floor(t * 4) % 2 ? "#ffe27a" : "#ff8a2a"]] : [[`BEST ${clockText(this.record.best)}`, "#9d93b8"]];
-      if (w.state === "won") panel2([[won.title, "#ffe27a", 4], [`TIME ${clock}`, "#e2d8f0"], ...best, ...won.lines.map((l) => [l, "#9d93b8"])]);
+      if (w.state === "won") this.wonPanel(g2, t, clock, won);
       else if (w.state === "lost" && w.slow <= 0) panel2([["KNOCKED OUT", "#ff7a6a", 4], ["PRESS JUMP TO TRY AGAIN", "#9d93b8"]]);
       else if (paused) panel2([["PAUSED", "#ffe27a", 4], ["PRESS P TO GO ON", "#9d93b8"]]);
     }
@@ -3485,7 +4014,7 @@
   var KICK_T = 0.42;
   var SWEEP_T = 0.42;
   var SHADE_STRIKE_T = 0.16;
-  var FIRE2 = ["#fff3c4", "#ffc93c", "#ff8a2a", "#e0401c"];
+  var FIRE3 = ["#fff3c4", "#ffc93c", "#ff8a2a", "#e0401c"];
   var MONK_ANCHOR = 40;
   var GHOUL_ANCHOR = 28;
   var SKELETON_ANCHOR = 26;
@@ -3507,7 +4036,7 @@
     // over the finished picture, bodies and all
     color: [205, 218, 255]
   };
-  var hash3 = (a, b) => {
+  var hash4 = (a, b) => {
     const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
     return s - Math.floor(s);
   };
@@ -3609,9 +4138,15 @@
       this.aim = [x, y];
       if (jump) this.camera.follow(x, y);
     }
-    /** The best time of the level, once it is won: the panel says it. */
-    setRecord(record) {
-      this.hud.record = record;
+    /** The level won, against the board, and the name being given for it if its time is good enough. */
+    setResult(result, naming) {
+      this.hud.result = result;
+      this.hud.naming = naming;
+    }
+    /** The name written on the board, at its place. */
+    setNamed(name2, place) {
+      this.hud.named = { name: name2, place };
+      this.hud.naming = null;
     }
     /** The sounds of the stage since the last call: the thunder. */
     heard() {
@@ -3632,7 +4167,13 @@
           this.hud.finisher();
           this.sparks(e.x, e.y, 26, 220);
         } else if (e.type === "flame") {
-          for (let i = 0; i < 6; i++) this.particles.push({ x: e.x - e.dir * Math.random() * 14, y: e.y - 16 + Math.random() * 30, vx: -e.dir * (30 + Math.random() * 130), vy: -10 - Math.random() * 70, life: 0.2 + Math.random() * 0.35, color: FIRE2[Math.floor(Math.random() * FIRE2.length)], g: -90 });
+          for (let i = 0; i < 6; i++) this.particles.push({ x: e.x - e.dir * Math.random() * 14, y: e.y - 16 + Math.random() * 30, vx: -e.dir * (30 + Math.random() * 130), vy: -10 - Math.random() * 70, life: 0.2 + Math.random() * 0.35, color: FIRE3[Math.floor(Math.random() * FIRE3.length)], g: -90 });
+        } else if (e.type === "lightning") this.storm?.strikeNow();
+        else if (e.type === "debris") {
+          for (let i = 0; i < e.count; i++) {
+            const a = Math.random() * Math.PI * 2, v = 60 + Math.random() * 260;
+            this.particles.push({ x: e.x + (Math.random() - 0.5) * 60, y: e.y + (Math.random() - 0.5) * 80, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 120, life: 0.8 + Math.random() * 0.9, color: ["#4b3f5c", "#6d5f80", "#8a7a9c", "#2e263a"][Math.floor(Math.random() * 4)], g: 700 });
+          }
         } else if (e.type === "toll") {
           this.swing = { amp: 0.34, t: 0 };
           for (const b of this.bells) this.rings.push({ x: b.x, y: b.y + 40, t: 0 });
@@ -3650,7 +4191,7 @@
     sparks(x, y, count, speed) {
       for (let i = 0; i < count; i++) {
         const a = Math.random() * Math.PI * 2, v = speed * (0.3 + Math.random() * 0.7);
-        this.particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 40, life: 0.3 + Math.random() * 0.5, color: FIRE2[Math.floor(Math.random() * 3)], g: 260 });
+        this.particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 40, life: 0.3 + Math.random() * 0.5, color: FIRE3[Math.floor(Math.random() * 3)], g: 260 });
       }
     }
     /** Lets the effects, the particles and the camera live for dt seconds. Frozen with the world on a hit. */
@@ -3668,6 +4209,10 @@
       this.swing.amp *= Math.exp(-0.45 * dt);
       for (const r of this.rings) r.t += dt;
       this.rings = this.rings.filter((r) => r.t < 1.1);
+      const fall = this.world.fall;
+      if (fall) for (let i = 0; i < 4; i++) {
+        this.particles.push({ x: this.camera.x + Math.random() * VIEW_W, y: fall.y + Math.random() * 12, vx: (Math.random() - 0.5) * 60, vy: -10 - Math.random() * 50, life: 0.6 + Math.random() * 0.8, color: ["#3a3046", "#55496a", "#2a2234"][Math.floor(Math.random() * 3)], g: 40 });
+      }
       const boss = this.world.boss;
       if (boss && boss.phase === "breath") {
         const b = boss.body, f = b.facing, from = b.x + b.w / 2 + f * 20;
@@ -3682,7 +4227,7 @@
       this.particles = this.particles.filter((q) => q.life > 0);
       for (const m of this.world.embers) {
         if (m.taken || Math.random() > dt * 2.5) continue;
-        this.particles.push({ x: m.x - 4 + Math.random() * 8, y: m.y - 4, vx: (Math.random() - 0.5) * 16, vy: -18 - Math.random() * 26, life: 0.5 + Math.random() * 0.6, color: FIRE2[1 + Math.floor(Math.random() * 2)], g: -14 });
+        this.particles.push({ x: m.x - 4 + Math.random() * 8, y: m.y - 4, vx: (Math.random() - 0.5) * 16, vy: -18 - Math.random() * 26, life: 0.5 + Math.random() * 0.6, color: FIRE3[1 + Math.floor(Math.random() * 2)], g: -14 });
       }
       const marks = this.blood.update(dt);
       if (marks.length) {
@@ -3702,7 +4247,7 @@
     }
     draw(g2, t, paused) {
       const w = this.world, level = w.level;
-      const jolt = w.shake > 0 ? [Math.round((Math.random() - 0.5) * 6), Math.round((Math.random() - 0.5) * 6)] : [0, 0];
+      const jolt = w.shake > 0 ? [Math.round((Math.random() - 0.5) * 6), Math.round((Math.random() - 0.5) * 6)] : w.fall && w.state === "play" ? [Math.round((Math.random() - 0.5) * 3), Math.round((Math.random() - 0.5) * 3)] : [0, 0];
       const cx = this.camera.x - jolt[0], cy = this.camera.y - jolt[1];
       g2.setTransform(1, 0, 0, 1, 0, 0);
       g2.imageSmoothingEnabled = false;
@@ -3739,6 +4284,10 @@
           k.globalCompositeOperation = "lighter";
           k.fillStyle = `rgba(160,175,240,${0.85 * storm.flash})`;
           k.fillRect(0, 0, VIEW_W, VIEW_H);
+        }
+        if (level.settings.omen) {
+          k.globalCompositeOperation = "source-over";
+          this.drawOmen(k, t, cx);
         }
         if (storm?.bolt) drawBolt(k, storm.bolt, Math.min(1, 0.35 + storm.flash));
         k.globalCompositeOperation = "destination-in";
@@ -3780,6 +4329,7 @@
       g2.translate(-cx, -cy);
       this.drawAir(g2, t);
       g2.setTransform(1, 0, 0, 1, 0, 0);
+      if (w.fall) this.drawFall(g2, w.fall, cx, cy, t);
       if (level.settings.snow) paintSnow(g2, cx, cy, t);
       if (this.storm && this.storm.glow > 0) {
         g2.save();
@@ -4077,6 +4627,21 @@
         }
       } else if (e.mode === "vanish") this.stripFrame(g2, "ghost/vanish", Math.min(6, Math.floor(e.modeT / GHOST.vanish * 7)), cx, feet, mirror, false, 0.9);
     }
+    // Its entrance: out of the great opening, small and far, then growing as it comes, wings beating.
+    drawEntrance(g2, d, t) {
+      const e = DEMON.enter, b = d.body;
+      if (d.t < e.flash) return;
+      const k = Math.min(1, (d.t - e.flash) / (e.land - e.flash)), ease = k * k;
+      const feetX = d.from.x + (b.x + b.w / 2 - d.from.x) * ease, feetY2 = d.from.y + 40 + (d.floor - d.from.y - 40) * ease;
+      const scale = 0.2 + 0.8 * ease, s = STRIPS["demon/idle"], n = 1 + Math.floor(t * (k < 1 ? 16 : 8)) % s.frames;
+      const pic = this.assets.image(`${k < 0.5 ? "shadow-" : ""}demon/idle/${n}`);
+      g2.save();
+      g2.translate(Math.round(feetX), Math.round(feetY2));
+      if (b.facing > 0) g2.scale(-1, 1);
+      g2.drawImage(pic, -s.footX * scale, -s.footY * scale, s.w * scale, s.h * scale);
+      g2.restore();
+      if (k >= 1) this.glow(g2, feetX, feetY2 - 78, 34, "rgba(110,225,255,0.3)");
+    }
     // Its skull, where the blue fire burns.
     demonHead(d, t) {
       const b = d.body;
@@ -4093,6 +4658,10 @@
         if (Math.floor(t * 10) % 2) this.glow(g2, d.markX, d.landY - 4, 26 + 30 * k, "rgba(255,60,40,0.3)");
       }
       if (d.phase === "gone" || d.phase === "mark") return;
+      if (d.phase === "enter") {
+        this.drawEntrance(g2, d, t);
+        return;
+      }
       const [key, s, x, y, mirror] = this.demonPicture(d, t);
       const [hx, hy] = this.demonHead(d, t);
       this.glow(g2, hx, hy, 34, "rgba(110,225,255,0.3)");
@@ -4116,6 +4685,85 @@
           text(g2, words, Math.round(hx - textWidth(words) / 2) + 1, Math.round(hy - 45), "#1a0308");
           text(g2, words, Math.round(hx - textWidth(words) / 2), Math.round(hy - 46), "#ff5a3a");
         }
+      }
+    }
+    // The demon in the storm: a silhouette three times its size, far behind the tower, circling slowly.
+    // Dark against the dark sky, it shows only its eyes, until a flash cuts it out black against white.
+    drawOmen(k, t, camX) {
+      const s = STRIPS["demon/idle"], scale = 3, u = t * 0.05;
+      const x = VIEW_W / 2 + Math.sin(u) * 380 - camX * 0.05, y = 70 + Math.sin(t * 0.13) * 26;
+      const mirror = Math.cos(u) > 0;
+      const n = 1 + Math.floor(t * 6) % s.frames, pic = this.assets.image(`shadow-demon/idle/${n}`);
+      k.save();
+      k.imageSmoothingEnabled = false;
+      k.translate(Math.round(x), Math.round(y));
+      if (mirror) k.scale(-1, 1);
+      k.globalAlpha = 0.9;
+      k.drawImage(pic, -s.footX * scale, -s.footY * scale * 0.55, s.w * scale, s.h * scale);
+      k.globalAlpha = 1;
+      k.globalCompositeOperation = "lighter";
+      const ex = (59 - s.footX) * scale, ey = (48 - s.footY * 0.55) * scale;
+      const glow = k.createRadialGradient(ex, ey, 0, ex, ey, 26);
+      glow.addColorStop(0, "rgba(120,230,255,0.55)");
+      glow.addColorStop(1, "rgba(120,230,255,0)");
+      k.fillStyle = glow;
+      k.fillRect(ex - 26, ey - 26, 52, 52);
+      k.fillStyle = "#c8f6ff";
+      k.fillRect(ex - 9, ey - 2, 5, 3);
+      k.fillRect(ex + 4, ey - 2, 5, 3);
+      k.restore();
+    }
+    // The tower coming down: above the collapse the night is open, the stormy sky where the tower
+    // stood; along it a broken edge of rubble and a churning bank of dust; ahead of it, the stones.
+    drawFall(g2, fall, cx, cy, t) {
+      const level = this.world.level, line = Math.round(fall.y - cy);
+      if (line > 0 && this.skyView) {
+        const k = this.skyView.getContext("2d"), h = Math.min(VIEW_H, line);
+        k.globalCompositeOperation = "source-over";
+        paintSky(k, cx, level.height - VIEW_H - cy, t, level.settings.snow);
+        if (this.storm && this.storm.flash > 0) {
+          k.globalCompositeOperation = "lighter";
+          k.fillStyle = `rgba(160,175,240,${0.85 * this.storm.flash})`;
+          k.fillRect(0, 0, VIEW_W, h);
+        }
+        if (this.storm?.bolt) drawBolt(k, this.storm.bolt, Math.min(1, 0.35 + this.storm.flash));
+        g2.drawImage(this.skyView, 0, 0, VIEW_W, h, 0, 0, VIEW_W, h);
+      }
+      if (line > -40 && line < VIEW_H + 40) {
+        const dust = g2.createLinearGradient(0, line - 50, 0, line + 60);
+        dust.addColorStop(0, "rgba(40,32,52,0)");
+        dust.addColorStop(0.45, "rgba(48,40,62,0.85)");
+        dust.addColorStop(1, "rgba(40,32,52,0)");
+        g2.fillStyle = dust;
+        g2.fillRect(0, line - 50, VIEW_W, 110);
+        for (let x = -8; x < VIEW_W + 8; x += 7) {
+          const wx = Math.floor((x + cx) / 7), jag = hash4(wx, Math.floor(t * 5)), size = 5 + Math.floor(jag * 12);
+          const y = line - size / 2 + Math.round(Math.sin(wx * 1.7 + t * 3) * 3);
+          g2.fillStyle = jag > 0.66 ? "#6d5f80" : jag > 0.33 ? "#4b3f5c" : "#2e263a";
+          g2.fillRect(x - (cx % 7 + 7) % 7, Math.round(y), size, size);
+          g2.fillStyle = "rgba(150,135,175,0.5)";
+          g2.fillRect(x - (cx % 7 + 7) % 7, Math.round(y), size, 1);
+        }
+        g2.save();
+        g2.globalCompositeOperation = "lighter";
+        for (let i = 0; i < 5; i++) {
+          const fx = (i * 197 + Math.floor(cx * 0.3)) % (VIEW_W + 80) - 40, flick = 0.25 + 0.15 * Math.sin(t * 9 + i * 2);
+          const glow = g2.createRadialGradient(fx, line + 4, 0, fx, line + 4, 30);
+          glow.addColorStop(0, `rgba(255,140,60,${flick})`);
+          glow.addColorStop(1, "rgba(255,140,60,0)");
+          g2.fillStyle = glow;
+          g2.fillRect(fx - 30, line - 26, 60, 60);
+        }
+        g2.restore();
+      }
+      for (const r of fall.rocks) {
+        const x = Math.round(r.x - cx - r.size / 2), y = Math.round(r.y - cy - r.size / 2);
+        g2.fillStyle = "#2e263a";
+        g2.fillRect(x, y, r.size, r.size);
+        g2.fillStyle = "#6d5f80";
+        g2.fillRect(x, y, r.size - 2, r.size - 2);
+        g2.fillStyle = "#8a7a9c";
+        g2.fillRect(x, y, r.size - 2, 2);
       }
     }
     // The bats of the place, flying across it from one side to the other.
@@ -4338,7 +4986,7 @@
         shaftPath(g2, b.x, b.y);
         g2.fill();
         for (let i = 0; i < 22; i++) {
-          const u = (hash3(i, w + 1) + t * (0.012 + 0.01 * hash3(w + 2, i))) % 1, v = hash3(i + 7, w + 3);
+          const u = (hash4(i, w + 1) + t * (0.012 + 0.01 * hash4(w + 2, i))) % 1, v = hash4(i + 7, w + 3);
           const x = b.x + 56 + v * 48 + u * 130 + 5 * Math.sin(t * 0.7 + i), y = b.y + 64 + u * 232;
           const twinkle = 0.5 + 0.5 * Math.sin(t * 2.3 + i * 1.7);
           g2.fillStyle = `rgba(205,218,255,${(0.75 * (1 - u) * twinkle).toFixed(3)})`;
@@ -4356,162 +5004,6 @@
         }
       }
       g2.restore();
-    }
-  };
-
-  // src/render/title.ts
-  var FIRE3 = ["#fff3c4", "#ffc93c", "#ff8a2a", "#e0401c"];
-  var PALE = "#e2d8f0";
-  var DIM = "#9d93b8";
-  var GOLD = "#ffe27a";
-  var hash4 = (a, b) => {
-    const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
-    return s - Math.floor(s);
-  };
-  function veil(g2) {
-    g2.fillStyle = "rgba(8,6,18,0.32)";
-    g2.fillRect(0, 0, VIEW_W, VIEW_H);
-    const top = g2.createLinearGradient(0, 0, 0, 130);
-    top.addColorStop(0, "rgba(8,6,18,0.85)");
-    top.addColorStop(1, "rgba(8,6,18,0)");
-    g2.fillStyle = top;
-    g2.fillRect(0, 0, VIEW_W, 130);
-    const low = g2.createLinearGradient(0, VIEW_H - 90, 0, VIEW_H);
-    low.addColorStop(0, "rgba(8,6,18,0)");
-    low.addColorStop(1, "rgba(8,6,18,0.9)");
-    g2.fillStyle = low;
-    g2.fillRect(0, VIEW_H - 90, VIEW_W, 90);
-  }
-  function sparks(g2, t) {
-    g2.save();
-    g2.globalCompositeOperation = "lighter";
-    for (let i = 0; i < 46; i++) {
-      const speed = 14 + hash4(i, 1) * 30, life = VIEW_H + 60;
-      const y = VIEW_H + 20 - (t * speed + hash4(i, 2) * life) % life;
-      const x = hash4(i, 3) * VIEW_W + Math.sin(t * (0.6 + hash4(i, 4)) + i) * 10;
-      g2.fillStyle = FIRE3[i % 3];
-      g2.globalAlpha = 0.35 + 0.65 * Math.min(1, (y + 40) / VIEW_H);
-      g2.fillRect(Math.round(x), Math.round(y), i % 5 === 0 ? 2 : 1, i % 5 === 0 ? 2 : 1);
-    }
-    g2.restore();
-  }
-  function name(g2, t) {
-    const big = 7, word = "UNEXTINGUISHED", y = 56, h = 5 * big;
-    g2.save();
-    g2.globalCompositeOperation = "lighter";
-    const glow = g2.createRadialGradient(VIEW_W / 2, y + h / 2, 10, VIEW_W / 2, y + h / 2, 260);
-    glow.addColorStop(0, `rgba(255,120,40,${0.32 + 0.06 * Math.sin(t * 4.3) + 0.04 * Math.sin(t * 11)})`);
-    glow.addColorStop(1, "rgba(255,120,40,0)");
-    g2.fillStyle = glow;
-    g2.fillRect(0, y - 80, VIEW_W, h + 160);
-    g2.restore();
-    centered(g2, "THE", 36, PALE, 3);
-    const x = Math.round((VIEW_W - textWidth(word, big)) / 2);
-    text(g2, word, x + 4, y + 4, "#4a0a0c", big);
-    const flame = g2.createLinearGradient(0, y, 0, y + h);
-    flame.addColorStop(0, FIRE3[0]);
-    flame.addColorStop(0.45, FIRE3[1]);
-    flame.addColorStop(1, FIRE3[3]);
-    text(g2, word, x, y, flame, big);
-  }
-  function panel(g2, x, y, w, h) {
-    g2.fillStyle = "rgba(10,8,20,0.78)";
-    g2.fillRect(x, y, w, h);
-    g2.strokeStyle = "rgba(154,143,192,0.7)";
-    g2.lineWidth = 2;
-    g2.strokeRect(x + 1, y + 1, w - 2, h - 2);
-  }
-  var blink = (t) => t % 1.1 < 0.8;
-  var CONTROLS = [
-    ["MOVE", "ARROWS", "STICK"],
-    ["JUMP", "SPACE", "A"],
-    ["STRIKE", "X", "X"],
-    ["GUARD", "C", "LB"],
-    ["CHARGE", "V", "Y"]
-  ];
-  function drawTitle(g2, t, bestRun = null) {
-    g2.setTransform(1, 0, 0, 1, 0, 0);
-    veil(g2);
-    sparks(g2, t);
-    name(g2, t);
-    centered(g2, "A GOTHIC PLATFORM FIGHTER", 104, "#c9bfe0");
-    const px = 160, pw = 320, py = 128;
-    panel(g2, px, py, pw, 136);
-    const col = [px + 24, px + 128, px + 228];
-    text(g2, "KEYBOARD", col[1], py + 12, GOLD);
-    text(g2, "GAMEPAD", col[2], py + 12, GOLD);
-    CONTROLS.forEach(([what, key, pad], i) => {
-      const y = py + 32 + i * 16;
-      text(g2, what, col[0], y, DIM);
-      text(g2, key, col[1], y, PALE);
-      text(g2, pad, col[2], y, PALE);
-    });
-    centered(g2, "THE CHARGE COSTS AN EMBER", py + 116, DIM);
-    if (blink(t)) centered(g2, "PRESS JUMP TO START", 286, GOLD, 3);
-    if (bestRun !== null) centered(g2, `BEST RUN ${clockText(bestRun)}`, 310, PALE);
-    centered(g2, "F FULL SCREEN    M MUSIC    P PAUSE", 334, DIM);
-  }
-  function drawEnd(g2, t, lines) {
-    g2.setTransform(1, 0, 0, 1, 0, 0);
-    veil(g2);
-    sparks(g2, t);
-    name(g2, t);
-    centered(g2, "EVERY ROOM IS CLEARED", 104, "#c9bfe0");
-    const py = 132, ph = 30 + lines.length * 26;
-    panel(g2, 130, py, 380, ph);
-    lines.forEach((line, i) => centered(g2, line, py + 18 + i * 26, i === lines.length - 1 ? DIM : PALE, 3));
-    if (t > 1.5 && blink(t)) centered(g2, "PRESS JUMP", 300, GOLD, 3);
-  }
-
-  // src/records.ts
-  var KEY = "unextinguished.best";
-  function browserStore() {
-    return {
-      get: (key) => {
-        try {
-          return globalThis.localStorage?.getItem(key) ?? null;
-        } catch {
-          return null;
-        }
-      },
-      set: (key, value) => {
-        try {
-          globalThis.localStorage?.setItem(key, value);
-        } catch {
-        }
-      }
-    };
-  }
-  var Records = class {
-    constructor(store) {
-      this.store = store;
-      let read = null;
-      try {
-        read = JSON.parse(store.get(KEY) ?? "null");
-      } catch {
-        read = null;
-      }
-      this.times = {};
-      if (read && typeof read === "object") {
-        for (const [name2, t] of Object.entries(read)) if (typeof t === "number" && t > 0) this.times[name2] = t;
-      }
-    }
-    store;
-    times;
-    /** The best time of a level (by its name) or of the run ("run"), in seconds, or null. */
-    best(name2) {
-      return this.times[name2] ?? null;
-    }
-    /** A time just made: kept if it is the first or a better one. */
-    record(name2, seconds) {
-      const before = this.times[name2];
-      if (before !== void 0 && before <= seconds) return { best: before, isNew: false };
-      this.times[name2] = seconds;
-      try {
-        this.store.set(KEY, JSON.stringify(this.times));
-      } catch {
-      }
-      return { best: seconds, isNew: true };
     }
   };
 
@@ -4561,11 +5053,16 @@
     let index = 0;
     let world = null, stage = null;
     let last = 0, bank = 0, clock = 0, paused = false;
-    const records = new Records(browserStore());
-    let recorded = false;
+    const trial = testMode(location.search);
+    const board = new Board(trial ? apart(browserStore()) : browserStore());
+    if (trial) seedBoard(board, ["run", ...levels.map((l) => l.settings.name)]);
     let fromTitle = false;
-    let runRecord;
     let cheat = false;
+    let levelCheated = false, runCheated = false;
+    let result = null;
+    let naming = null;
+    let endLines = [], endNote = null;
+    const pages = [null, { title: "BEST RUNS", key: "run" }, ...levels.map((l) => ({ title: l.settings.title, key: l.settings.name }))];
     const leave = () => {
       if (world) tally = addRun(tally, world);
       world = null;
@@ -4578,11 +5075,15 @@
       const level = levels[i];
       world = new World(level);
       world.invincible = cheat;
-      recorded = false;
+      levelCheated = cheat;
+      runCheated ||= cheat;
+      result = null;
+      naming = null;
       const boss = !!world.boss;
-      stage = new Stage(world, assets, openingWords(level.settings.title, boss), wonWords(i, levels.length, boss));
-      sound.setMusic(level.settings.music);
-      sound.preload([level.settings.music, levels[i + 1]?.settings.music ?? place.settings.music]);
+      stage = new Stage(world, assets, openingWords(level.settings.title, boss ? "boss" : world.fall ? "fall" : ""), wonWords(i, levels.length, boss));
+      sound.setMusic(level.settings.music, level.settings.intro);
+      const next = levels[i + 1]?.settings;
+      sound.preload([level.settings.music, level.settings.intro, next?.music ?? place.settings.music, next?.intro ?? ""].filter(Boolean));
       paused = false;
       sound.hush(false);
       bank = 0;
@@ -4591,7 +5092,13 @@
       leave();
       scene = s;
       sceneT = 0;
-      runRecord = s === "end" && fromTitle ? records.record("run", tally.time) : void 0;
+      naming = null;
+      endNote = null;
+      if (s === "end") {
+        const counts = fromTitle && !runCheated, at = counts ? board.place("run", tally.time) : null;
+        endLines = endWords(tally, counts ? { best: board.best("run") ?? tally.time, isNew: at === 0 } : void 0);
+        if (at !== null) naming = { name: new Initials(board.lastName), key: "run", time: tally.time };
+      }
       scenery.look(...panAim(0, place.width, place.height), true);
       sound.setMusic(place.settings.music);
       sound.preload([place.settings.music, levels[0].settings.music]);
@@ -4615,7 +5122,9 @@
       return tally;
     }, get stage() {
       return stage;
-    }, scenery, sound, start };
+    }, get naming() {
+      return naming;
+    }, board, scenery, sound, start };
     const showScene = (c, elapsed) => {
       const dt = Math.min(MAX_FRAME, Math.max(0, elapsed));
       sceneT += dt;
@@ -4624,10 +5133,11 @@
       if (scene === "title" && go2) {
         tally = NO_RUN;
         fromTitle = true;
+        runCheated = cheat;
         start(0);
         return;
       }
-      if (scene === "end" && go2 && sceneT > 1.5) {
+      if (scene === "end" && go2 && sceneT > 1.5 && !naming) {
         show("title");
         return;
       }
@@ -4635,10 +5145,18 @@
       scenery.update(dt);
       for (const name2 of scenery.heard()) sound.play(name2);
       scenery.draw(g, clock, false);
-      if (scene === "title") drawTitle(g, sceneT, records.best("run"));
-      else drawEnd(g, sceneT, endWords(tally, runRecord));
+      if (scene === "title") {
+        const page = pages[titlePage(sceneT, pages.length)];
+        drawTitle(g, sceneT, page && { title: page.title, entries: board.table(page.key) });
+      } else drawEnd(g, sceneT, endLines, naming?.name ?? null, endNote);
+      if (trial) text(g, "TEST  RECORDS APART", 8, 8, "#ff8a2a");
     };
     const play = (w, st, c, elapsed) => {
+      if (trial && c.winPressed && w.state === "play") {
+        w.clock = 15 + Math.random() * 120;
+        w.state = "won";
+        sound.play("win");
+      }
       if (c.pausePressed && w.state === "play") {
         paused = !paused;
         sound.hush(paused);
@@ -4647,7 +5165,7 @@
         start(index);
         return;
       }
-      if (w.state !== "play" && w.slow <= 0 && c.jumpPressed) {
+      if (w.state !== "play" && w.slow <= 0 && c.jumpPressed && !naming) {
         const next = w.state === "won" ? afterWin(index, levels.length) : index;
         if (next === "end") show("end");
         else start(next);
@@ -4666,22 +5184,41 @@
           clock += STEP;
         }
       }
-      if (w.state === "won" && !recorded) {
-        recorded = true;
-        st.setRecord(records.record(w.level.settings.name, w.clock));
+      if (w.state === "won" && !result) {
+        const key = w.level.settings.name, at = levelCheated ? null : board.place(key, w.clock);
+        result = { time: w.clock, best: board.best(key), place: at, cheated: levelCheated };
+        if (at !== null) naming = { name: new Initials(board.lastName), key, time: w.clock };
+        st.setResult(result, naming?.name ?? null);
       }
       st.draw(g, clock, paused);
+      if (trial) text(g, "TEST  N WINS THE LEVEL", 16, VIEW_H - 20, "#ff8a2a");
     };
     const frame = (now) => {
       const elapsed = (now - last) / 1e3 || 0;
       last = now;
       const c = input.read();
       if (c.any) sound.unlock();
-      if (c.musicPressed) sound.toggleMusic();
-      if (c.fullPressed) toggleFull();
-      if (c.cheatPressed) {
-        cheat = !cheat;
-        if (world) world.invincible = cheat;
+      const giving = naming;
+      if (giving) {
+        feedName(giving.name, c.typed, c.pad);
+        if (giving.name.done) {
+          const at = board.add(giving.key, giving.name.text, giving.time);
+          if (scene === "play") stage?.setNamed(giving.name.text, at);
+          else endNote = `${giving.name.text} IS NUMBER ${at + 1}`;
+          naming = null;
+        }
+        Object.assign(c, { jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, pausePressed: false });
+      } else {
+        if (c.musicPressed) sound.toggleMusic();
+        if (c.fullPressed) toggleFull();
+        if (c.cheatPressed) {
+          cheat = !cheat;
+          if (world) world.invincible = cheat;
+          if (cheat) {
+            levelCheated = true;
+            runCheated = true;
+          }
+        }
       }
       if (scene === "play" && world && stage) play(world, stage, c, elapsed);
       else showScene(c, elapsed);

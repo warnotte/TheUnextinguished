@@ -15,9 +15,10 @@ export function wonWords(index: number, count: number, boss = false): Words {
   return { title, lines: ['PRESS JUMP TO GO ON'] };
 }
 
-/** What is written over a level when it starts; `boss` for the room of a demon. */
-export function openingWords(title: string, boss = false): string[] {
-  if (boss) return [title, 'SLAY THE DEMON', 'ITS SKELETONS CARRY EMBERS', 'ONLY A FLAMING CHARGE ENDS IT'];
+/** What is written over a level when it starts: `boss` for the room of a demon, `fall` for a tower coming down. */
+export function openingWords(title: string, kind: '' | 'boss' | 'fall' = ''): string[] {
+  if (kind === 'fall') return [title, 'THE TOWER FALLS', 'RUN DOWN TO THE DOOR'];
+  if (kind === 'boss') return [title, 'SLAY THE DEMON', 'ITS SKELETONS CARRY EMBERS', 'ONLY A FLAMING CHARGE ENDS IT'];
   return [title, 'COLLECT THE EMBERS', 'THEN REACH THE DOOR'];
 }
 
@@ -27,10 +28,36 @@ export function firstLevel(search: string, count: number): number | null {
   return Number.isInteger(asked) && asked >= 1 && asked <= count ? asked - 1 : null;
 }
 
+/** "?test" in the address: the trial mode, where the board can be tried without playing (N wins a level). */
+export function testMode(search: string): boolean {
+  return new URLSearchParams(search).has('test');
+}
+
 /** A time in minutes and seconds: 12:34. */
 export function clockText(seconds: number): string {
   const s = Math.floor(seconds);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// ---- the board of the best times ----------------------------------------------------------------
+
+const FIRST_PAGE = 9, PAGE = 5;       // seconds: the controls, then each table of the board
+
+/** Which of `count` pages the title shows at time t: the first longer, then each in turn, round again. */
+export function titlePage(t: number, count: number): number {
+  const round = FIRST_PAGE + PAGE * (count - 1), u = t % round;
+  return u < FIRST_PAGE ? 0 : 1 + Math.floor((u - FIRST_PAGE) / PAGE);
+}
+
+/** A level just won, against the board: its time, the best before it, the place it takes (null: none), the cheat. */
+export interface LevelResult { time: number; best: number | null; place: number | null; cheated: boolean }
+
+/** What the panel of a level won says of the board. */
+export function boardWords(r: LevelResult): string {
+  if (r.cheated) return 'NO RECORD WITH THE CHEAT';
+  if (r.place === 0) return 'NEW RECORD!';
+  if (r.place !== null) return `NUMBER ${r.place + 1} ON THE BOARD`;
+  return r.best !== null ? `BEST ${clockText(r.best)}` : '';
 }
 
 // ---- the tally of a run, from the title to the end ---------------------------------------------

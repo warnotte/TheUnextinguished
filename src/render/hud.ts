@@ -2,7 +2,9 @@
 // words of the moment and the panels. It keeps the little it needs to animate them.
 
 import { type Actor, MAX_HP } from '../sim/actor';
-import { clockText, type Words } from '../campaign';
+import { boardWords, clockText, type LevelResult, type Words } from '../campaign';
+import type { Initials } from '../initials';
+import { drawName } from './title';
 import { DEMON } from '../sim/demon';
 import type { World } from '../sim/world';
 import { VIEW_H, VIEW_W } from './camera';
@@ -18,8 +20,10 @@ export class Hud {
   private foeLag = MAX_HP;
   private finish = 0;
   private foe: Actor | null = null;
-  /** The best time of the level, once it is won. */
-  record: { best: number; isNew: boolean } | null = null;
+  /** The level won, against the board; the name being given for it; the name once written. */
+  result: LevelResult | null = null;
+  naming: Initials | null = null;
+  named: { name: string; place: number } | null = null;
 
   constructor(private readonly world: World, private readonly opening: string[]) {}
 
@@ -62,6 +66,27 @@ export class Hud {
     for (let i = 1; i < MAX_HP; i++) px(x + Math.round(BAR_W * i / MAX_HP), BAR_Y, 1, BAR_H, 'rgba(10,8,20,0.55)');
   }
 
+  // The panel of a level won: its time, its place on the board, the name asked for, what comes next.
+  private wonPanel(g: CanvasRenderingContext2D, t: number, clock: string, won: Words): void {
+    const r = this.result, n = this.naming, words = r ? boardWords(r) : '';
+    const asking = !!n && !n.done, h = asking ? 206 : 112 + (words ? 22 : 0) + (this.named ? 22 : 0), y = Math.round((VIEW_H - h) / 2) - 6;
+    g.fillStyle = 'rgba(10,8,20,0.9)'; g.fillRect(110, y, 420, h);
+    g.strokeStyle = '#9a8fc0'; g.lineWidth = 2; g.strokeRect(111, y + 1, 418, h - 2);
+    let at = y + 18;
+    centered(g, won.title, at, '#ffe27a', 4); at += 32;
+    centered(g, `TIME ${clock}`, at, '#e2d8f0'); at += 22;
+    if (words) { centered(g, words, at, r?.cheated ? '#ff7a6a' : r?.place === 0 ? (Math.floor(t * 4) % 2 ? '#ffe27a' : '#ff8a2a') : r?.place !== null ? '#ffe27a' : '#9d93b8'); at += 22; }
+    if (asking) {
+      centered(g, 'ENTER YOUR NAME', at + 4, '#e2d8f0'); at += 26;
+      drawName(g, n!, at, t); at += 38;
+      centered(g, 'TYPE IT  THEN ENTER', at, '#9d93b8'); at += 16;
+      centered(g, 'GAMEPAD  UP DOWN  A  START', at, '#9d93b8');
+      return;
+    }
+    if (this.named) { centered(g, `${this.named.name} IS NUMBER ${this.named.place + 1}`, at, '#ffe27a'); at += 22; }
+    for (const line of won.lines) { centered(g, line, at + 6, '#9d93b8'); at += 22; }
+  }
+
   draw(g: CanvasRenderingContext2D, t: number, paused: boolean, won: Words): void {
     const w = this.world, p = w.hero;
     const strip = g.createLinearGradient(0, VIEW_H - 34, 0, VIEW_H);
@@ -94,7 +119,9 @@ export class Hud {
       centered(g, words, y + 3, '#1a0308', scale);
       centered(g, words, y, hot ? '#ff3b3b' : '#ffe27a', scale);
     } else if (w.state === 'play' && this.banner > 0) {
-      this.opening.forEach((line, i) => centered(g, line, 40 + i * 16, i === 0 ? '#ffe27a' : '#e2d8f0'));
+      // In the room of the demon the words stand lower: the bell above must be seen as it tolls.
+      const top = w.boss ? 188 : 40;
+      this.opening.forEach((line, i) => centered(g, line, top + i * 16, i === 0 ? '#ffe27a' : '#e2d8f0'));
     } else if (w.state === 'play' && w.doorOpen && w.door && Math.floor(t * 2) % 2) centered(g, 'THE DOOR IS OPEN', 40, '#ffe27a');
 
     const panel = (lines: [string, string, number?][]) => {
@@ -103,8 +130,7 @@ export class Hud {
       g.strokeStyle = '#9a8fc0'; g.lineWidth = 2; g.strokeRect(121, y + 1, 398, h - 2);
       lines.forEach(([str, color, scale], i) => centered(g, str, y + 20 + i * 26, color, scale ?? 2));
     };
-    const best: [string, string][] = !this.record ? [] : this.record.isNew ? [['NEW RECORD!', Math.floor(t * 4) % 2 ? '#ffe27a' : '#ff8a2a']] : [[`BEST ${clockText(this.record.best)}`, '#9d93b8']];
-    if (w.state === 'won') panel([[won.title, '#ffe27a', 4], [`TIME ${clock}`, '#e2d8f0'], ...best, ...won.lines.map(l => [l, '#9d93b8'] as [string, string])]);
+    if (w.state === 'won') this.wonPanel(g, t, clock, won);
     else if (w.state === 'lost' && w.slow <= 0) panel([['KNOCKED OUT', '#ff7a6a', 4], ['PRESS JUMP TO TRY AGAIN', '#9d93b8']]);
     else if (paused) panel([['PAUSED', '#ffe27a', 4], ['PRESS P TO GO ON', '#9d93b8']]);
   }

@@ -14,7 +14,7 @@ const stand = (a: Actor, x: number, row: number) => Object.assign(a, { x, y: row
 describe('a level open to the sky', () => {
   it('says so in its properties, and says whether it snows and storms', () => {
     const lv = parseLevel(readLevelFile('beffroi'), kinds, 'beffroi');
-    expect(lv.settings).toMatchObject({ title: 'THE BELFRY', sky: true, snow: true, storm: true, music: 'poursuite' });
+    expect(lv.settings).toMatchObject({ title: 'THE BELFRY', sky: true, snow: true, storm: true, omen: true, music: 'poursuite' });
   });
 
   it('is closed and dry unless it says otherwise', () => {
@@ -53,7 +53,7 @@ describe('the belfry', () => {
   it('is played third, before the bell chamber, with its tune', () => {
     const page = readFileSync('index.html', 'utf8');
     const order = [...page.matchAll(/levels\/(\w+)\.js/g)].map(m => m[1]);
-    expect(order).toEqual(['salle3', 'crypte', 'beffroi', 'clocher']);
+    expect(order).toEqual(['salle3', 'crypte', 'beffroi', 'clocher', 'effondrement']);
     expect(page).toContain('assets/music/poursuite.js');
   });
 

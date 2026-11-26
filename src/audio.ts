@@ -27,6 +27,8 @@ export class Sound {
   private hall: ConvolverNode | null = null;
   private noise: AudioBuffer | null = null;
   private tune = '';
+  private intro = '';                           // played once before the tune, its tail ringing over the start
+  private introSource: AudioBufferSourceNode | null = null;
   private asked = false;
   private on = true;
   private hushed = false;
@@ -36,12 +38,12 @@ export class Sound {
   get musicPlaying(): boolean { return this.gain !== null && this.ac !== null && this.ac.state === 'running'; }
   get musicOn(): boolean { return this.on; }
 
-  /** Names the tune of the level; it starts as soon as sound is allowed. */
-  setMusic(name: string): void {
+  /** Names the tune of the level, and the one played once before it; it starts as soon as sound is allowed. The same tune goes on. */
+  setMusic(name: string, intro = ''): void {
     if (name === this.tune) return;
-    this.tune = name;
-    try { this.source?.stop(); } catch { /* it had not started */ }
-    this.source = null; this.gain = null; this.asked = false;
+    this.tune = name; this.intro = intro;
+    for (const s of [this.source, this.introSource]) { try { s?.stop(); } catch { /* it had not started */ } }
+    this.source = null; this.introSource = null; this.gain = null; this.asked = false;
     if (this.ac) this.startMusic();
   }
 
@@ -122,20 +124,32 @@ export class Sound {
   }
 
   private startMusic(): void {
-    const ac = this.ac, tune = this.tune;
+    const ac = this.ac, tune = this.tune, intro = this.intro;
     if (!ac || this.asked) return;
     const reading = this.read(tune);
     if (!reading) return;
     this.asked = true;
-    reading.then(buffer => {
+    const once = intro ? this.read(intro) : null;
+    Promise.all([reading, once ?? Promise.resolve(null)]).then(([buffer, first]) => {
       if (tune !== this.tune || this.gain) return;       // the level changed while the tune was being read
+      this.gain = ac.createGain();
+      this.gain.gain.value = this.level();
+      this.gain.connect(ac.destination);
+      let at = ac.currentTime;
+      if (first) {
+        // The tune played once, then the loop at the end of its last bar, its tail ringing over it.
+        const opening = ac.createBufferSource();
+        opening.buffer = first;
+        opening.connect(this.gain);
+        opening.start(at);
+        this.introSource = opening;
+        at += (globalThis as any).MUSIC_ONCE?.[intro] ?? first.duration;
+      }
       const source = ac.createBufferSource();
       this.source = source;
       source.buffer = buffer; source.loop = true;
-      this.gain = ac.createGain();
-      this.gain.gain.value = this.level();
-      source.connect(this.gain).connect(ac.destination);
-      source.start();
+      source.connect(this.gain);
+      source.start(at);
     }).catch(() => { this.asked = false; });
   }
 
@@ -347,6 +361,14 @@ export class Sound {
         this.tone('triangle', 700, 1500, { dur: 0.25, vol: 0.18, hall: 0.6 }, 16);
         this.tone('sawtooth', 1500, 520, { at: 0.2, dur: 0.5, vol: 0.12, hall: 0.6 }, 11);
         this.hiss('highpass', 3000, 5200, { dur: 0.6, vol: 0.12, hall: 0.6 });
+        break;
+      case 'crash':
+        // Stone giving way: a deep crack, rubble pouring.
+        this.duck(1);
+        this.hiss('highpass', 2600, 900, { dur: 0.12, vol: 0.55, hall: 0.6 });
+        this.tone('sine', 70, 30, { dur: 0.9, vol: 0.8, hall: 0.4 });
+        this.hiss('lowpass', 1800, 160, { dur: 1.1, vol: 0.55, hall: 0.6 });
+        for (let i = 0; i < 9; i++) { const at = 0.08 + Math.random() * 0.8, f = 300 + Math.random() * 900; this.tone('triangle', f, f * 0.5, { at, dur: 0.06, vol: 0.18, hall: 0.4 }); }
         break;
       case 'win':
         this.duck(1.2);

@@ -273,3 +273,28 @@ describe('the demon', () => {
     expect(w.state).toBe('play');
   });
 });
+
+describe('the entrance of the demon', () => {
+  it('comes in out of the storm before it fights: a flash, the stone of the arch breaking, a landing, a roar, the bell', () => {
+    const w = new World(makeLevel(ROWS, [at('hero', 60), at('demon', 480), at('grave', 300)]));
+    const d = w.boss!;
+    expect(d.phase).toBe('enter');
+    const events = play(w, NO_CONTROLS, DEMON.enter.time + 0.1);
+    const kinds = events.map(e => e.type);
+    expect(kinds).toContain('lightning');
+    expect(kinds).toContain('debris');
+    expect(kinds).toContain('toll');
+    expect(sounds(events)).toEqual(expect.arrayContaining(['crash', 'slam', 'roar', 'bell']));
+    expect(d.phase).toBe('drift');
+  });
+
+  it('cannot be struck, and strikes nobody, while it comes in', () => {
+    const w = new World(makeLevel(ROWS, [at('hero', 470), at('demon', 480)]));
+    const d = w.boss!;
+    w.hero.facing = 1;
+    play(w, press({ attackPressed: true }), 0.4);
+    expect(d.body.hp).toBe(DEMON.hp);
+    play(w, NO_CONTROLS, DEMON.enter.time - 0.5);
+    expect(w.hero.hp).toBe(6);
+  });
+});

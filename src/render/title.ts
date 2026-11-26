@@ -3,6 +3,9 @@
 
 import { VIEW_H, VIEW_W } from './camera';
 import { clockText } from '../campaign';
+import { type Initials, NAME_LENGTH } from '../initials';
+import type { Entry } from '../records';
+import { PLACES } from '../records';
 import { centered, text, textWidth } from './text';
 
 const FIRE = ['#fff3c4', '#ffc93c', '#ff8a2a', '#e0401c'];
@@ -66,7 +69,8 @@ const CONTROLS: [string, string, string][] = [
 ];
 
 /** The title: the name, what each key does, and what starts the game. */
-export function drawTitle(g: CanvasRenderingContext2D, t: number, bestRun: number | null = null): void {
+/** The title: the controls, or a table of the board (`page`), in turn. */
+export function drawTitle(g: CanvasRenderingContext2D, t: number, page: { title: string; entries: Entry[] } | null = null): void {
   g.setTransform(1, 0, 0, 1, 0, 0);
   veil(g);
   sparks(g, t);
@@ -75,6 +79,8 @@ export function drawTitle(g: CanvasRenderingContext2D, t: number, bestRun: numbe
 
   const px = 160, pw = 320, py = 128;
   panel(g, px, py, pw, 136);
+  if (page) drawTable(g, page.title, page.entries, px, py, pw);
+  else {
   const col = [px + 24, px + 128, px + 228];
   text(g, 'KEYBOARD', col[1], py + 12, GOLD); text(g, 'GAMEPAD', col[2], py + 12, GOLD);
   CONTROLS.forEach(([what, key, pad], i) => {
@@ -82,14 +88,14 @@ export function drawTitle(g: CanvasRenderingContext2D, t: number, bestRun: numbe
     text(g, what, col[0], y, DIM); text(g, key, col[1], y, PALE); text(g, pad, col[2], y, PALE);
   });
   centered(g, 'THE CHARGE COSTS AN EMBER', py + 116, DIM);
+  }
 
   if (blink(t)) centered(g, 'PRESS JUMP TO START', 286, GOLD, 3);
-  if (bestRun !== null) centered(g, `BEST RUN ${clockText(bestRun)}`, 310, PALE);
   centered(g, 'F FULL SCREEN    M MUSIC    P PAUSE', 334, DIM);
 }
 
-/** The end: the name again, and what the run cost. */
-export function drawEnd(g: CanvasRenderingContext2D, t: number, lines: string[]): void {
+/** The end: the name again, what the run cost, and the name asked for if the run goes on the board. */
+export function drawEnd(g: CanvasRenderingContext2D, t: number, lines: string[], naming: Initials | null = null, note: string | null = null): void {
   g.setTransform(1, 0, 0, 1, 0, 0);
   veil(g);
   sparks(g, t);
@@ -98,5 +104,35 @@ export function drawEnd(g: CanvasRenderingContext2D, t: number, lines: string[])
   const py = 132, ph = 30 + lines.length * 26;
   panel(g, 130, py, 380, ph);
   lines.forEach((line, i) => centered(g, line, py + 18 + i * 26, i === lines.length - 1 ? DIM : PALE, 3));
+  if (naming && !naming.done) {
+    centered(g, 'A RUN FOR THE BOARD  ENTER YOUR NAME', 272, GOLD);
+    drawName(g, naming, 288, t);
+    centered(g, 'TYPE IT  THEN ENTER     GAMEPAD  UP DOWN  A  START', 322, DIM);
+    return;
+  }
+  if (note) centered(g, note, 274, GOLD);
   if (t > 1.5 && blink(t)) centered(g, 'PRESS JUMP', 300, GOLD, 3);
+}
+
+/** A table of the board: its places, names and times; the empty places dashed. */
+function drawTable(g: CanvasRenderingContext2D, title: string, entries: Entry[], px: number, py: number, pw: number): void {
+  centered(g, title, py + 12, GOLD);
+  for (let i = 0; i < PLACES; i++) {
+    const e = entries[i], y = py + 36 + i * 18, color = e ? (i === 0 ? GOLD : PALE) : DIM;
+    text(g, `${i + 1}`, px + 40, y, color);
+    text(g, e ? e.name : '-------', px + 76, y, color);
+    const time = e ? clockText(e.time) : '-:--';
+    text(g, time, px + pw - 40 - textWidth(time), y, color);
+  }
+}
+
+/** A name as it is given: its letters large, a line under each, the one under the cursor blinking. */
+export function drawName(g: CanvasRenderingContext2D, name: Initials, y: number, t: number): void {
+  const step = 22, x0 = Math.round((VIEW_W - step * NAME_LENGTH) / 2) + 3;
+  const shown = name.shown;
+  for (let i = 0; i < NAME_LENGTH; i++) {
+    const x = x0 + i * step, here = i === name.at && !name.done;
+    if (!(here && Math.floor(t * 5) % 2)) text(g, shown[i], x, y, here ? GOLD : PALE, 4);
+    g.fillStyle = here ? GOLD : DIM; g.fillRect(x - 1, y + 23, 14, 2);
+  }
 }

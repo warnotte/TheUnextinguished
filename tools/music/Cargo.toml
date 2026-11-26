@@ -7,6 +7,8 @@ edition = "2021"
 
 [dependencies]
 dsp-core = { path = "E:/CODEX/NoobSynth3/crates/dsp-core" }
+# The SID of the Commodore 64, the same reSID that dsp-core plays .sid files with; here it plays our own notes.
+resid-rs = "1.1"
 
 [profile.dev]
 opt-level = 2

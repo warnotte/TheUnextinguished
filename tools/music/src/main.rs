@@ -7,11 +7,14 @@
 //!        music pack <music dir>     wraps <music dir>/<tune>.ogg into <music dir>/<tune>.js
 //!        music measure <file.wav>   prints the level and the seam of a 16-bit stereo WAV
 
+mod arrival;
+mod collapse;
 mod crypte;
 mod demon;
 mod mix;
 mod nef;
 mod score;
+mod sid;
 mod voices;
 
 use mix::{Fx, Mix};
@@ -26,13 +29,17 @@ struct Tune {
     /// (name, first bar) of each section
     sections: &'static [(&'static str, usize)],
     mix: fn(&Time) -> (Mix, Fx),
+    /// Played once, before another tune: its tail is kept after it, to ring over the start of that tune.
+    once: bool,
 }
 
 fn tunes() -> Vec<Tune> {
     vec![
-        Tune { name: nef::NAME, about: nef::ABOUT, time: nef::time(), sections: nef::SECTIONS, mix: nef::mix },
-        Tune { name: crypte::NAME, about: crypte::ABOUT, time: crypte::time(), sections: crypte::SECTIONS, mix: crypte::mix },
-        Tune { name: demon::NAME, about: demon::ABOUT, time: demon::time(), sections: demon::SECTIONS, mix: demon::mix },
+        Tune { name: nef::NAME, about: nef::ABOUT, time: nef::time(), sections: nef::SECTIONS, mix: nef::mix, once: false },
+        Tune { name: crypte::NAME, about: crypte::ABOUT, time: crypte::time(), sections: crypte::SECTIONS, mix: crypte::mix, once: false },
+        Tune { name: demon::NAME, about: demon::ABOUT, time: demon::time(), sections: demon::SECTIONS, mix: demon::mix, once: false },
+        Tune { name: arrival::NAME, about: arrival::ABOUT, time: arrival::time(), sections: arrival::SECTIONS, mix: arrival::mix, once: true },
+        Tune { name: collapse::NAME, about: collapse::ABOUT, time: collapse::time(), sections: collapse::SECTIONS, mix: collapse::mix, once: false },
     ]
 }
 
@@ -44,14 +51,14 @@ fn render(tune: &Tune, out: &Path) -> std::io::Result<()> {
         let silent = if *peak < 1e-4 { "   SILENT" } else { "" };
         println!("  {:<18} peak {:>7.2} dB   rms {:>7.2} dB{}", name, mix::db(*peak), mix::db(*rms), silent);
     }
-    let (sound, fold) = mix.finish(time, &fx);
+    let (sound, fold) = mix.finish(time, &fx, tune.once);
     println!("  still ringing at the end of the tail: {:.1} dB under the peak", fold.residue);
     println!(
         "  across the seam the tail steps by {:.5} (left) and {:.5} (right); the notes that start the loop add {:.5} and {:.5}",
         fold.tail_step[0], fold.tail_step[1], fold.onset[0], fold.onset[1]
     );
     assert!(sound.l.iter().chain(sound.r.iter()).all(|v| v.is_finite()), "the mix holds values that are not numbers");
-    assert_eq!(sound.l.len(), time.len());
+    assert_eq!(sound.l.len(), if tune.once { time.total() } else { time.len() });
 
     mix::report(tune.name, &sound, score::SR, &sections(tune));
     mix::write_wav(&out.join(format!("{}.wav", tune.name)), &sound)
@@ -87,11 +94,14 @@ fn base64(bytes: &[u8]) -> String {
 fn pack(dir: &Path) -> std::io::Result<()> {
     for tune in tunes() {
         let ogg = std::fs::read(dir.join(format!("{}.ogg", tune.name)))?;
+        // A tune played once says when the next one comes in: at the end of its last bar, its tail ringing on.
+        let next = if tune.once { format!("window.MUSIC_ONCE = window.MUSIC_ONCE || {{}};\nwindow.MUSIC_ONCE.{} = {:.4};\n", tune.name, tune.time.len() as f64 / score::SR as f64) } else { String::new() };
         let script = format!(
-            "// {}\n// so that the page can decode it and loop it without a gap, even when opened as a file.\nwindow.MUSIC = window.MUSIC || {{}};\nwindow.MUSIC.{} = \"{}\";\n",
+            "// {}\n// so that the page can decode it and loop it without a gap, even when opened as a file.\nwindow.MUSIC = window.MUSIC || {{}};\nwindow.MUSIC.{} = \"{}\";\n{}",
             tune.about,
             tune.name,
-            base64(&ogg)
+            base64(&ogg),
+            next
         );
         let path = dir.join(format!("{}.js", tune.name));
         std::fs::write(&path, script)?;

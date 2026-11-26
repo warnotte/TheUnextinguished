@@ -36,7 +36,7 @@ const map = {
   type: 'map', version: '1.10', tiledversion: '1.11.0', orientation: 'orthogonal', renderorder: 'right-down', width: W, height: H, tilewidth: 16, tileheight: 16, infinite: false, compressionlevel: -1,
   properties: [
     { name: 'bats', type: 'int', value: 2 }, { name: 'darkness', type: 'float', value: 0.62 }, { name: 'mist', type: 'bool', value: false },
-    { name: 'music', type: 'string', value: 'demon' }, { name: 'sky', type: 'bool', value: true }, { name: 'snow', type: 'bool', value: true },
+    { name: 'music', type: 'string', value: 'demon' }, { name: 'intro', type: 'string', value: 'arrival' }, { name: 'sky', type: 'bool', value: true }, { name: 'snow', type: 'bool', value: true },
     { name: 'storm', type: 'bool', value: true }, { name: 'title', type: 'string', value: 'THE BELL CHAMBER' },
   ],
   tilesets: [{ firstgid: 1, name: 'collision', image: '../assets/engine/collision.png', imagewidth: 32, imageheight: 16, tilewidth: 16, tileheight: 16, tilecount: 2, columns: 2, margin: 0, spacing: 0 }],

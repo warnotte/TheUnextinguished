@@ -12,7 +12,7 @@ const count = (kind: string) => lv.objects.filter(o => o.kind === kind).length;
 
 describe('the bell chamber', () => {
   it('is open to a stormy, snowy night, and plays the tune of the demon', () => {
-    expect(lv.settings).toMatchObject({ title: 'THE BELL CHAMBER', sky: true, snow: true, storm: true, music: 'demon' });
+    expect(lv.settings).toMatchObject({ title: 'THE BELL CHAMBER', sky: true, snow: true, storm: true, music: 'demon', intro: 'arrival' });
   });
 
   it('is one screen: the hero on one side, the demon on the other, the bell between them', () => {
@@ -51,7 +51,8 @@ describe('the bell chamber', () => {
   it('is played fourth, after the belfry, with its tune', () => {
     const page = readFileSync('index.html', 'utf8');
     const order = [...page.matchAll(/levels\/(\w+)\.js/g)].map(m => m[1]);
-    expect(order).toEqual(['salle3', 'crypte', 'beffroi', 'clocher']);
+    expect(order).toEqual(['salle3', 'crypte', 'beffroi', 'clocher', 'effondrement']);
     expect(page).toContain('assets/music/demon.js');
+    expect(page).toContain('assets/music/arrival.js');
   });
 });

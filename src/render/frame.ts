@@ -4,6 +4,7 @@
 import { EFFECTS, effectDuration, KINDS, SHEETS, STRIPS } from '../level/kinds';
 import { GHOST, SKULL } from '../sim/creatures';
 import { DEMON, type Demon, SKELETON } from '../sim/demon';
+import type { Fall } from '../sim/fall';
 import type { Actor } from '../sim/actor';
 import type { GameEvent, SoundName } from '../sim/events';
 import { TILE } from '../sim/grid';
@@ -17,7 +18,8 @@ import { flashSource, rimOffset } from './shading';
 import { groundLine, paintBackdrop } from './scene';
 import { paintSky, paintSnow } from './sky';
 import { drawBolt, Storm } from './storm';
-import type { Words } from '../campaign';
+import type { LevelResult, Words } from '../campaign';
+import type { Initials } from '../initials';
 import { Hud } from './hud';
 import { text, textWidth } from './text';
 
@@ -118,8 +120,10 @@ export class Stage {
     if (jump) this.camera.follow(x, y);
   }
 
-  /** The best time of the level, once it is won: the panel says it. */
-  setRecord(record: { best: number; isNew: boolean }): void { this.hud.record = record; }
+  /** The level won, against the board, and the name being given for it if its time is good enough. */
+  setResult(result: LevelResult, naming: Initials | null): void { this.hud.result = result; this.hud.naming = naming; }
+  /** The name written on the board, at its place. */
+  setNamed(name: string, place: number): void { this.hud.named = { name, place }; this.hud.naming = null; }
 
   /** The sounds of the stage since the last call: the thunder. */
   heard(): SoundName[] { const out = this.heardNow; this.heardNow = []; return out; }
@@ -140,6 +144,14 @@ export class Stage {
       else if (e.type === 'flame') {
         // The trail of the charge: fire left behind, that rises and goes out.
         for (let i = 0; i < 6; i++) this.particles.push({ x: e.x - e.dir * Math.random() * 14, y: e.y - 16 + Math.random() * 30, vx: -e.dir * (30 + Math.random() * 130), vy: -10 - Math.random() * 70, life: 0.2 + Math.random() * 0.35, color: FIRE[Math.floor(Math.random() * FIRE.length)], g: -90 });
+      }
+      else if (e.type === 'lightning') this.storm?.strikeNow();
+      else if (e.type === 'debris') {
+        // Stone flying from the place it broke: chunks that tumble down, and grit.
+        for (let i = 0; i < e.count; i++) {
+          const a = Math.random() * Math.PI * 2, v = 60 + Math.random() * 260;
+          this.particles.push({ x: e.x + (Math.random() - 0.5) * 60, y: e.y + (Math.random() - 0.5) * 80, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 120, life: 0.8 + Math.random() * 0.9, color: ['#4b3f5c', '#6d5f80', '#8a7a9c', '#2e263a'][Math.floor(Math.random() * 4)], g: 700 });
+        }
       }
       else if (e.type === 'toll') {
         this.swing = { amp: 0.34, t: 0 };
@@ -172,6 +184,10 @@ export class Stage {
     this.swing.t += dt; this.swing.amp *= Math.exp(-0.45 * dt);
     for (const r of this.rings) r.t += dt;
     this.rings = this.rings.filter(r => r.t < 1.1);
+    const fall = this.world.fall;
+    if (fall) for (let i = 0; i < 4; i++) {
+      this.particles.push({ x: this.camera.x + Math.random() * VIEW_W, y: fall.y + Math.random() * 12, vx: (Math.random() - 0.5) * 60, vy: -10 - Math.random() * 50, life: 0.6 + Math.random() * 0.8, color: ['#3a3046', '#55496a', '#2a2234'][Math.floor(Math.random() * 3)], g: 40 });
+    }
     const boss = this.world.boss;
     if (boss && boss.phase === 'breath') {          // the blue fire pours out of it
       const b = boss.body, f = b.facing, from = b.x + b.w / 2 + f * 20;
@@ -200,7 +216,8 @@ export class Stage {
 
   draw(g: CanvasRenderingContext2D, t: number, paused: boolean): void {
     const w = this.world, level = w.level;
-    const jolt = w.shake > 0 ? [Math.round((Math.random() - 0.5) * 6), Math.round((Math.random() - 0.5) * 6)] : [0, 0];
+    const jolt = w.shake > 0 ? [Math.round((Math.random() - 0.5) * 6), Math.round((Math.random() - 0.5) * 6)]
+      : w.fall && w.state === 'play' ? [Math.round((Math.random() - 0.5) * 3), Math.round((Math.random() - 0.5) * 3)] : [0, 0];
     const cx = this.camera.x - jolt[0], cy = this.camera.y - jolt[1];
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.imageSmoothingEnabled = false;
@@ -239,6 +256,7 @@ export class Stage {
         k.globalCompositeOperation = 'lighter';
         k.fillStyle = `rgba(160,175,240,${0.85 * storm.flash})`; k.fillRect(0, 0, VIEW_W, VIEW_H);
       }
+      if (level.settings.omen) { k.globalCompositeOperation = 'source-over'; this.drawOmen(k, t, cx); }
       if (storm?.bolt) drawBolt(k, storm.bolt, Math.min(1, 0.35 + storm.flash));
       k.globalCompositeOperation = 'destination-in';
       k.drawImage(this.holes, -cx, -cy);
@@ -272,6 +290,7 @@ export class Stage {
     g.translate(-cx, -cy);
     this.drawAir(g, t);
     g.setTransform(1, 0, 0, 1, 0, 0);
+    if (w.fall) this.drawFall(g, w.fall, cx, cy, t);
     if (level.settings.snow) paintSnow(g, cx, cy, t);
     if (this.storm && this.storm.glow > 0) {          // the flash comes in through every opening
       g.save(); g.globalCompositeOperation = 'lighter';
@@ -539,6 +558,22 @@ export class Stage {
     } else if (e.mode === 'vanish') this.stripFrame(g, 'ghost/vanish', Math.min(6, Math.floor((e.modeT / GHOST.vanish) * 7)), cx, feet, mirror, false, 0.9);
   }
 
+  // Its entrance: out of the great opening, small and far, then growing as it comes, wings beating.
+  private drawEntrance(g: CanvasRenderingContext2D, d: Demon, t: number): void {
+    const e = DEMON.enter, b = d.body;
+    if (d.t < e.flash) return;
+    const k = Math.min(1, (d.t - e.flash) / (e.land - e.flash)), ease = k * k;
+    const feetX = d.from.x + (b.x + b.w / 2 - d.from.x) * ease, feetY = d.from.y + 40 + (d.floor - d.from.y - 40) * ease;
+    const scale = 0.2 + 0.8 * ease, s = STRIPS['demon/idle'], n = 1 + Math.floor(t * (k < 1 ? 16 : 8)) % s.frames;
+    const pic = this.assets.image(`${k < 0.5 ? 'shadow-' : ''}demon/idle/${n}`) as HTMLCanvasElement;
+    g.save();
+    g.translate(Math.round(feetX), Math.round(feetY));
+    if (b.facing > 0) g.scale(-1, 1);
+    g.drawImage(pic, -s.footX * scale, -s.footY * scale, s.w * scale, s.h * scale);
+    g.restore();
+    if (k >= 1) this.glow(g, feetX, feetY - 78, 34, 'rgba(110,225,255,0.3)');
+  }
+
   // Its skull, where the blue fire burns.
   private demonHead(d: Demon, t: number): [number, number] {
     const b = d.body;
@@ -555,6 +590,7 @@ export class Stage {
       if (Math.floor(t * 10) % 2) this.glow(g, d.markX, d.landY - 4, 26 + 30 * k, 'rgba(255,60,40,0.3)');
     }
     if (d.phase === 'gone' || d.phase === 'mark') return;
+    if (d.phase === 'enter') { this.drawEntrance(g, d, t); return; }
     const [key, s, x, y, mirror] = this.demonPicture(d, t);
     const [hx, hy] = this.demonHead(d, t);
     this.glow(g, hx, hy, 34, 'rgba(110,225,255,0.3)');
@@ -565,6 +601,74 @@ export class Stage {
     if (d.phase === 'dazed') {
       for (let i = 0; i < 4; i++) { const u = t * 5 + i * 1.6; g.fillStyle = i % 2 ? '#ffffff' : '#ffe27a'; g.fillRect(Math.round(hx + Math.cos(u) * 16), Math.round(hy - 22 + Math.sin(u) * 4), 2, 2); }
       if (Math.floor(t * 5) % 2) { const words = 'CHARGE IT!'; text(g, words, Math.round(hx - textWidth(words) / 2) + 1, Math.round(hy - 45), '#1a0308'); text(g, words, Math.round(hx - textWidth(words) / 2), Math.round(hy - 46), '#ff5a3a'); }
+    }
+  }
+
+  // The demon in the storm: a silhouette three times its size, far behind the tower, circling slowly.
+  // Dark against the dark sky, it shows only its eyes, until a flash cuts it out black against white.
+  private drawOmen(k: CanvasRenderingContext2D, t: number, camX: number): void {
+    const s = STRIPS['demon/idle'], scale = 3, u = t * 0.05;
+    const x = VIEW_W / 2 + Math.sin(u) * 380 - camX * 0.05, y = 70 + Math.sin(t * 0.13) * 26;
+    const mirror = Math.cos(u) > 0;                  // it faces the way it flies
+    const n = 1 + Math.floor(t * 6) % s.frames, pic = this.assets.image(`shadow-demon/idle/${n}`) as HTMLCanvasElement;
+    k.save();
+    k.imageSmoothingEnabled = false;
+    k.translate(Math.round(x), Math.round(y));
+    if (mirror) k.scale(-1, 1);
+    k.globalAlpha = 0.9;
+    k.drawImage(pic, -s.footX * scale, -s.footY * scale * 0.55, s.w * scale, s.h * scale);
+    k.globalAlpha = 1;
+    // Its eyes, in its skull of blue fire.
+    k.globalCompositeOperation = 'lighter';
+    const ex = (59 - s.footX) * scale, ey = (48 - s.footY * 0.55) * scale;
+    const glow = k.createRadialGradient(ex, ey, 0, ex, ey, 26);
+    glow.addColorStop(0, 'rgba(120,230,255,0.55)'); glow.addColorStop(1, 'rgba(120,230,255,0)');
+    k.fillStyle = glow; k.fillRect(ex - 26, ey - 26, 52, 52);
+    k.fillStyle = '#c8f6ff'; k.fillRect(ex - 9, ey - 2, 5, 3); k.fillRect(ex + 4, ey - 2, 5, 3);
+    k.restore();
+  }
+
+  // The tower coming down: above the collapse the night is open, the stormy sky where the tower
+  // stood; along it a broken edge of rubble and a churning bank of dust; ahead of it, the stones.
+  private drawFall(g: CanvasRenderingContext2D, fall: Fall, cx: number, cy: number, t: number): void {
+    const level = this.world.level, line = Math.round(fall.y - cy);
+    if (line > 0 && this.skyView) {
+      const k = this.skyView.getContext('2d')!, h = Math.min(VIEW_H, line);
+      k.globalCompositeOperation = 'source-over';
+      paintSky(k, cx, level.height - VIEW_H - cy, t, level.settings.snow);
+      if (this.storm && this.storm.flash > 0) { k.globalCompositeOperation = 'lighter'; k.fillStyle = `rgba(160,175,240,${0.85 * this.storm.flash})`; k.fillRect(0, 0, VIEW_W, h); }
+      if (this.storm?.bolt) drawBolt(k, this.storm.bolt, Math.min(1, 0.35 + this.storm.flash));
+      g.drawImage(this.skyView, 0, 0, VIEW_W, h, 0, 0, VIEW_W, h);
+    }
+    if (line > -40 && line < VIEW_H + 40) {
+      // The dust, thick at the edge, thinning out above and below it.
+      const dust = g.createLinearGradient(0, line - 50, 0, line + 60);
+      dust.addColorStop(0, 'rgba(40,32,52,0)'); dust.addColorStop(0.45, 'rgba(48,40,62,0.85)'); dust.addColorStop(1, 'rgba(40,32,52,0)');
+      g.fillStyle = dust; g.fillRect(0, line - 50, VIEW_W, 110);
+      // The broken edge: blocks of every size, shifting as they fall.
+      for (let x = -8; x < VIEW_W + 8; x += 7) {
+        const wx = Math.floor((x + cx) / 7), jag = hash(wx, Math.floor(t * 5)), size = 5 + Math.floor(jag * 12);
+        const y = line - size / 2 + Math.round(Math.sin(wx * 1.7 + t * 3) * 3);
+        g.fillStyle = jag > 0.66 ? '#6d5f80' : jag > 0.33 ? '#4b3f5c' : '#2e263a';
+        g.fillRect(x - ((cx % 7) + 7) % 7, Math.round(y), size, size);
+        g.fillStyle = 'rgba(150,135,175,0.5)'; g.fillRect(x - ((cx % 7) + 7) % 7, Math.round(y), size, 1);
+      }
+      // Fires caught in the rubble, here and there.
+      g.save(); g.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 5; i++) {
+        const fx = ((i * 197 + Math.floor(cx * 0.3)) % (VIEW_W + 80)) - 40, flick = 0.25 + 0.15 * Math.sin(t * 9 + i * 2);
+        const glow = g.createRadialGradient(fx, line + 4, 0, fx, line + 4, 30);
+        glow.addColorStop(0, `rgba(255,140,60,${flick})`); glow.addColorStop(1, 'rgba(255,140,60,0)');
+        g.fillStyle = glow; g.fillRect(fx - 30, line - 26, 60, 60);
+      }
+      g.restore();
+    }
+    // The stones, tumbling down ahead of it.
+    for (const r of fall.rocks) {
+      const x = Math.round(r.x - cx - r.size / 2), y = Math.round(r.y - cy - r.size / 2);
+      g.fillStyle = '#2e263a'; g.fillRect(x, y, r.size, r.size);
+      g.fillStyle = '#6d5f80'; g.fillRect(x, y, r.size - 2, r.size - 2);
+      g.fillStyle = '#8a7a9c'; g.fillRect(x, y, r.size - 2, 2);
     }
   }
 

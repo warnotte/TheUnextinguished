@@ -21,7 +21,8 @@ describe('the run of the levels', () => {
   });
 
   it('says what to do in the room of a demon, and that it is slain', () => {
-    expect(openingWords('THE BELL CHAMBER', true)).toEqual(['THE BELL CHAMBER', 'SLAY THE DEMON', 'ITS SKELETONS CARRY EMBERS', 'ONLY A FLAMING CHARGE ENDS IT']);
+    expect(openingWords('THE FALL', 'fall')).toEqual(['THE FALL', 'THE TOWER FALLS', 'RUN DOWN TO THE DOOR']);
+    expect(openingWords('THE BELL CHAMBER', 'boss')).toEqual(['THE BELL CHAMBER', 'SLAY THE DEMON', 'ITS SKELETONS CARRY EMBERS', 'ONLY A FLAMING CHARGE ENDS IT']);
     expect(wonWords(3, 4, true)).toEqual({ title: 'DEMON SLAIN', lines: ['PRESS JUMP TO GO ON'] });
   });
 

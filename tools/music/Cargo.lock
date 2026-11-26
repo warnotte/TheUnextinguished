@@ -43,6 +43,7 @@ name = "music"
 version = "0.0.0"
 dependencies = [
  "dsp-core",
+ "resid-rs",
 ]
 
 [[package]]

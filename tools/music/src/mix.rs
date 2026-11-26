@@ -102,8 +102,9 @@ impl Mix {
         self.note(name, &x.l, &x.r, gain, gain);
     }
 
-    /// Runs the echo and the reverb, folds the tail onto the start and sets the level.
-    pub fn finish(mut self, time: &Time, fx: &Fx) -> (Stereo, Fold) {
+    /// Runs the echo and the reverb, folds the tail onto the start (unless the tune is played once:
+    /// then the tail is kept after it, to ring over what follows) and sets the level.
+    pub fn finish(mut self, time: &Time, fx: &Fx, once: bool) -> (Stereo, Fold) {
         let n = time.total();
         let silence = vec![0.0f32; n];
 
@@ -160,10 +161,12 @@ impl Mix {
         let len = time.len();
         let tail_step = [(self.dry.l[len] - self.dry.l[len - 1]).abs(), (self.dry.r[len] - self.dry.r[len - 1]).abs()];
         let onset = [self.dry.l[0].abs(), self.dry.r[0].abs()];
-        let mut out = Stereo { l: self.dry.l[..len].to_vec(), r: self.dry.r[..len].to_vec() };
-        for i in len..n {
-            out.l[(i - len) % len] += self.dry.l[i];
-            out.r[(i - len) % len] += self.dry.r[i];
+        let mut out = if once { Stereo { l: self.dry.l.clone(), r: self.dry.r.clone() } } else { Stereo { l: self.dry.l[..len].to_vec(), r: self.dry.r[..len].to_vec() } };
+        if !once {
+            for i in len..n {
+                out.l[(i - len) % len] += self.dry.l[i];
+                out.r[(i - len) % len] += self.dry.r[i];
+            }
         }
 
         // Level: a soft clip rounds the highest peaks (it has no memory, so the loop stays a

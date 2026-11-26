@@ -3,7 +3,7 @@ import { Input, type PadLike } from '../src/input';
 
 // A stand-in for the window: it only has to carry key events.
 class Keys extends EventTarget {
-  down(code: string, repeat = false) { this.dispatchEvent(Object.assign(new Event('keydown'), { code, repeat })); }
+  down(code: string, repeat = false, key = '') { this.dispatchEvent(Object.assign(new Event('keydown'), { code, repeat, key })); }
   up(code: string) { this.dispatchEvent(Object.assign(new Event('keyup'), { code })); }
 }
 const pad = (axes: number[], pressed: number[] = []): PadLike => ({ connected: true, axes, buttons: Array.from({ length: 16 }, (_, i) => ({ pressed: pressed.includes(i) })) });
@@ -47,6 +47,29 @@ describe('Input', () => {
     keys.down('KeyG');
     expect(input.read().cheatPressed).toBe(true);
     expect(input.read().cheatPressed).toBe(false);
+  });
+
+  it('hands over the keys as typed, once, for a name', () => {
+    const keys = new Keys(), input = new Input(keys, () => []);
+    keys.down('KeyQ', false, 'a'); keys.down('Backspace', false, 'Backspace'); keys.down('Backspace', true, 'Backspace');
+    expect(input.read().typed).toEqual(['a', 'Backspace', 'Backspace']);
+    expect(input.read().typed).toEqual([]);
+  });
+
+  it('reads the gamepad apart, for a name: the stick, A, B and Start, once each', () => {
+    let pads: (PadLike | null)[] = [pad([0, -0.8], [0])];
+    const input = new Input(new Keys(), () => pads);
+    expect(input.read().pad).toMatchObject({ up: true, down: false, confirm: true, back: false, finish: false });
+    expect(input.read().pad).toMatchObject({ up: false, confirm: false });
+    pads = [pad([0, 0], [1, 9, 13])];
+    expect(input.read().pad).toMatchObject({ down: true, back: true, finish: true });
+  });
+
+  it('reads N as a press: the level won at once, in the trial mode', () => {
+    const keys = new Keys(), input = new Input(keys, () => []);
+    keys.down('KeyN');
+    expect(input.read().winPressed).toBe(true);
+    expect(input.read().winPressed).toBe(false);
   });
 
   it('reads F as a press: the full screen', () => {

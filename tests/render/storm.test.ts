@@ -99,3 +99,14 @@ describe('a bolt', () => {
     expect(boltPath(300, 0, 220, r).main).not.toEqual(boltPath(300, 0, 220, r).main);
   });
 });
+
+describe('a strike called for', () => {
+  it('comes at once, whatever the calm, and the calm starts again from it', () => {
+    const storm = new Storm(seeded(9));
+    storm.update(DT);
+    expect(storm.bolt).toBeNull();
+    storm.strikeNow();
+    expect(storm.bolt).not.toBeNull();
+    expect(storm.flash).toBe(1);
+  });
+});

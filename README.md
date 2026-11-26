@@ -56,8 +56,15 @@ Other foes walk, run and fly in the levels:
   shrieks (the guard stops that), then is gone, to come out again on his other side. A blow drives
   it off for longer.
 
-The bell chamber, at the top of the belfry, is the room of the demon. It has no door: the room is
-won when the demon is ended.
+Over the belfry, a giant shape of the demon circles in the storm: only its eyes show, until a flash
+cuts it out black against the sky. The bell chamber, at the top of the belfry, is the room of the
+demon. It comes in out of the storm through the great opening, breaking the stone, and lands as
+the bell tolls, to a tune of its own played once before the tune of the fight. The room has no
+door: it is won when the demon is ended.
+
+Then the tower falls. The last level is the belfry again, coming down from the top: the hero runs
+down to the door at its foot ahead of the collapse, which leaves the stormy sky where the tower
+stood, throws stones down ahead of it (the guard does not stop them) and crushes whoever it catches.
 
 - **The demon** (36 points of health) floats over its floor and is not thrown by blows. Its wings
   rise, then beat all round it, at a hero who comes close, and at once at one who strikes it again
@@ -74,10 +81,20 @@ won when the demon is ended.
 - **At the end of its health** the demon stands dazed for good: blows no longer touch it, and only a
   flaming charge ends it. Hence the embers of the skeletons.
 
-Each level keeps its best time in the browser: the panel of a level won says it, or that it is a
-new record. The levels follow each other: the door of one leads to the next. After the last comes the end,
+The board of the best times, as on the arcade machines: for each level, and for a whole run from
+the title to the end, the five fastest with the name of who made them (up to seven letters). A time
+good enough asks for a name on the panel of the level won, or on the end screen for a run: type it
+and press Enter, or, with a gamepad, turn the letters with up and down, A for the next, Start to
+end. The name given last is offered again. A level played with the cheat on does not go on the
+board. The title shows the board in turn with the controls. It is all kept in the browser.
+
+To try the board without playing, add `?test` to the address: the trial mode has a board of its own
+(the real one is left alone) with a few names already on it, and N wins the level in hand at once,
+in a time drawn by chance.
+
+The levels follow each other: the door of one leads to the next. After the last comes the end,
 which tells the run: its time, the foes snuffed out, the blood spilt, how often the hero was knocked
-out, and the best run from the title. Then back to the title, which shows that best run. To go straight to a level, without the title, add `?level=1` to
+out. Then back to the title. To go straight to a level, without the title, add `?level=1` to
 `?level=4` to the address of the page.
 
 The title stands in front of the first level open on the sky (the belfry), climbing it slowly under
@@ -128,10 +145,11 @@ object, paint a cell); nothing drives them yet.
   bottom of its box, in the air), `hound`, `ghost`, `demon`. The point is the anchor of the kind: the bottom middle of a piece of
   decor, the feet of an actor, the pivot of a torch.
 - The map's own properties set the level: `title`, `darkness` (0 to 1), `music`, `mist`, `bats`,
-  `sky` (the night shows through the arches, in planes that slide at different speeds:
-  `src/render/sky.ts`), `snow` and `storm` (now and then lightning lights the place through its openings, each body throws a long shadow on the wall, and the thunder follows).
+  `intro` (a tune played once before `music`), `sky` (the night shows through the arches, in planes that slide at different speeds:
+  `src/render/sky.ts`), `snow` and `storm` (now and then lightning lights the place through its openings, each body throws a long shadow on the wall, and the thunder follows), `omen` (the giant shape of the demon in the sky) and `collapse` (px a second: the level comes down from the top).
 - The third level, the belfry, is written by `node tools/make-beffroi.mjs`; the fourth, the bell
-  chamber, by `node tools/make-clocher.mjs`.
+  chamber, by `node tools/make-clocher.mjs`; the fifth, the fall, by `node tools/make-effondrement.mjs`
+  from the belfry's map.
 - A level with a `demon` is won when the demon is ended, not by a door.
 - `node tools/add-creatures.mjs` puts the skull, the hounds and the ghosts into the nave and the crypt.
 - The levels are played in the order `index.html` loads them.
@@ -164,7 +182,8 @@ level. Behaviour that is new goes into `src/sim/`, never into a level.
   (`assets/pixelfx/LICENSE.txt`, `NOTICE.md`).
 - Music: ours, played on the emulated sound chips of NoobSynth (FM operators and drum machines for
   the nave; NES and SNES oscillators, a pipe organ and an FM bell for the crypt; the NES chip, an
-  808 kick and an FM bell for the bell chamber) by the program in
+  808 kick and an FM bell for the bell chamber and the entrance of the demon; two SIDs of the
+  Commodore 64, emulated by reSID, for the fall) by the program in
   `tools/music` (see its README to render them again). The belfry plays `assets/music/poursuite.*`,
   an earlier tune on the AY-3-8910, made by `essais/ay-essai`.
 - Sound effects: made on the spot by `src/audio.ts`, no samples.

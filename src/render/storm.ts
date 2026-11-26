@@ -74,6 +74,9 @@ export class Storm {
     return { thunder };
   }
 
+  /** A strike now, whatever the calm: the calm starts again from it. */
+  strikeNow(): void { this.strike(); }
+
   private strike(): void {
     const r = this.rand, [c0, c1] = STORM.calm, [s0, s1] = STORM.sound;
     this.wait = c0 + r() * (c1 - c0);

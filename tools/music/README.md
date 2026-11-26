@@ -8,6 +8,8 @@ NoobSynth3's `dsp-core` (taken by path, read only: `E:/CODEX/NoobSynth3/crates/d
 | `nef` | 1, the Nave | FM (`FmMatrix` lead, stabs, pad, pluck; `FmOperator` bass), TR-909 drums |
 | `crypte` | 2, the Crypt | `NesOsc` pulses, triangle and noise, `SnesOsc` strings and bass, `PipeOrgan`, an `FmMatrix` bell, `Kick808` and `Tom909` |
 | `demon` | 4, the Bell Chamber | `NesOsc` pulses, triangle and noise, a `Kick808`, an `FmMatrix` bell |
+| `arrival` | 4, played once as the demon comes in | the same, its tail kept to ring over the start of `demon` |
+| `collapse` | 5, the Fall | two SIDs of the Commodore 64 (`resid-rs`, the reSID dsp-core plays .sid files with), driven by `src/sid.rs` as the players of its day did, fifty times a second |
 
 Echo and reverb are dsp-core's `Delay`, `Reverb` and `Chorus`.
 
@@ -23,6 +25,8 @@ cd ../..
 ffmpeg -y -i <tmp dir>/nef.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/nef.ogg
 ffmpeg -y -i <tmp dir>/crypte.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/crypte.ogg
 ffmpeg -y -i <tmp dir>/demon.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/demon.ogg
+ffmpeg -y -i <tmp dir>/arrival.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/arrival.ogg
+ffmpeg -y -i <tmp dir>/collapse.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/collapse.ogg
 cd tools/music
 cargo run --release -- pack ../../assets/music
 ```
@@ -42,7 +46,9 @@ cargo run --release -- measure <tmp dir>/nef-decoded.wav
 
 ## How a tune is written
 
-- `src/nef.rs`, `src/crypte.rs`, `src/demon.rs`: the tunes. Notes are text on a grid of sixteenths
+- `src/nef.rs`, `src/crypte.rs`, `src/demon.rs`, `src/arrival.rs`, `src/collapse.rs`: the tunes. A tune
+  played once (`arrival`) keeps its tail after it; its script says when the next tune comes in.
+- `src/sid.rs`: the SID, its instruments, arpeggios, drum tables and filter, fifty times a second. Notes are text on a grid of sixteenths
   (`"e5:2 g5:3 -:1"`, bars separated by `|`), drums are one character per sixteenth
   (`"X.....x.X.x....."`), chords and bass figures are lists. Patches and the mix are below the notes.
 - `src/score.rs`: reads that text.

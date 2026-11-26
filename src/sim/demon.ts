@@ -40,9 +40,12 @@ export const DEMON = {
   slam: 2,                             // what its landing costs a hero on the ground near it
   wave: { speed: 210, life: 1.7, half: 7, height: 16, damage: 1 },     // enraged, its landing sends fire along the floor, each way
   dying: 2.4,                          // seconds it burns before the room is won
+  // Its entrance, out of the storm and through the great opening: when the flash comes, when it breaks
+  // through the stone, when it lands; then it fights.
+  enter: { time: 2.6, flash: 0.2, through: 1.0, land: 1.6 },      // in time with its tune, "arrival": 150 a minute, the landing on the second bar
 } as const;
 
-export type DemonPhase = 'wait' | 'drift' | 'windup' | 'breath' | 'buffet' | 'rise' | 'mark' | 'fall' | 'dazed' | 'dying' | 'gone';
+export type DemonPhase = 'enter' | 'wait' | 'drift' | 'windup' | 'breath' | 'buffet' | 'rise' | 'mark' | 'fall' | 'dazed' | 'dying' | 'gone';
 
 export interface Demon {
   body: Actor;
@@ -57,6 +60,7 @@ export interface Demon {
   pressure: number;   // the damage it took lately: past DEMON.pressure.limit it answers at once
   again: boolean;     // the breath in hand is the second, the one it turned round for
   waves: Wave[];      // the fire running along the floor from its last landing
+  from: { x: number; y: number };     // where it comes in from: the middle of the great opening of its room
 }
 
 /** Blue fire running along a floor: where it is, which floor, which way, for how long already. */
@@ -74,13 +78,13 @@ export interface Arena {
   shake(seconds: number): void;
 }
 
-export function makeDemon(body: Actor): Demon {
-  return { body, phase: 'wait', t: 0, rest: 0.6, floor: feetY(body), markX: centreX(body), landY: feetY(body), hit: false, enraged: false, pressure: 0, again: false, waves: [] };
+export function makeDemon(body: Actor, from = { x: body.x + body.w / 2, y: body.y - 200 }): Demon {
+  return { body, from, phase: 'enter', t: 0, rest: 0.6, floor: feetY(body), markX: centreX(body), landY: feetY(body), hit: false, enraged: false, pressure: 0, again: false, waves: [] };
 }
 
 /** Whether a blow can reach it now: not while it is in the air, nor once it burns. */
 export function demonTouchable(d: Demon): boolean {
-  return d.phase !== 'rise' && d.phase !== 'mark' && d.phase !== 'fall' && d.phase !== 'dying' && d.phase !== 'gone';
+  return d.phase !== 'enter' && d.phase !== 'rise' && d.phase !== 'mark' && d.phase !== 'fall' && d.phase !== 'dying' && d.phase !== 'gone';
 }
 
 interface Box { x: number; y: number; w: number; h: number }
@@ -114,6 +118,26 @@ export function stepDemon(d: Demon, a: Arena, dt: number): void {
   }
   d.waves = d.waves.filter(v => v.t < DEMON.wave.life && v.x > TILE && v.x < a.width - TILE && d.phase !== 'dying' && d.phase !== 'gone');
   switch (d.phase) {
+    case 'enter': {
+      const e = DEMON.enter, was = d.t - dt, now = d.t, at = (k: number) => was < k && now >= k;
+      if (at(e.flash)) a.emit({ type: 'lightning' });
+      if (at(e.through)) {
+        a.emit({ type: 'debris', x: d.from.x, y: d.from.y, count: 46 });
+        a.emit({ type: 'sound', name: 'crash' });
+        a.shake(0.3);
+      }
+      if (at(e.land)) {
+        a.shake(0.55);
+        a.emit({ type: 'effect', kind: 'heavy-landing', x: centreX(b), y: d.floor, flip: false });
+        a.emit({ type: 'dust', x: centreX(b), y: d.floor, count: 30 });
+        a.emit({ type: 'sound', name: 'slam' });
+        a.emit({ type: 'sound', name: 'roar' });
+        a.emit({ type: 'toll' });
+        a.emit({ type: 'sound', name: 'bell' });
+      }
+      if (d.t >= e.time) { go(d, 'drift'); d.rest = 0.8; }
+      break;
+    }
     case 'wait':
       if (d.t >= DEMON.start) go(d, 'drift');
       break;

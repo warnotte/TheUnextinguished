@@ -5,6 +5,7 @@ import { KINDS } from '../level/kinds';
 import type { Level } from '../level/tiled';
 import { type Actor, centreX, makeActor, MAX_HP } from './actor';
 import { ghostThere, GHOST, stepGhost, stepHound, stepSkull, strikeGhost, strikeHound, strikeSkull } from './creatures';
+import { type Fall, makeFall, stepFall } from './fall';
 import { BELL, DEMON, type Arena, type Demon, demonTouchable, makeDemon, SKELETON, stepDemon, stepSkeleton } from './demon';
 import type { Emit, GameEvent } from './events';
 import { type Grid, TILE } from './grid';
@@ -72,6 +73,7 @@ export class World {
   spilt = 0;                       // blood thrown, his and theirs, in the units of the blood events
   invincible = false;              // the cheat: no blow harms the hero
   boss: Demon | null = null;       // the demon of the bell chamber, when the level has one
+  fall: Fall | null = null;        // the tower coming down, when the level falls
   readonly graves: { x: number; y: number }[] = [];
   private bellT: number = BELL.first;
   private risen = 0;               // skeletons raised so far: every other one wears rags
@@ -94,7 +96,13 @@ export class World {
       if (kind.role === 'spawn') {
         const actor = makeActor(kind.actor, o.x, o.y);
         if (kind.actor === 'hero') hero = actor;
-        else if (kind.actor === 'demon') { actor.hp = DEMON.hp; this.boss = makeDemon(actor); this.foes.push(actor); }
+        else if (kind.actor === 'demon') {
+          actor.hp = DEMON.hp;
+          // It comes in through the widest opening of the room, if there is one.
+          const arch = level.objects.filter(a => a.kind === 'arch').sort((p, q) => Number(q.props.width ?? 80) - Number(p.props.width ?? 80))[0];
+          this.boss = makeDemon(actor, arch ? { x: arch.x, y: arch.y - Number(arch.props.height ?? 88) / 2 } : undefined);
+          this.foes.push(actor);
+        }
         else {
           // A moment of grace when the level starts: the shade holds its blow, the ghoul does not burn.
           if (kind.actor === 'shade' || kind.actor === 'skull') actor.cool = START_GRACE;
@@ -118,6 +126,7 @@ export class World {
       hurt: (dir, damage, unblockable) => (hero.invul > 0 || world.state !== 'play' ? null : world.hurtHero(dir, damage, unblockable)),
       shake: seconds => { world.shake = Math.max(world.shake, seconds); },
     };
+    if (level.settings.collapse > 0) this.fall = makeFall(level.settings.collapse);
   }
 
   /** The embers the hero has in hand: those he took and those he won, less those he spent. */
@@ -138,6 +147,7 @@ export class World {
       }
       for (const foe of this.foes) this.stepFoe(foe);
       if (this.state === 'play') { this.stepItems(); this.stepBell(); }
+      if (this.fall && this.state === 'play') stepFall(this.fall, this.arena, () => this.crush(), STEP);
     }
     const out = this.events;
     this.events = [];
@@ -448,6 +458,18 @@ export class World {
     }
     const reached = this.door ? overlap(this.door, p) && p.onGround : this.embers.length > 0;
     if (!this.boss && this.doorOpen && reached) { this.state = 'won'; this.emit({ type: 'sound', name: 'win' }); }
+  }
+
+  // The collapse has caught the hero: he is under the stone.
+  private crush(): void {
+    const p = this.hero;
+    if (this.invincible) { p.y = Math.max(p.y, (this.fall?.y ?? p.y) + 1); return; }
+    p.hp = 0; this.state = 'lost'; this.slow = SLOW;
+    this.bleed(p, 1, BLOOD.finish, FINISH_CHUNKS);
+    this.bleed(p, -1, BLOOD.finish, FINISH_CHUNKS);
+    this.emit({ type: 'debris', x: p.x + p.w / 2, y: p.y, count: 30 });
+    this.emit({ type: 'sound', name: 'crash' });
+    this.emit({ type: 'sound', name: 'ko' });
   }
 
   // ---- the bell chamber ------------------------------------------------------------------------------
