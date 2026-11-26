@@ -1,17 +1,19 @@
-// The options: how loud the music and the sounds are, and whether blows draw blood or only ash (for
-// the younger players). They are kept in the browser, as the board is. They change what is seen
-// and heard, never the game itself: a run plays the same whatever they are.
+// The options: how loud the music and the sounds are, whether blows draw blood or only ash, and the
+// easy mode (both for the younger players). They are kept in the browser, as the board is. All but
+// the easy mode change only what is seen and heard; in the easy mode the hero takes half of every
+// blow, and no time goes on the board.
 
 import type { PadPresses } from './input';
 import type { Store } from './records';
 
 export type Blood = 'red' | 'ash';
-export interface Options { music: number; sounds: number; blood: Blood }
+export type Difficulty = 'normal' | 'easy';
+export interface Options { music: number; sounds: number; blood: Blood; difficulty: Difficulty }
 
 /** The top of the music and the sounds; the middle level, 7, is the mix the game was made with. */
 export const LEVELS = 10;
 const MIDDLE = 7;
-export const DEFAULT_OPTIONS: Readonly<Options> = Object.freeze({ music: MIDDLE, sounds: MIDDLE, blood: 'red' });
+export const DEFAULT_OPTIONS: Readonly<Options> = Object.freeze({ music: MIDDLE, sounds: MIDDLE, blood: 'red', difficulty: 'normal' });
 
 const KEY = 'unextinguished.options';
 
@@ -26,18 +28,19 @@ export function loadOptions(store: Store): Options {
     music: level(o.music, DEFAULT_OPTIONS.music),
     sounds: level(o.sounds, DEFAULT_OPTIONS.sounds),
     blood: o.blood === 'ash' || o.blood === 'red' ? o.blood : DEFAULT_OPTIONS.blood,
+    difficulty: o.difficulty === 'easy' || o.difficulty === 'normal' ? o.difficulty : DEFAULT_OPTIONS.difficulty,
   };
 }
 
 export function saveOptions(store: Store, o: Options): void {
-  store.set(KEY, JSON.stringify({ music: o.music, sounds: o.sounds, blood: o.blood }));
+  store.set(KEY, JSON.stringify({ music: o.music, sounds: o.sounds, blood: o.blood, difficulty: o.difficulty }));
 }
 
 /** What a level makes of the loudness the game was made with: 1 at the middle, nothing at 0. */
 export function levelGain(level: number): number { return (level / MIDDLE) ** 2; }
 
-export const OPTION_LINES = ['MUSIC', 'SOUNDS', 'BLOOD', 'BACK'] as const;
-export type Changed = 'music' | 'sounds' | 'blood' | null;
+export const OPTION_LINES = ['MUSIC', 'SOUNDS', 'BLOOD', 'DIFFICULTY', 'BACK'] as const;
+export type Changed = 'music' | 'sounds' | 'blood' | 'difficulty' | null;
 
 /** The options screen: a line chosen, the options as they are being set, whether it is closed. */
 export class OptionsMenu {
@@ -53,10 +56,10 @@ export class OptionsMenu {
   down(): void { this.changed = null; this.line = Math.min(OPTION_LINES.length - 1, this.line + 1); }
   left(): void { this.turn(-1); }
   right(): void { this.turn(1); }
-  /** Jump or A: the blood turns, BACK closes; on a level it does nothing. */
+  /** Jump or A: the blood or the difficulty turns, BACK closes; on a level it does nothing. */
   confirm(): void {
     this.changed = null;
-    if (OPTION_LINES[this.line] === 'BLOOD') this.turn(1);
+    if (OPTION_LINES[this.line] === 'BLOOD' || OPTION_LINES[this.line] === 'DIFFICULTY') this.turn(1);
     else if (OPTION_LINES[this.line] === 'BACK') this.done = true;
   }
   back(): void { this.changed = null; this.done = true; }
@@ -71,6 +74,9 @@ export class OptionsMenu {
     } else if (what === 'BLOOD') {
       o.blood = o.blood === 'red' ? 'ash' : 'red';
       this.changed = 'blood';
+    } else if (what === 'DIFFICULTY') {
+      o.difficulty = o.difficulty === 'normal' ? 'easy' : 'normal';
+      this.changed = 'difficulty';
     }
   }
 }
@@ -99,7 +105,7 @@ export function feedOptions(menu: OptionsMenu, typed: readonly string[], pad: Pa
     if (pad.left) { menu.left(); after(); }
     if (pad.right) { menu.right(); after(); }
     if (pad.confirm) { menu.confirm(); after(); }
-    if (pad.back || pad.finish) menu.back();
+    if (pad.back || pad.finish || pad.options || pad.select) menu.back();
   }
   return last;
 }

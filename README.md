@@ -12,7 +12,9 @@ spreads into red clouds. For adults; the options turn the blood to ash for young
 ## Play
 
 Open `index.html` by double-click (after a build, see below). No server, no network. The game opens
-on its title, which shows the controls; jump starts it.
+on its title, which shows the controls; jump starts it. Once a level past the first has been
+reached, the title offers first to go on from the furthest one reached (it is kept in the browser),
+or, one line down, a new game; going on from it is not a whole run, and its time goes on no board.
 
 | | Keyboard | Gamepad |
 |---|---|---|
@@ -36,11 +38,12 @@ H shows what collides over the picture: stone in red, platforms in yellow, ladde
 hurts in magenta, the line of the hills in cyan, the bodies and the reach of a blow; H again hides it.
 
 O opens the options, on the title or during a level (which it pauses): how loud the music and the
-sounds are, from 0 to 10, and the blood. RED is the game as it is; ASH is for younger players: the
-blows throw grey ash and a few embers instead of blood, nothing stains the place or the bodies, and
-the end does not count the blood spilt. Up and down choose a line, left and right change it, Escape
-(or O, or B on the gamepad) closes them. They are kept in the browser, and change nothing of the
-game itself.
+sounds are, from 0 to 10, the blood, and the difficulty. RED is the game as it is; ASH is for
+younger players: the blows throw grey ash and a few embers instead of blood, nothing stains the place
+or the bodies, and the end does not count the blood spilt. EASY is for them too: the hero takes half
+of every blow, and no time goes on the board. Up and down choose a line, left and right change it
+(held, they go on), Escape (or O, or B, Y or Select on the gamepad) closes them. They are kept in the
+browser.
 
 The duel:
 
@@ -150,7 +153,7 @@ in a time drawn by chance.
 
 The levels follow each other: the door of one leads to the next. After the last comes the end,
 which tells the run: its time, the foes snuffed out, the blood spilt, how often the hero was knocked
-out. Then back to the title. To go straight to a level, without the title, add `?level=1` to
+out; then the credits roll over the place at dawn. Then back to the title. To go straight to a level, without the title, add `?level=1` to
 `?level=8` to the address of the page.
 
 The title stands in front of the first level open on the sky (the belfry), climbing it slowly under

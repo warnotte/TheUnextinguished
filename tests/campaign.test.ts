@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { addRun, afterWin, clockText, endWords, firstLevel, NO_RUN, openingWords, panAim, titleLevel, wonWords } from '../src/campaign';
+import { textWidth, writable } from '../src/render/text';
+import { addRun, afterWin, boardWords, clockText, CREDITS, creditsLength, endWords, firstLevel, NO_RUN, openingWords, panAim, reachedFrom, startWords, titleLevel, wonWords } from '../src/campaign';
 import { KIND_NAMES } from '../src/level/kinds';
 import { parseLevel } from '../src/level/tiled';
 import { readLevelFile } from './helpers';
@@ -115,5 +116,49 @@ describe('the levels of the game', () => {
       expect(crypt.grid.solidAt(col, row), `${o.kind} at ${o.x},${o.y}`).toBe(false);
       if (o.kind !== 'ember') expect(crypt.grid.floorAt(col, Math.round(o.y / 16)), `${o.kind} at ${o.x},${o.y} stands on a floor`).toBe(true);
     }
+  });
+});
+
+describe('the way back to the furthest level reached', () => {
+  it('reads the level kept in the browser, or none', () => {
+    expect(reachedFrom(null, 8)).toBe(0);
+    expect(reachedFrom('3', 8)).toBe(3);
+    expect(reachedFrom('7', 8)).toBe(7);
+    expect(reachedFrom('8', 8)).toBe(0);
+    expect(reachedFrom('-1', 8)).toBe(0);
+    expect(reachedFrom('2.5', 8)).toBe(0);
+    expect(reachedFrom('abc', 8)).toBe(0);
+  });
+
+  it('offers on the title to go on from it, or a new game; only a new game before any level was reached', () => {
+    expect(startWords(0, 'THE NAVE')).toBeNull();
+    expect(startWords(3, 'THE FLOODED CRYPT')).toEqual(['CONTINUE  THE FLOODED CRYPT', 'NEW GAME']);
+  });
+});
+
+describe('the easy mode', () => {
+  it('puts no time on the board', () => {
+    expect(boardWords({ time: 60, best: 90, place: null, cheated: false, easy: true })).toBe('NO RECORD IN EASY MODE');
+    expect(boardWords({ time: 60, best: 90, place: null, cheated: true, easy: true })).toBe('NO RECORD WITH THE CHEAT');
+  });
+});
+
+describe('the credits', () => {
+  it('can all be written in the font of the game, and fit across the picture', () => {
+    for (const c of CREDITS) {
+      expect(writable(c.text), c.text).toBe(true);
+      expect(textWidth(c.text, c.big ? 3 : 2)).toBeLessThanOrEqual(600);
+    }
+  });
+
+  it('name the pictures, the effects and the music, and end with thanks', () => {
+    const all = CREDITS.map(c => c.text).join(' ');
+    for (const word of ['A GAME BY', 'WARNOTTE RENAUD', 'LUIS ZUNO', 'PIXELFX', 'COMMODORE 64', 'THANK YOU FOR PLAYING']) expect(all).toContain(word);
+    expect(CREDITS.at(-1)?.text).toBe('THANK YOU FOR PLAYING');
+  });
+
+  it('last as long as they take to scroll by', () => {
+    expect(creditsLength()).toBeGreaterThan(20);
+    expect(creditsLength()).toBeLessThan(60);
   });
 });

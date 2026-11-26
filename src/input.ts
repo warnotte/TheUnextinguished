@@ -21,6 +21,9 @@ const KEYS = {
 } as const;
 // Standard gamepad layout: 0 A, 1 B, 2 X, 3 Y, 4-7 the shoulders, 8 Select, 9 Start, 12-15 the d-pad (up, down, left, right).
 const STICK = 0.4, STICK_UP = 0.5;
+// A direction of the gamepad held down repeats, after a moment, as a key does: for the options and a name.
+const REPEAT_AFTER = 450, REPEAT_EVERY = 110;      // ms
+const DIRECTIONS = ['up', 'down', 'left', 'right'] as const;
 const PRESSES = ['jump', 'attack', 'special', 'restart', 'music', 'pause', 'full', 'cheat', 'win', 'view', 'options'] as const;
 
 export class Input {
@@ -29,13 +32,16 @@ export class Input {
   private readonly held: Record<(typeof PRESSES)[number], boolean> = { jump: false, attack: false, special: false, restart: false, music: false, pause: false, full: false, cheat: false, win: false, view: false, options: false };
   private typed: string[] = [];
   private padHeld: PadPresses = { up: false, down: false, left: false, right: false, confirm: false, back: false, finish: false, options: false, select: false };
+  private readonly heldSince: Record<(typeof DIRECTIONS)[number], number> = { up: 0, down: 0, left: 0, right: 0 };
+  private readonly lastRepeat: Record<(typeof DIRECTIONS)[number], number> = { up: 0, down: 0, left: 0, right: 0 };
 
-  constructor(target: EventTarget, private readonly pads: () => readonly (PadLike | null)[]) {
+  constructor(target: EventTarget, private readonly pads: () => readonly (PadLike | null)[], private readonly now: () => number = () => performance.now()) {
     target.addEventListener('keydown', event => {
       const e = event as KeyboardEvent;
       this.keys.add(e.code);
       if (!e.repeat) this.taps.add(e.code);
-      if (typeof e.key === 'string' && e.key && (!e.repeat || e.key === 'Backspace')) this.typed.push(e.key);
+      // Typed once; but Backspace and the arrows held down repeat, so that a name and the options scroll.
+      if (typeof e.key === 'string' && e.key && (!e.repeat || e.key === 'Backspace' || e.key.startsWith('Arrow'))) this.typed.push(e.key);
       if ((e.code.startsWith('Arrow') || e.code === 'Space') && e.preventDefault) e.preventDefault();
     });
     target.addEventListener('keyup', event => { this.keys.delete((event as KeyboardEvent).code); });
@@ -66,6 +72,12 @@ export class Input {
       typed: this.typed,
       pad: Object.fromEntries(Object.entries(padNow).map(([k, v]) => [k, v && !this.padHeld[k as keyof PadPresses]])) as unknown as PadPresses,
     };
+    const t = this.now();
+    for (const d of DIRECTIONS) {
+      if (!padNow[d]) continue;
+      if (!this.padHeld[d]) { this.heldSince[d] = t; this.lastRepeat[d] = t; continue; }
+      if (t - this.heldSince[d] >= REPEAT_AFTER && t - this.lastRepeat[d] >= REPEAT_EVERY) { frame.pad[d] = true; this.lastRepeat[d] = t; }
+    }
     this.padHeld = padNow;
     this.typed = [];
     this.taps.clear();

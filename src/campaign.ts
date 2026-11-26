@@ -29,6 +29,50 @@ export function firstLevel(search: string, count: number): number | null {
   return Number.isInteger(asked) && asked >= 1 && asked <= count ? asked - 1 : null;
 }
 
+// ---- the credits -------------------------------------------------------------------------------
+
+/** A line of the credits: `head` in gold, `big` larger; an empty text is a gap. */
+export interface Credit { text: string; head?: boolean; big?: boolean }
+
+export const CREDITS: readonly Credit[] = [
+  { text: 'THE UNEXTINGUISHED', big: true, head: true }, { text: '' },
+  { text: 'A GAME BY' }, { text: 'WARNOTTE RENAUD', head: true }, { text: '' }, { text: '' },
+  { text: 'PICTURES', head: true },
+  { text: 'GOTHICVANIA CHURCH' }, { text: 'GOTHICVANIA CEMETERY' }, { text: 'THE GOTHICVANIA PATREON COLLECTION' }, { text: 'BY LUIS ZUNO - ANSIMUZ' }, { text: '' },
+  { text: 'EFFECTS', head: true },
+  { text: 'PIXELFX BY PATCH' }, { text: '' },
+  { text: 'MUSIC', head: true },
+  { text: 'PLAYED ON SOUND CHIPS OF OLD' }, { text: 'TWO SIDS OF THE COMMODORE 64 - RESID' }, { text: 'THE NES - THE SNES - FM - THE AY-3-8910' },
+  { text: 'THROUGH THE DSP CORE OF NOOBSYNTH' }, { text: 'THE DIES IRAE - A CHANT OF THE 13TH CENTURY' }, { text: '' },
+  { text: 'SOUNDS', head: true },
+  { text: 'MADE ON THE SPOT - NO SAMPLES' }, { text: '' }, { text: '' },
+  { text: 'THANK YOU FOR PLAYING', head: true },
+];
+
+/** px a second the credits roll up; px between two lines. */
+export const CREDITS_SPEED = 24, CREDITS_STEP = 18;
+
+/** Seconds the credits take to roll by: from under the picture until the last line stands in the middle. */
+export function creditsLength(view = 360): number {
+  return (view + CREDITS.length * CREDITS_STEP - view / 2) / CREDITS_SPEED;
+}
+
+// ---- the way back ------------------------------------------------------------------------------
+
+/** Where the furthest level reached is kept in the browser. */
+export const REACHED_KEY = 'unextinguished.reached';
+
+/** The furthest level reached, as kept (its index), or 0: none, or nothing that can be read. */
+export function reachedFrom(kept: string | null, count: number): number {
+  const n = Number(kept);
+  return kept !== null && Number.isInteger(n) && n > 0 && n < count ? n : 0;
+}
+
+/** The choices of the title once a level past the first was reached: go on from it, or a new game. */
+export function startWords(reached: number, title: string): string[] | null {
+  return reached > 0 ? [`CONTINUE  ${title}`, 'NEW GAME'] : null;
+}
+
 /** "?test" in the address: the trial mode, where the board can be tried without playing (N wins a level). */
 export function testMode(search: string): boolean {
   return new URLSearchParams(search).has('test');
@@ -51,11 +95,12 @@ export function titlePage(t: number, count: number): number {
 }
 
 /** A level just won, against the board: its time, the best before it, the place it takes (null: none), the cheat. */
-export interface LevelResult { time: number; best: number | null; place: number | null; cheated: boolean }
+export interface LevelResult { time: number; best: number | null; place: number | null; cheated: boolean; easy?: boolean }
 
 /** What the panel of a level won says of the board. */
 export function boardWords(r: LevelResult): string {
   if (r.cheated) return 'NO RECORD WITH THE CHEAT';
+  if (r.easy) return 'NO RECORD IN EASY MODE';
   if (r.place === 0) return 'NEW RECORD!';
   if (r.place !== null) return `NUMBER ${r.place + 1} ON THE BOARD`;
   return r.best !== null ? `BEST ${clockText(r.best)}` : '';

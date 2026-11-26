@@ -86,6 +86,7 @@ export class World {
   shake = 0;
   slow = 0;                        // while above zero, the page lets time pass slowly
   slain = 0;                       // foes ended: ghouls struck down, shades finished
+  mercy = 1;                       // of every blow the hero takes: a half in the easy mode
   /** The beast of the furnace, when the level has one. */
   get beast(): Actor | null { return this.foes.find(f => f.kind === 'beast') ?? null; }
   spilt = 0;                       // blood thrown, his and theirs, in the units of the blood events
@@ -209,7 +210,7 @@ export class World {
     }
     if (this.invincible) return null;
     p.guard = false;
-    p.hp = Math.max(0, p.hp - damage); p.invul = 1.2; p.hurtT = 0.3; p.attackT = 0; p.climbing = false;
+    p.hp = Math.max(0, p.hp - damage * this.mercy); p.invul = 1.2; p.hurtT = 0.3; p.attackT = 0; p.climbing = false;
     this.emit({ type: 'effect', kind: 'blunt-hit', x: p.x + p.w / 2, y: p.y + p.h, flip: dir < 0 });
     p.vx = dir * 280; p.vy = -250; p.onGround = false;
     this.hitStop = 0.08; this.shake = 0.2;

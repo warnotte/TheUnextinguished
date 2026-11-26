@@ -11,6 +11,7 @@ const FONT: Record<string, string> = {
   0: '111101101101111', 1: '010110010010111', 2: '110001010100111', 3: '110001010001110', 4: '101101111001001', 5: '111100110001110',
   6: '011100111101111', 7: '111001010010010', 8: '111101111101111', 9: '111101111001110',
   ':': '000010000010000', '?': '111001010000010', '.': '000000000000010', '!': '010010010000010', '/': '001001010100100', '-': '000000111000000', ' ': '000000000000000',
+  '>': '100010001010100', '<': '001010100010001',
 };
 
 export function text(g: CanvasRenderingContext2D, str: string, x: number, y: number, color: string | CanvasGradient, scale = 2): void {
@@ -21,6 +22,9 @@ export function text(g: CanvasRenderingContext2D, str: string, x: number, y: num
     x += 4 * scale;
   }
 }
+
+/** Whether the font of the game can write every letter of it. */
+export const writable = (str: string): boolean => [...str].every(ch => FONT[ch] !== undefined);
 
 export const textWidth = (str: string, scale = 2): number => str.length * 4 * scale - scale;
 

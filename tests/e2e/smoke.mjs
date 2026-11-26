@@ -20,7 +20,8 @@ const keys = async (...codes) => { for (const k of codes) { await page.keyboard.
 await page.addInitScript(() => {
   const edges = [], connect = AudioNode.prototype.connect;
   window.__edges = edges;
-  AudioNode.prototype.connect = function (to, ...rest) { edges.push([this, to]); return connect.call(this, to, ...rest); };
+  // Only for the check of the sound below: then it stops, or the nodes of every sound played would pile up and slow the page.
+  AudioNode.prototype.connect = function (to, ...rest) { if (!window.__doneEdges) edges.push([this, to]); return connect.call(this, to, ...rest); };
 });
 await page.goto(pathToFileURL('index.html').href);
 await page.waitForFunction(() => window.__game, null, { timeout: 15000 }).catch(() => {});
@@ -80,6 +81,7 @@ const astray = await game(() => {
   return out;
 });
 check('SOUNDS governs the echo of the hall and the wind as well', astray.length === 0, astray.join(', '));
+await game(() => { window.__doneEdges = true; window.__edges.length = 0; });
 
 const size = await game(() => { const c = document.getElementById('screen'); return [c.width, c.height, c.getBoundingClientRect().width]; });
 check('the picture is 640 x 360, shown at a whole scale', size[0] === 640 && size[1] === 360 && size[2] % 640 === 0, size.join(' '));
@@ -118,7 +120,7 @@ await page.waitForTimeout(100);
 check('O in the pause opens the options', await game(() => !!__game.options && __game.paused));
 const heard = await game(() => __game.sound.mixNow.music);
 check('the music is heard at its true level while it is set, not at the hush of the pause', heard === null || Math.abs(heard - 0.12) < 1e-3, String(heard));
-await keys('Space', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'ArrowDown', 'Space');
+await keys('Space', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'ArrowDown', 'ArrowDown', 'Space');
 await page.waitForTimeout(200);
 const after = await game(() => ({ clock: __game.world.clock, y: __game.world.hero.y, paused: __game.paused, options: !!__game.options, ash: __game.stage.ash }));
 check('back in the pause, the music is hushed again', await game(() => { const m = __game.sound.mixNow.music; return m === null || Math.abs(m - 0.036) < 1e-3; }));
@@ -213,6 +215,8 @@ await page.waitForFunction(() => window.__played.includes('drip'), null, { timeo
 check('water drips somewhere in the crypt, now and then', await game(() => window.__played.includes('drip')));
 await game(() => { const h = __game.world.hero; Object.assign(h, { x: 256 - h.w / 2, y: 464 - h.h, vx: 0, vy: 0, onGround: true, lastFloor: 29 }); });
 await page.waitForFunction(() => window.__played.includes('bubble'), null, { timeout: 5000 }).catch(() => {});
+// The ear closes over a fifth of a second: wait for it, not for the first bubble alone.
+await page.waitForFunction(() => (__game.sound.mixNow.muffle ?? 0) < 2000, null, { timeout: 2000 }).catch(() => {});
 const under = await game(() => ({ bubble: window.__played.includes('bubble'), muffle: __game.sound.mixNow.muffle }));
 check('under the water the hero lets out bubbles, and the world is stifled', under.bubble && under.muffle !== null && under.muffle < 2000, JSON.stringify(under));
 await game(() => { const h = __game.world.hero; Object.assign(h, { x: 560, y: 432 - h.h, vx: 0, vy: 0, onGround: true, lastFloor: 27 }); });
@@ -288,7 +292,38 @@ await page.locator('#screen').screenshot({ path: 'tests/e2e/out/end-named.png' }
 await page.waitForTimeout(1200);
 await page.keyboard.press('Space');
 await page.waitForTimeout(300);
-check('jump on the end goes back to the title', await game(() => __game.scene === 'title'));
+check('jump on the end rolls the credits', await game(() => __game.scene === 'credits'));
+await page.waitForTimeout(6000);
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/credits.png' });
+await page.keyboard.press('Space');
+await page.waitForTimeout(300);
+check('jump on the credits goes back to the title', await game(() => __game.scene === 'title'));
+
+// The way back: the furthest level reached is kept in the browser; the title offers to go on from it,
+// first, or a new game.
+await page.goto(pathToFileURL('index.html').href);
+await page.waitForFunction(() => window.__game, null, { timeout: 15000 });
+await page.waitForTimeout(300);
+const back = await game(() => ({ scene: __game.scene, reached: __game.reached, at: __game.startAt }));
+check('the title offers to go on from the furthest level reached', back.scene === 'title' && back.reached > 0 && back.at === 0, JSON.stringify(back));
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/continue.png' });
+await page.keyboard.press('Space');
+await page.waitForTimeout(400);
+check('jump goes on from it', await page.evaluate(r => __game.scene === 'play' && __game.level === r, back.reached));
+await page.goto(pathToFileURL('index.html').href);
+await page.waitForFunction(() => window.__game, null, { timeout: 15000 });
+await page.waitForTimeout(300);
+await keys('ArrowDown', 'Space');
+await page.waitForTimeout(400);
+check('down, then jump: a new game, from the first level', await game(() => __game.scene === 'play' && __game.level === 0));
+// The easy mode, chosen in the pause: the hero takes half of a blow.
+await keys('KeyP', 'KeyO', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowRight');
+await page.waitForTimeout(150);
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/options-easy.png' });
+await keys('Escape', 'KeyP');
+const eased = await game(() => { const w = __game.world; w.hero.invul = 0; const hp = w.hero.hp; w.hurtHero(1, 1); return { mercy: w.mercy, lost: hp - w.hero.hp, kept: __game.settings.difficulty }; });
+check('the easy mode, chosen in the pause, halves the blows', eased.mercy === 0.5 && eased.lost === 0.5 && eased.kept === 'easy', JSON.stringify(eased));
+await keys('KeyP', 'KeyO', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'Escape', 'KeyP');
 
 // The trial mode: N wins a level at once, and its board is kept apart from the real one.
 await page.goto(pathToFileURL('index.html').href + '?test&level=1');

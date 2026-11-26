@@ -2,7 +2,7 @@
 // the controls, and the tally of the run.
 
 import { VIEW_H, VIEW_W } from './camera';
-import { clockText } from '../campaign';
+import { CREDITS, CREDITS_SPEED, CREDITS_STEP, clockText, creditsLength } from '../campaign';
 import { type Initials, NAME_LENGTH } from '../initials';
 import { LEVELS, OPTION_LINES, type OptionsMenu } from '../options';
 import type { Entry } from '../records';
@@ -70,7 +70,7 @@ const CONTROLS: [string, string, string][] = [
 ];
 
 /** The title: the controls, or a table of the board (`page`), in turn; or the options, while they are open. */
-export function drawTitle(g: CanvasRenderingContext2D, t: number, page: { title: string; entries: Entry[] } | null = null, menu: OptionsMenu | null = null, musicOn = true): void {
+export function drawTitle(g: CanvasRenderingContext2D, t: number, page: { title: string; entries: Entry[] } | null = null, menu: OptionsMenu | null = null, musicOn = true, start: { lines: string[]; at: number } | null = null): void {
   g.setTransform(1, 0, 0, 1, 0, 0);
   veil(g);
   sparks(g, t);
@@ -91,7 +91,12 @@ export function drawTitle(g: CanvasRenderingContext2D, t: number, page: { title:
   centered(g, 'THE CHARGE COSTS AN EMBER', py + 116, DIM);
   }
 
-  if (blink(t)) centered(g, 'PRESS JUMP TO START', 286, GOLD, 3);
+  if (start) start.lines.forEach((line, i) => {
+    // The way back: the choice in gold between its arrows, the other dim; up and down choose, jump starts.
+    const here = i === start.at;
+    centered(g, here ? `> ${line} <` : line, 278 + i * 18, here ? GOLD : DIM);
+  });
+  else if (blink(t)) centered(g, 'PRESS JUMP TO START', 286, GOLD, 3);
   centered(g, 'F FULL SCREEN    M MUSIC    P PAUSE    H COLLISIONS    O OPTIONS', 334, DIM);
 }
 
@@ -103,7 +108,7 @@ export const OPTIONS_HINT = 'ARROWS CHOOSE AND CHANGE  O BACK';
  * squares, the blood red or ash, and how to work it under them.
  */
 export function drawOptions(g: CanvasRenderingContext2D, t: number, menu: OptionsMenu, musicOn: boolean): void {
-  const px = 150, pw = 340, py = 124, ph = 152;
+  const px = 150, pw = 340, py = 124, ph = 174;
   g.fillStyle = 'rgba(10,8,20,0.94)'; g.fillRect(px, py, pw, ph);
   g.strokeStyle = 'rgba(154,143,192,0.8)'; g.lineWidth = 2; g.strokeRect(px + 1, py + 1, pw - 2, ph - 2);
   centered(g, 'OPTIONS', py + 12, GOLD);
@@ -122,6 +127,7 @@ export function drawOptions(g: CanvasRenderingContext2D, t: number, menu: Option
         else { g.strokeStyle = DIM; g.lineWidth = 1; g.strokeRect(x + 0.5, y + 0.5, 10, 9); }
       }
     } else if (what === 'BLOOD') text(g, o.blood === 'red' ? 'RED' : 'ASH', vx, y, o.blood === 'red' ? '#ff6a5a' : '#b3aeb8');
+    else if (what === 'DIFFICULTY') text(g, o.difficulty === 'easy' ? 'EASY' : 'NORMAL', vx, y, o.difficulty === 'easy' ? '#8ff0c0' : PALE);
   });
   centered(g, OPTIONS_HINT, py + ph - 22, DIM);
 }
@@ -144,6 +150,21 @@ export function drawEnd(g: CanvasRenderingContext2D, t: number, lines: string[],
   }
   if (note) centered(g, note, 274, GOLD);
   if (t > 1.5 && blink(t)) centered(g, 'PRESS JUMP', 300, GOLD, 3);
+}
+
+/** The credits, rolling up over the place, and the last line, the thanks, coming to rest in the middle. */
+export function drawCredits(g: CanvasRenderingContext2D, t: number): void {
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  veil(g);
+  g.fillStyle = 'rgba(8,6,18,0.35)'; g.fillRect(0, 0, VIEW_W, VIEW_H);
+  sparks(g, t);
+  const shift = Math.min(t, creditsLength(VIEW_H)) * CREDITS_SPEED;
+  CREDITS.forEach((c, i) => {
+    const y = Math.round(VIEW_H + i * CREDITS_STEP - shift);
+    if (y < -30 || y > VIEW_H + 10 || !c.text) return;
+    centered(g, c.text, y, c.head ? GOLD : PALE, c.big ? 3 : 2);
+  });
+  if (t > creditsLength(VIEW_H) && blink(t)) centered(g, 'PRESS JUMP', 300, DIM);
 }
 
 /** A table of the board: its places, names and times; the empty places dashed. */

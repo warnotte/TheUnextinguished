@@ -88,6 +88,24 @@ describe('Input', () => {
     expect(input.read().pad).toMatchObject({ down: true, back: true, finish: true });
   });
 
+  it('hands over an arrow held down again and again, as the keyboard repeats it: the options and a name scroll', () => {
+    const keys = new Keys(), input = new Input(keys, () => []);
+    keys.down('ArrowRight', false, 'ArrowRight'); keys.down('ArrowRight', true, 'ArrowRight'); keys.down('ArrowRight', true, 'ArrowRight');
+    keys.down('KeyA', true, 'a');
+    expect(input.read().typed).toEqual(['ArrowRight', 'ArrowRight', 'ArrowRight']);
+  });
+
+  it('repeats a direction of the gamepad held down, after a moment', () => {
+    let now = 0;
+    const input = new Input(new Keys(), () => [pad([0.9, 0])], () => now);
+    const right = () => input.read().pad.right;
+    expect(right()).toBe(true);
+    now = 200; expect(right()).toBe(false);
+    now = 460; expect(right()).toBe(true);
+    now = 500; expect(right()).toBe(false);
+    now = 580; expect(right()).toBe(true);
+  });
+
   it('reads N as a press: the level won at once, in the trial mode', () => {
     const keys = new Keys(), input = new Input(keys, () => []);
     keys.down('KeyN');

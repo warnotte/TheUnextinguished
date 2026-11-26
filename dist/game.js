@@ -3,7 +3,7 @@
   // src/options.ts
   var LEVELS = 10;
   var MIDDLE = 7;
-  var DEFAULT_OPTIONS = Object.freeze({ music: MIDDLE, sounds: MIDDLE, blood: "red" });
+  var DEFAULT_OPTIONS = Object.freeze({ music: MIDDLE, sounds: MIDDLE, blood: "red", difficulty: "normal" });
   var KEY = "unextinguished.options";
   function loadOptions(store) {
     let kept = null;
@@ -17,16 +17,17 @@
     return {
       music: level(o.music, DEFAULT_OPTIONS.music),
       sounds: level(o.sounds, DEFAULT_OPTIONS.sounds),
-      blood: o.blood === "ash" || o.blood === "red" ? o.blood : DEFAULT_OPTIONS.blood
+      blood: o.blood === "ash" || o.blood === "red" ? o.blood : DEFAULT_OPTIONS.blood,
+      difficulty: o.difficulty === "easy" || o.difficulty === "normal" ? o.difficulty : DEFAULT_OPTIONS.difficulty
     };
   }
   function saveOptions(store, o) {
-    store.set(KEY, JSON.stringify({ music: o.music, sounds: o.sounds, blood: o.blood }));
+    store.set(KEY, JSON.stringify({ music: o.music, sounds: o.sounds, blood: o.blood, difficulty: o.difficulty }));
   }
   function levelGain(level) {
     return (level / MIDDLE) ** 2;
   }
-  var OPTION_LINES = ["MUSIC", "SOUNDS", "BLOOD", "BACK"];
+  var OPTION_LINES = ["MUSIC", "SOUNDS", "BLOOD", "DIFFICULTY", "BACK"];
   var OptionsMenu = class {
     line = 0;
     done = false;
@@ -50,10 +51,10 @@
     right() {
       this.turn(1);
     }
-    /** Jump or A: the blood turns, BACK closes; on a level it does nothing. */
+    /** Jump or A: the blood or the difficulty turns, BACK closes; on a level it does nothing. */
     confirm() {
       this.changed = null;
-      if (OPTION_LINES[this.line] === "BLOOD") this.turn(1);
+      if (OPTION_LINES[this.line] === "BLOOD" || OPTION_LINES[this.line] === "DIFFICULTY") this.turn(1);
       else if (OPTION_LINES[this.line] === "BACK") this.done = true;
     }
     back() {
@@ -70,6 +71,9 @@
       } else if (what === "BLOOD") {
         o.blood = o.blood === "red" ? "ash" : "red";
         this.changed = "blood";
+      } else if (what === "DIFFICULTY") {
+        o.difficulty = o.difficulty === "normal" ? "easy" : "normal";
+        this.changed = "difficulty";
       }
     }
   };
@@ -109,7 +113,7 @@
         menu.confirm();
         after();
       }
-      if (pad.back || pad.finish) menu.back();
+      if (pad.back || pad.finish || pad.options || pad.select) menu.back();
     }
     return last;
   }
@@ -704,6 +708,48 @@
     const asked = Number(new URLSearchParams(search).get("level"));
     return Number.isInteger(asked) && asked >= 1 && asked <= count ? asked - 1 : null;
   }
+  var CREDITS = [
+    { text: "THE UNEXTINGUISHED", big: true, head: true },
+    { text: "" },
+    { text: "A GAME BY" },
+    { text: "WARNOTTE RENAUD", head: true },
+    { text: "" },
+    { text: "" },
+    { text: "PICTURES", head: true },
+    { text: "GOTHICVANIA CHURCH" },
+    { text: "GOTHICVANIA CEMETERY" },
+    { text: "THE GOTHICVANIA PATREON COLLECTION" },
+    { text: "BY LUIS ZUNO - ANSIMUZ" },
+    { text: "" },
+    { text: "EFFECTS", head: true },
+    { text: "PIXELFX BY PATCH" },
+    { text: "" },
+    { text: "MUSIC", head: true },
+    { text: "PLAYED ON SOUND CHIPS OF OLD" },
+    { text: "TWO SIDS OF THE COMMODORE 64 - RESID" },
+    { text: "THE NES - THE SNES - FM - THE AY-3-8910" },
+    { text: "THROUGH THE DSP CORE OF NOOBSYNTH" },
+    { text: "THE DIES IRAE - A CHANT OF THE 13TH CENTURY" },
+    { text: "" },
+    { text: "SOUNDS", head: true },
+    { text: "MADE ON THE SPOT - NO SAMPLES" },
+    { text: "" },
+    { text: "" },
+    { text: "THANK YOU FOR PLAYING", head: true }
+  ];
+  var CREDITS_SPEED = 24;
+  var CREDITS_STEP = 18;
+  function creditsLength(view = 360) {
+    return (view + CREDITS.length * CREDITS_STEP - view / 2) / CREDITS_SPEED;
+  }
+  var REACHED_KEY = "unextinguished.reached";
+  function reachedFrom(kept, count) {
+    const n = Number(kept);
+    return kept !== null && Number.isInteger(n) && n > 0 && n < count ? n : 0;
+  }
+  function startWords(reached, title) {
+    return reached > 0 ? [`CONTINUE  ${title}`, "NEW GAME"] : null;
+  }
   function testMode(search) {
     return new URLSearchParams(search).has("test");
   }
@@ -719,6 +765,7 @@
   }
   function boardWords(r) {
     if (r.cheated) return "NO RECORD WITH THE CHEAT";
+    if (r.easy) return "NO RECORD IN EASY MODE";
     if (r.place === 0) return "NEW RECORD!";
     if (r.place !== null) return `NUMBER ${r.place + 1} ON THE BOARD`;
     return r.best !== null ? `BEST ${clockText(r.best)}` : "";
@@ -859,14 +906,18 @@
   };
   var STICK = 0.4;
   var STICK_UP = 0.5;
+  var REPEAT_AFTER = 450;
+  var REPEAT_EVERY = 110;
+  var DIRECTIONS = ["up", "down", "left", "right"];
   var Input = class {
-    constructor(target, pads) {
+    constructor(target, pads, now = () => performance.now()) {
       this.pads = pads;
+      this.now = now;
       target.addEventListener("keydown", (event) => {
         const e = event;
         this.keys.add(e.code);
         if (!e.repeat) this.taps.add(e.code);
-        if (typeof e.key === "string" && e.key && (!e.repeat || e.key === "Backspace")) this.typed.push(e.key);
+        if (typeof e.key === "string" && e.key && (!e.repeat || e.key === "Backspace" || e.key.startsWith("Arrow"))) this.typed.push(e.key);
         if ((e.code.startsWith("Arrow") || e.code === "Space") && e.preventDefault) e.preventDefault();
       });
       target.addEventListener("keyup", (event) => {
@@ -879,12 +930,15 @@
       });
     }
     pads;
+    now;
     keys = /* @__PURE__ */ new Set();
     taps = /* @__PURE__ */ new Set();
     // pressed since the last read: a tap shorter than a frame still counts
     held = { jump: false, attack: false, special: false, restart: false, music: false, pause: false, full: false, cheat: false, win: false, view: false, options: false };
     typed = [];
     padHeld = { up: false, down: false, left: false, right: false, confirm: false, back: false, finish: false, options: false, select: false };
+    heldSince = { up: 0, down: 0, left: 0, right: 0 };
+    lastRepeat = { up: 0, down: 0, left: 0, right: 0 };
     /** The state of the controls now. Call once per frame: presses are reported on the frame they happen. */
     read() {
       const key = (name2) => KEYS[name2].some((code) => this.keys.has(code) || this.taps.has(code));
@@ -939,6 +993,19 @@
         typed: this.typed,
         pad: Object.fromEntries(Object.entries(padNow).map(([k, v]) => [k, v && !this.padHeld[k]]))
       };
+      const t = this.now();
+      for (const d of DIRECTIONS) {
+        if (!padNow[d]) continue;
+        if (!this.padHeld[d]) {
+          this.heldSince[d] = t;
+          this.lastRepeat[d] = t;
+          continue;
+        }
+        if (t - this.heldSince[d] >= REPEAT_AFTER && t - this.lastRepeat[d] >= REPEAT_EVERY) {
+          frame.pad[d] = true;
+          this.lastRepeat[d] = t;
+        }
+      }
       this.padHeld = padNow;
       this.typed = [];
       this.taps.clear();
@@ -2876,6 +2943,8 @@
     // while above zero, the page lets time pass slowly
     slain = 0;
     // foes ended: ghouls struck down, shades finished
+    mercy = 1;
+    // of every blow the hero takes: a half in the easy mode
     /** The beast of the furnace, when the level has one. */
     get beast() {
       return this.foes.find((f) => f.kind === "beast") ?? null;
@@ -2983,7 +3052,7 @@
       }
       if (this.invincible) return null;
       p.guard = false;
-      p.hp = Math.max(0, p.hp - damage);
+      p.hp = Math.max(0, p.hp - damage * this.mercy);
       p.invul = 1.2;
       p.hurtT = 0.3;
       p.attackT = 0;
@@ -5639,7 +5708,9 @@
     "!": "010010010000010",
     "/": "001001010100100",
     "-": "000000111000000",
-    " ": "000000000000000"
+    " ": "000000000000000",
+    ">": "100010001010100",
+    "<": "001010100010001"
   };
   function text(g2, str, x, y, color, scale = 2) {
     g2.fillStyle = color;
@@ -5724,7 +5795,7 @@
     ["GUARD", "C", "LB"],
     ["CHARGE", "V", "Y"]
   ];
-  function drawTitle(g2, t, page = null, menu = null, musicOn = true) {
+  function drawTitle(g2, t, page = null, menu = null, musicOn = true, start = null) {
     g2.setTransform(1, 0, 0, 1, 0, 0);
     veil(g2);
     sparks(g2, t);
@@ -5749,12 +5820,16 @@
       });
       centered(g2, "THE CHARGE COSTS AN EMBER", py + 116, DIM);
     }
-    if (blink(t)) centered(g2, "PRESS JUMP TO START", 286, GOLD, 3);
+    if (start) start.lines.forEach((line, i) => {
+      const here = i === start.at;
+      centered(g2, here ? `> ${line} <` : line, 278 + i * 18, here ? GOLD : DIM);
+    });
+    else if (blink(t)) centered(g2, "PRESS JUMP TO START", 286, GOLD, 3);
     centered(g2, "F FULL SCREEN    M MUSIC    P PAUSE    H COLLISIONS    O OPTIONS", 334, DIM);
   }
   var OPTIONS_HINT = "ARROWS CHOOSE AND CHANGE  O BACK";
   function drawOptions(g2, t, menu, musicOn) {
-    const px = 150, pw = 340, py = 124, ph = 152;
+    const px = 150, pw = 340, py = 124, ph = 174;
     g2.fillStyle = "rgba(10,8,20,0.94)";
     g2.fillRect(px, py, pw, ph);
     g2.strokeStyle = "rgba(154,143,192,0.8)";
@@ -5782,6 +5857,7 @@
           }
         }
       } else if (what === "BLOOD") text(g2, o.blood === "red" ? "RED" : "ASH", vx, y, o.blood === "red" ? "#ff6a5a" : "#b3aeb8");
+      else if (what === "DIFFICULTY") text(g2, o.difficulty === "easy" ? "EASY" : "NORMAL", vx, y, o.difficulty === "easy" ? "#8ff0c0" : PALE);
     });
     centered(g2, OPTIONS_HINT, py + ph - 22, DIM);
   }
@@ -5802,6 +5878,20 @@
     }
     if (note) centered(g2, note, 274, GOLD);
     if (t > 1.5 && blink(t)) centered(g2, "PRESS JUMP", 300, GOLD, 3);
+  }
+  function drawCredits(g2, t) {
+    g2.setTransform(1, 0, 0, 1, 0, 0);
+    veil(g2);
+    g2.fillStyle = "rgba(8,6,18,0.35)";
+    g2.fillRect(0, 0, VIEW_W, VIEW_H);
+    sparks(g2, t);
+    const shift = Math.min(t, creditsLength(VIEW_H)) * CREDITS_SPEED;
+    CREDITS.forEach((c, i) => {
+      const y = Math.round(VIEW_H + i * CREDITS_STEP - shift);
+      if (y < -30 || y > VIEW_H + 10 || !c.text) return;
+      centered(g2, c.text, y, c.head ? GOLD : PALE, c.big ? 3 : 2);
+    });
+    if (t > creditsLength(VIEW_H) && blink(t)) centered(g2, "PRESS JUMP", 300, DIM);
   }
   function drawTable(g2, title, entries, px, py, pw) {
     centered(g2, title, py + 12, GOLD);
@@ -5981,7 +6071,7 @@
       };
       if (w.state === "won") this.wonPanel(g2, t, clock, won);
       else if (w.state === "lost" && w.slow <= 0) panel2([["KNOCKED OUT", "#ff7a6a", 4], ["PRESS JUMP TO TRY AGAIN", "#9d93b8"]]);
-      else if (paused) panel2([["PAUSED", "#ffe27a", 4], ["PRESS P TO GO ON", "#9d93b8"], ["O OPTIONS", "#9d93b8"]]);
+      else if (paused) panel2([["PAUSED", "#ffe27a", 4], ["PRESS P TO GO ON", "#9d93b8"], ["O OR Y  OPTIONS", "#9d93b8"]]);
     }
   };
 
@@ -7839,6 +7929,7 @@
     let cheat = false;
     let collisions = false;
     let levelCheated = false, runCheated = false;
+    let levelEased = false, runEased = false;
     let result = null;
     let naming = null;
     let endLines = [], endNote = null;
@@ -7848,12 +7939,22 @@
     const ashen = () => settings.blood === "ash";
     sound.setLevels(settings.music, settings.sounds);
     scenery.ash = ashen();
+    let reached = reachedFrom(store.get(REACHED_KEY), levels.length);
+    let startAt = 0;
+    const keeps = asked === null && !trial;
     const apply = (o, changed) => {
       settings = { ...o };
       saveOptions(store, settings);
       if (changed === "music" && !sound.musicOn) sound.toggleMusic();
       sound.setLevels(settings.music, settings.sounds);
       for (const st of [stage, scenery, ending]) if (st) st.ash = ashen();
+      if (world) {
+        world.mercy = settings.difficulty === "easy" ? 0.5 : 1;
+        if (world.mercy < 1) {
+          levelEased = true;
+          runEased = true;
+        }
+      }
       if (changed === "sounds") sound.play("hit");
     };
     const pages = [null, { title: "BEST RUNS", key: "run" }, ...levels.map((l) => ({ title: l.settings.title, key: l.settings.name }))];
@@ -7866,11 +7967,18 @@
       leave();
       index = i;
       scene = "play";
+      if (keeps && i > reached) {
+        reached = i;
+        store.set(REACHED_KEY, String(i));
+      }
       const level = levels[i];
       world = new World(level);
       world.invincible = cheat;
       levelCheated = cheat;
       runCheated ||= cheat;
+      world.mercy = settings.difficulty === "easy" ? 0.5 : 1;
+      levelEased = world.mercy < 1;
+      runEased ||= levelEased;
       result = null;
       naming = null;
       const boss = !!world.boss, beast = !!world.beast;
@@ -7885,13 +7993,18 @@
       bank = 0;
     };
     const show = (s) => {
+      if (s === "credits") {
+        scene = s;
+        sceneT = 0;
+        return;
+      }
       leave();
       scene = s;
       sceneT = 0;
       naming = null;
       endNote = null;
       if (s === "end") {
-        const counts = fromTitle && !runCheated, at = counts ? board.place("run", tally.time) : null;
+        const counts = fromTitle && !runCheated && !runEased, at = counts ? board.place("run", tally.time) : null;
         endLines = endWords(tally, counts ? { best: board.best("run") ?? tally.time, isNew: at === 0 } : void 0, !ashen());
         if (at !== null) naming = { name: new Initials(board.lastName), key: "run", time: tally.time };
       }
@@ -7914,7 +8027,11 @@
       fromTitle = false;
       start(asked);
     }
-    window.__game = { get options() {
+    window.__game = { get reached() {
+      return reached;
+    }, get startAt() {
+      return startAt;
+    }, get options() {
       return options;
     }, get settings() {
       return settings;
@@ -7938,26 +8055,48 @@
       sceneT += dt;
       clock += dt;
       const go2 = c.jumpPressed || c.restartPressed;
+      const offer = scene === "title" ? startWords(reached, levels[reached].settings.title) : null;
+      if (offer) {
+        for (const k of c.typed) {
+          if (k === "ArrowUp" || k === "z" || k === "w") startAt = 0;
+          else if (k === "ArrowDown" || k === "s") startAt = 1;
+        }
+        if (c.pad.up) startAt = 0;
+        if (c.pad.down) startAt = 1;
+      }
       if (scene === "title" && go2) {
         tally = NO_RUN;
-        fromTitle = true;
         runCheated = cheat;
-        start(0);
+        runEased = false;
+        if (offer && startAt === 0) {
+          fromTitle = false;
+          start(reached);
+        } else {
+          fromTitle = true;
+          start(0);
+        }
         return;
       }
       if (scene === "end" && go2 && sceneT > 1.5 && !naming) {
+        show("credits");
+        return;
+      }
+      if (scene === "credits" && (go2 && sceneT > 1 || sceneT > creditsLength() + 8)) {
         show("title");
         return;
       }
-      const where = scene === "end" ? endPlace : place, st = scene === "end" ? ending : scenery;
+      const after = scene === "end" || scene === "credits";
+      const where = after ? endPlace : place, st = after ? ending : scenery;
       st.look(...panAim(sceneT, where.width, where.height));
       st.update(dt);
       for (const name2 of st.heard()) sound.play(name2);
       st.draw(g, clock, false);
       if (scene === "title") {
         const page = pages[titlePage(sceneT, pages.length)];
-        drawTitle(g, sceneT, page && { title: page.title, entries: board.table(page.key) }, options, sound.musicOn);
-      } else drawEnd(g, sceneT, endLines, naming?.name ?? null, endNote);
+        const offer2 = startWords(reached, levels[reached].settings.title);
+        drawTitle(g, sceneT, page && { title: page.title, entries: board.table(page.key) }, options, sound.musicOn, offer2 && { lines: offer2, at: startAt });
+      } else if (scene === "credits") drawCredits(g, sceneT);
+      else drawEnd(g, sceneT, endLines, naming?.name ?? null, endNote);
       if (trial) text(g, "TEST  RECORDS APART", 8, 8, "#ff8a2a");
     };
     const play = (w, st, c, elapsed) => {
@@ -7994,8 +8133,8 @@
         }
       }
       if (w.state === "won" && !result) {
-        const key = w.level.settings.name, at = levelCheated ? null : board.place(key, w.clock);
-        result = { time: w.clock, best: board.best(key), place: at, cheated: levelCheated };
+        const key = w.level.settings.name, at = levelCheated || levelEased ? null : board.place(key, w.clock);
+        result = { time: w.clock, best: board.best(key), place: at, cheated: levelCheated, easy: levelEased };
         if (at !== null) naming = { name: new Initials(board.lastName), key, time: w.clock };
         st.setResult(result, naming?.name ?? null);
       }
@@ -8026,7 +8165,7 @@
           options = null;
           if (scene === "play" && paused) sound.hush(true);
         }
-        Object.assign(c, { x: 0, up: false, down: false, jump: false, guard: false, jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, pausePressed: false, winPressed: false });
+        Object.assign(c, { x: 0, up: false, down: false, jump: false, guard: false, jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, pausePressed: false, winPressed: false, typed: [], pad: { ...c.pad, up: false, down: false, left: false, right: false } });
       } else {
         if (c.musicPressed) sound.toggleMusic();
         if (c.fullPressed) toggleFull();
