@@ -107,11 +107,24 @@ check('its music starts with it, without a silence', gap !== null && gap < 40, `
 await page.waitForTimeout(600);
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/second.png' });
 
-// The last level, the bell chamber: its demon, its bell, its skeletons.
-await game(() => __game.start(3));
+// The third level, the flooded crypt: the hero wades through its water, slower, and it splashes.
+await game(() => __game.start(2));
+await page.waitForTimeout(400);
+const flooded = await game(() => ({ name: __game.world.level.settings.name, water: __game.world.level.settings.water, rain: __game.world.level.settings.rain }));
+check('the third level is the flooded crypt, its water and its rain', flooded.name === 'inondee' && flooded.water > 0 && flooded.rain, JSON.stringify(flooded));
+await game(() => { const w = __game.world, h = w.hero; w.invincible = true; Object.assign(h, { x: 560, y: 432 - h.h, vx: 0, vy: 0, onGround: true, climbing: false, lastFloor: 27 }); });
+await page.waitForTimeout(500);
+const w0 = await game(() => __game.world.hero.x);
+await page.keyboard.down('ArrowRight'); await page.waitForTimeout(600); await page.keyboard.up('ArrowRight');
+const w1 = await game(() => __game.world.hero.x);
+check('in its water the hero wades, slower than he runs', w1 - w0 > 20 && w1 - w0 < (x1 - x0) * 0.85, `${(w1 - w0).toFixed(0)} px against ${(x1 - x0).toFixed(0)} on dry stone`);
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/flooded.png' });
+
+// The bell chamber: its demon, its bell, its skeletons.
+await game(() => __game.start(4));
 await page.waitForTimeout(300);
 const chamber = await game(() => ({ name: __game.world.level.settings.name, boss: !!__game.world.boss, door: __game.world.door }));
-check('the last level is the bell chamber, with its demon and no door', chamber.name === 'clocher' && chamber.boss && chamber.door === null, JSON.stringify(chamber));
+check('the fifth level is the bell chamber, with its demon and no door', chamber.name === 'clocher' && chamber.boss && chamber.door === null, JSON.stringify(chamber));
 await game(() => { __game.world.invincible = true; });
 await page.waitForFunction(() => __game.world.foes.some(f => f.kind === 'skeleton'), null, { timeout: 8000 }).catch(() => {});
 check('the bell tolls and raises skeletons', await game(() => __game.world.foes.some(f => f.kind === 'skeleton')));

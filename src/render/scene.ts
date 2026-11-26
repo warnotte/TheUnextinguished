@@ -36,10 +36,48 @@ export function groundLine(grid: Grid): number {
   return grid.rows * TILE;
 }
 
+/**
+ * Where the rain stops, column by column: under an open roof, the top of the first stone it meets,
+ * or the surface of the water if it comes first (`water` 0: no water); null under the roof.
+ */
+export function rainLine(grid: Grid, water: number): (number | null)[] {
+  const out: (number | null)[] = [];
+  for (let c = 0; c < grid.cols; c++) {
+    if (grid.solidAt(c, 0)) { out.push(null); continue; }
+    let r = 0;
+    while (r < grid.rows && !grid.solidAt(c, r)) r++;
+    const stone = r * TILE;
+    out.push(water > 0 && water < stone ? water : stone);
+  }
+  return out;
+}
+
 // The three floor pieces of the tileset (48 x 40 each): a walking surface over jagged rock.
 const FLOORS = [[64, 167], [128, 167], [0, 168]] as const;
 const floorPiece = (c: number): [number, number] => { const [sx, sy] = FLOORS[Math.floor(c / 3) % 3]; return [sx + (c % 3) * TILE, sy]; };
 const FILL = '#1b0f2b';          // the dark the tileset puts under its floors
+
+// A breach in the vault: the wall torn open on the night from the top of the level down, wide at the
+// roof and narrowing, its edge ragged, broken stone round it.
+function paintBreach(b: CanvasRenderingContext2D, o: LevelObject): void {
+  const w = Number(o.props.width ?? 160), h = Number(o.props.height ?? 96);
+  const half = (y: number, grow: number) => {
+    const k = y / h, ragged = (hash(Math.floor(y / 3), o.x) - 0.5) * 14 + (hash(Math.floor(y / 7), o.x + 1) - 0.5) * 10;
+    return Math.max(0, (w / 2) * (1 - k * k) + ragged * (1 - k * 0.5) + grow);
+  };
+  const rows = (grow: number, color: string): void => {
+    b.fillStyle = color;
+    for (let y = 0; y < h + grow; y++) { const x = half(y, grow); if (x > 0) b.fillRect(Math.round(o.x - x), o.y + y, Math.round(x * 2), 1); }
+  };
+  rows(7, '#1c1930'); rows(5, '#5a5080'); rows(3, '#3a3358'); rows(1, '#16132a');
+  b.save(); b.globalCompositeOperation = 'destination-out'; rows(0, '#000'); b.restore();
+  // Stones of the vault, broken, hanging at its edge.
+  for (let i = 0; i < 9; i++) {
+    const y = Math.floor(hash(i, o.x + 3) * h * 0.8), side = i % 2 ? 1 : -1, x = o.x + side * (half(y, 2) + 1);
+    b.fillStyle = '#4a416e'; b.fillRect(Math.round(x - (side > 0 ? 0 : 5)), y, 5, 3);
+    b.fillStyle = '#221f36'; b.fillRect(Math.round(x - (side > 0 ? 0 : 5)), y + 3, 5, 1);
+  }
+}
 
 function paintChainLantern(b: CanvasRenderingContext2D, o: LevelObject): void {
   const r = (x: number, y: number, w: number, h: number, color: string) => { b.fillStyle = color; b.fillRect(x, y, w, h); };
@@ -107,7 +145,7 @@ export function paintBackdrop(level: Level, assets: Assets): HTMLCanvasElement {
       const kind = KINDS[o.kind];
       if (!kind || kind.role !== 'decor' || kind.plane !== plane) continue;
       if ('image' in kind) { const [sx, sy, sw, sh] = kind.src; b.drawImage(assets.image(kind.image), sx, sy, sw, sh, o.x - kind.anchor[0], o.y - kind.anchor[1], sw, sh); }
-      else if ('painter' in kind) (kind.painter === 'arch' ? paintArch : paintChainLantern)(b, o);
+      else if ('painter' in kind) ({ arch: paintArch, breach: paintBreach, 'chain-lantern': paintChainLantern })[kind.painter](b, o);
     }
   };
   decor('wall');

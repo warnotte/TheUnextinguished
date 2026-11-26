@@ -53,6 +53,9 @@ const CHARGE = { time: 0.3, speed: 540, reach: 10, trail: 0.02, after: 140 } as 
 const CHARGE_BLOW: Blow = { damage: 3, heavy: true, launch: true, pierce: true, blood: 90 };
 const MOTION = 0.35;             // seconds between down, forward and the strike that make the charge
 const GUARD_PUSH = 150, GUARD_SAFE = 0.3;
+// Water: how much it slows whoever wades through it, how deep the feet must be in it to feel it,
+// and every how many pixels of wading it splashes.
+const WATER = { pace: 0.62, deep: 4, step: 22, fall: 160 } as const;
 // How far a blow sends the foe, and for how long it cannot act.
 const KNOCK = { near: { vx: 110, vy: 120, stun: 0.6 }, far: { vx: 350, vy: 300, stun: 1.0 } } as const;
 
@@ -85,6 +88,8 @@ export class World {
   private spare = 0;               // embers won from the foes, less those spent on charges
   private readonly struck = new Set<Actor>();      // whom the blow or the charge in hand has already struck
   private trail = 0;
+  private wading = false;          // the hero's feet were in the water at the last step
+  private waded = 0;               // px waded since the last splash
   private readonly emit: Emit = event => { this.events.push(event); };
 
   constructor(readonly level: Level) {
@@ -231,9 +236,12 @@ export class World {
       }
       this.emit({ type: 'sound', name: 'swing' });
     }
-    control(p, p.guard ? { ...c, x: 0 } : c, this.grid, STEP, 1, this.emit);
+    const water = this.level.settings.water, inWater = water > 0 && p.y + p.h > water + WATER.deep && !p.climbing;
+    const falling = p.vy;
+    control(p, p.guard ? { ...c, x: 0 } : c, this.grid, STEP, inWater ? WATER.pace : 1, this.emit);
     if (p.climbing) p.guard = false;               // down, over a ladder, is the way down
     move(p, this.grid, STEP, this.emit);
+    if (water > 0) this.splashes(p, water, falling);
     if (p.onGround && p.attackAir && p.attackT > 0) p.attackT = 0;       // a flying kick ends on landing
 
     if (p.attackT > 0) {                           // a blow strikes everyone it touches, each of them once
@@ -248,6 +256,20 @@ export class World {
       }
     }
     if (Math.abs(p.vx) > 12 && p.onGround) p.animT += STEP;
+  }
+
+  // The water the hero goes into or through: it splashes high when he comes down into it, a little at each step.
+  private splashes(p: Actor, water: number, falling: number): void {
+    const wet = p.y + p.h > water + WATER.deep, x = p.x + p.w / 2;
+    if (wet && !this.wading && falling > WATER.fall) {
+      this.emit({ type: 'splash', x, y: water, size: 2 + Math.min(2, falling / 400) });
+      this.emit({ type: 'sound', name: 'splash' });
+    }
+    if (wet && p.onGround) {
+      this.waded += Math.abs(p.vx) * STEP;
+      if (this.waded >= WATER.step) { this.waded = 0; this.emit({ type: 'splash', x, y: water, size: 1 }); }
+    }
+    this.wading = wet;
   }
 
   // The flaming charge: straight ahead, over the gaps, through whoever stands there, until stone or its end.

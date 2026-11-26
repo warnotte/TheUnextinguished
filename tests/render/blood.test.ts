@@ -141,3 +141,79 @@ describe('blood, twice', () => {
     expect(run()).toEqual(run());
   });
 });
+
+describe('blood in water', () => {
+  const WATER = 110;                                             // over the floor at 128: everything below is water
+
+  it('leaves no stain under the water: each drop that falls in spreads into a cloud', () => {
+    const b = new Blood(flat, seeded(), WATER);
+    b.spurt(200, 60, 1, 60, 0);
+    const stains = settle(b, 3);
+    expect(stains.filter(s => s.y > WATER)).toHaveLength(0);
+    expect(b.clouds.length).toBeGreaterThan(20);
+    expect(b.clouds.every(c => c.y >= WATER)).toBe(true);
+  });
+
+  it('lets its clouds swell, drift and fade away; some of it floats on the surface', () => {
+    const b = new Blood(flat, seeded(), WATER);
+    b.spurt(200, 60, 1, 60, 0);
+    settle(b, 1);
+    const early = Math.max(...b.clouds.map(c => c.r));
+    expect(b.clouds.some(c => c.film)).toBe(true);
+    settle(b, 2);
+    expect(Math.max(...b.clouds.map(c => c.r))).toBeGreaterThan(early);
+    settle(b, 30);
+    expect(b.clouds).toHaveLength(0);
+  });
+
+  it('makes no cloud where there is no water', () => {
+    const b = new Blood(flat, seeded());
+    b.spurt(200, 60, 1, 60, 0);
+    settle(b, 3);
+    expect(b.clouds).toHaveLength(0);
+  });
+});
+
+describe('pools of blood', () => {
+  it('gather where blood keeps falling, and spread a little along the floor', () => {
+    const b = new Blood(flat, seeded());
+    for (let i = 0; i < 6; i++) { b.spurt(200, 110, 1, 30, 0); settle(b, 0.5); }
+    settle(b, 4);
+    const wettest = Math.max(...Array.from({ length: 120 }, (_, i) => b.depth(150 + i, FLOOR)));
+    expect(wettest).toBeGreaterThan(1.5);
+  });
+
+  it('shine wet at first, and dry with time', () => {
+    const b = new Blood(flat, seeded());
+    for (let i = 0; i < 4; i++) { b.spurt(200, 110, 1, 30, 0); settle(b, 0.5); }
+    const x = Array.from({ length: 120 }, (_, i) => 150 + i).reduce((a, c) => (b.depth(c, FLOOR) > b.depth(a, FLOOR) ? c : a));
+    expect(b.wet(x, FLOOR)).toBeGreaterThan(0.6);
+    settle(b, 120);
+    expect(b.wet(x, FLOOR)).toBeLessThan(0.1);
+    expect(b.depth(x, FLOOR)).toBeGreaterThan(0.5);             // the blood stays; only its shine goes
+  });
+
+  it('are nothing on clean stone', () => {
+    const b = new Blood(flat, seeded());
+    expect(b.depth(40, FLOOR)).toBe(0);
+    expect(b.wet(40, FLOOR)).toBe(0);
+  });
+});
+
+describe('the pools, seen', () => {
+  it('are visited pixel by pixel within a span, each with how deep and how fresh it is', () => {
+    const b = new Blood(flat, seeded());
+    for (let i = 0; i < 4; i++) { b.spurt(200, 110, 1, 30, 0); settle(b, 0.5); }
+    const seen: [number, number, number, number][] = [];
+    b.pools(150, 270, (x, y, depth, wet) => seen.push([x, y, depth, wet]));
+    expect(seen.length).toBeGreaterThan(10);
+    for (const [x, y, depth, wet] of seen) {
+      expect(x).toBeGreaterThanOrEqual(150); expect(x).toBeLessThan(270);
+      expect(y).toBe(FLOOR);
+      expect(depth).toBeCloseTo(b.depth(x, y), 5); expect(wet).toBeCloseTo(b.wet(x, y), 5);
+    }
+    const none: number[] = [];
+    b.pools(0, 100, x => none.push(x));
+    expect(none).toHaveLength(0);
+  });
+});

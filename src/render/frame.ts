@@ -15,7 +15,7 @@ import { Lens } from './lens';
 import { Camera, VIEW_H, VIEW_W } from './camera';
 import { type Caster, type Light, LightSheet, shaftPath, shafts } from './lighting';
 import { flashSource, rimOffset } from './shading';
-import { groundLine, paintBackdrop } from './scene';
+import { groundLine, rainLine, paintBackdrop } from './scene';
 import { paintSky, paintSnow } from './sky';
 import { drawBolt, Storm } from './storm';
 import type { LevelResult, Words } from '../campaign';
@@ -68,6 +68,14 @@ export class Stage {
   private heardNow: SoundName[] = [];                   // what the stage itself makes heard: the thunder
   private readonly openings: { x: number; y: number }[] = [];     // the middle of each opening on the sky, where a flash comes in
   private flashSheet: HTMLCanvasElement | null = null;
+  private mirror: HTMLCanvasElement | null = null;                // the picture above the water, for its reflection
+  private waterView: HTMLCanvasElement | null = null;             // the water as seen, before it is cut to where the water is
+  private readonly wet: HTMLCanvasElement | null = null;          // where there is water: the air under its surface
+  private readonly wetCols: boolean[] = [];                       // the columns where the surface is open water
+  private readonly rain: (number | null)[] = [];                  // where the rain stops, column by column; null under the roof
+  private readonly wading = new Map<Actor, number>();             // px each body has waded since its last splash
+  private ripples: { x: number; t: number; size: number }[] = [];  // rings on the water, in level x
+  private feet = { x: 0, walked: 0, bloody: 0, side: 1 };          // the hero's steps: the blood his feet carry
   private readonly bells: { x: number; y: number }[] = [];        // where each great bell hangs
   private swing = { amp: 0, t: 0 };                               // how far the bells swing since their last toll
   private rings: { x: number; y: number; t: number }[] = [];      // the sound of a toll, seen going out
@@ -90,11 +98,30 @@ export class Stage {
       this.skyView.width = VIEW_W; this.skyView.height = VIEW_H;
     }
     this.storm = scenery || level.settings.storm ? new Storm() : null;
-    if (this.storm) for (const o of level.objects) if (o.kind === 'arch') this.openings.push({ x: o.x, y: o.y - Number(o.props.height ?? 88) / 2 });
+    if (this.storm) for (const o of level.objects) {
+      if (o.kind === 'arch') this.openings.push({ x: o.x, y: o.y - Number(o.props.height ?? 88) / 2 });
+      if (o.kind === 'breach') this.openings.push({ x: o.x, y: o.y + Number(o.props.height ?? 96) / 2 });
+    }
+    const water = level.settings.water;
+    if (water > 0) {
+      const wet = document.createElement('canvas');
+      wet.width = level.width; wet.height = level.height;
+      const k = wet.getContext('2d')!;
+      k.fillStyle = '#fff';
+      for (let r = 0; r < level.grid.rows; r++) for (let c = 0; c < level.grid.cols; c++) {
+        const top = r * TILE, bottom = top + TILE;
+        if (bottom <= water || level.grid.solidAt(c, r)) continue;
+        k.fillRect(c * TILE, Math.max(top, water), TILE, bottom - Math.max(top, water));
+      }
+      this.wet = wet;
+      const row = Math.floor(water / TILE);
+      for (let c = 0; c < level.grid.cols; c++) this.wetCols.push(!level.grid.solidAt(c, row));
+    }
+    if (level.settings.rain) this.rain = rainLine(level.grid, water);
     this.lights = new LightSheet(level);
     this.beams = shafts(level);
     this.ground = groundLine(level.grid);
-    this.blood = new Blood(level.grid);
+    this.blood = new Blood(level.grid, Math.random, level.settings.water || null);
     this.stains = document.createElement('canvas');
     this.stains.width = level.width; this.stains.height = level.height;
     level.objects.forEach((o, i) => {
@@ -146,6 +173,7 @@ export class Stage {
         for (let i = 0; i < 6; i++) this.particles.push({ x: e.x - e.dir * Math.random() * 14, y: e.y - 16 + Math.random() * 30, vx: -e.dir * (30 + Math.random() * 130), vy: -10 - Math.random() * 70, life: 0.2 + Math.random() * 0.35, color: FIRE[Math.floor(Math.random() * FIRE.length)], g: -90 });
       }
       else if (e.type === 'lightning') this.storm?.strikeNow();
+      else if (e.type === 'splash') this.splash(e.x, e.y, e.size);
       else if (e.type === 'debris') {
         // Stone flying from the place it broke: chunks that tumble down, and grit.
         for (let i = 0; i < e.count; i++) {
@@ -182,6 +210,12 @@ export class Stage {
     for (const fx of this.effects) fx.t += dt;
     this.effects = this.effects.filter(fx => fx.t < effectDuration(fx.kind));
     this.swing.t += dt; this.swing.amp *= Math.exp(-0.45 * dt);
+    for (const r of this.ripples) r.t += dt;
+    this.ripples = this.ripples.filter(r => r.t < 0.9 + r.size * 0.3);
+    const level = this.world.level;
+    this.rainfall(dt);
+    this.wade(dt);
+    this.steps();
     for (const r of this.rings) r.t += dt;
     this.rings = this.rings.filter(r => r.t < 1.1);
     const fall = this.world.fall;
@@ -283,7 +317,15 @@ export class Stage {
     for (const fx of this.effects) this.drawEffect(g, fx);
     this.drawRings(g);
     for (const q of this.particles) { g.fillStyle = q.color; g.fillRect(Math.round(q.x), Math.round(q.y), 2, 2); }
-    for (const d of this.blood.drops) { g.fillStyle = BLOOD_COLORS[d.shade]; g.fillRect(Math.round(d.x), Math.round(d.y), d.size, d.size); }
+    for (const d of this.blood.drops) {
+      g.fillStyle = BLOOD_COLORS[d.shade]; g.fillRect(Math.round(d.x), Math.round(d.y), d.size, d.size);
+      if (Math.abs(d.vx) + Math.abs(d.vy) > 220) {               // a fast drop draws a short tail behind it
+        g.fillStyle = BLOOD_COLORS[Math.max(0, d.shade - 1)];
+        g.fillRect(Math.round(d.x - d.vx * 0.012), Math.round(d.y - d.vy * 0.012), 1, 1);
+        g.fillRect(Math.round(d.x - d.vx * 0.022), Math.round(d.y - d.vy * 0.022), 1, 1);
+      }
+    }
+    this.drawPools(g, t, cx);
     g.setTransform(1, 0, 0, 1, 0, 0);
     this.lights.haze(g);
 
@@ -291,6 +333,8 @@ export class Stage {
     this.drawAir(g, t);
     g.setTransform(1, 0, 0, 1, 0, 0);
     if (w.fall) this.drawFall(g, w.fall, cx, cy, t);
+    if (level.settings.rain) this.drawRain(g, cx, cy, t);
+    if (level.settings.water > 0) this.drawWater(g, cx, cy, t);
     if (level.settings.snow) paintSnow(g, cx, cy, t);
     if (this.storm && this.storm.glow > 0) {          // the flash comes in through every opening
       g.save(); g.globalCompositeOperation = 'lighter';
@@ -670,6 +714,166 @@ export class Stage {
       g.fillStyle = '#6d5f80'; g.fillRect(x, y, r.size - 2, r.size - 2);
       g.fillStyle = '#8a7a9c'; g.fillRect(x, y, r.size - 2, 2);
     }
+  }
+
+  // ---- blood, water and rain ------------------------------------------------------------------------
+
+  // The pools: blood lying on the floor, thicker where more of it fell; red and shining while it is
+  // fresh, a glint running along it, then darker as it dries.
+  private drawPools(g: CanvasRenderingContext2D, t: number, cx: number): void {
+    const glint = Math.floor(t * 6);
+    this.blood.pools(cx, cx + VIEW_W, (x, y, depth, wet) => {
+      const h = depth > 2.6 ? 3 : depth > 1.4 ? 2 : depth > 0.7 ? 1 : 0;
+      if (h === 0) return;
+      g.fillStyle = wet > 0.5 ? '#7a0a12' : wet > 0.15 ? '#5a080e' : '#3d0508';
+      g.fillRect(x, y - h, 1, h);
+      if (wet > 0.15) {
+        g.fillStyle = `rgba(222,52,58,${(0.75 * wet).toFixed(2)})`; g.fillRect(x, y - h, 1, 1);
+        if ((x * 7 + glint) % 29 === 0) { g.fillStyle = `rgba(255,220,220,${(0.9 * wet).toFixed(2)})`; g.fillRect(x, y - h, 1, 1); }
+      }
+    });
+  }
+
+  // The hero's steps: through a fresh pool his feet take the blood, and leave it for a few steps after.
+  private steps(): void {
+    const p = this.world.hero, f = this.feet, x = p.x + p.w / 2, feetY = p.y + p.h, water = this.world.level.settings.water;
+    const moved = Math.abs(x - f.x); f.x = x;
+    if (!p.onGround || p.climbing || (water > 0 && feetY > water)) return;
+    if ((f.walked += moved) < 11) return;
+    f.walked = 0;
+    if (this.blood.wet(x, feetY) > 0.3 && this.blood.depth(x, feetY) > 0.6) f.bloody = 8;
+    if (f.bloody <= 0) return;
+    // A print of the sole, on the walking line and the stone under it, fainter at each step.
+    const k = this.stains.getContext('2d')!, at = Math.round(x + f.side * 3) - 2;
+    k.globalAlpha = Math.min(1, 0.3 + f.bloody * 0.1);
+    k.fillStyle = BLOOD_COLORS[f.bloody > 4 ? 2 : 1]; k.fillRect(at, feetY - 1, 4, 1);
+    k.fillStyle = BLOOD_COLORS[f.bloody > 4 ? 1 : 0]; k.fillRect(at + (p.facing > 0 ? 1 : 0), feetY, 3, 1);
+    k.globalAlpha = 1;
+    f.side = -f.side; f.bloody--;
+  }
+
+  // Where the rain lands: rings on the water, a spatter on the stone.
+  private rainfall(dt: number): void {
+    const water = this.world.level.settings.water;
+    for (let c = 0; c < this.rain.length; c++) {
+      const y = this.rain[c];
+      if (y === null || Math.random() > dt * 1.6) continue;
+      const x = c * TILE + Math.random() * TILE;
+      if (water > 0 && y === water) this.ripples.push({ x, t: 0, size: 0.4 });
+      else this.particles.push({ x, y: y - 1, vx: (Math.random() - 0.5) * 40, vy: -30 - Math.random() * 40, life: 0.15 + Math.random() * 0.15, color: '#8ea6d8', g: 600 });
+    }
+  }
+
+  // The bodies in the water: each one wading throws water up now and then; the hero under it lets out bubbles.
+  private wade(dt: number): void {
+    const w = this.world, water = w.level.settings.water;
+    if (water <= 0) return;
+    for (const a of [w.hero, ...w.foes]) {
+      if (a.kind === 'ghost' || a.kind === 'skull' || a.dead > 0) continue;
+      const feet = a.y + a.h, x = a.x + a.w / 2;
+      if (feet <= water + 4 || !this.wetCols[Math.floor(x / TILE)]) { this.wading.delete(a); continue; }
+      if (a !== w.hero && a.onGround && a.y < water) {
+        const far = (this.wading.get(a) ?? 0) + Math.abs(a.vx) * dt;
+        if (far > 24) { this.wading.set(a, 0); this.splash(x, water, 1); } else this.wading.set(a, far);
+      }
+      if (a === w.hero && a.y > water + 2 && Math.random() < dt * 5) {
+        this.particles.push({ x: x + a.facing * 4 + (Math.random() - 0.5) * 4, y: a.y + 6, vx: (Math.random() - 0.5) * 8, vy: -30 - Math.random() * 20, life: Math.min(1.2, (a.y - water) / 40), color: '#b8dcff', g: -20 });
+      }
+    }
+  }
+
+  // Water thrown up from its surface, and a ring on it.
+  private splash(x: number, y: number, size: number): void {
+    for (let i = 0; i < 5 + size * 9; i++) this.particles.push({ x: x + (Math.random() - 0.5) * 10 * size, y: y - 1, vx: (Math.random() - 0.5) * 90 * size, vy: -60 - Math.random() * 110 * size, life: 0.3 + Math.random() * 0.4, color: ['#d8ecff', '#9cc4ef', '#eef7ff', '#6f9ccc'][Math.floor(Math.random() * 4)], g: 700 });
+    this.ripples.push({ x, t: 0, size });
+  }
+
+  // Rain falling through the place: thin slanting streaks, the same at the same time.
+  private drawRain(g: CanvasRenderingContext2D, cx: number, cy: number, t: number): void {
+    g.save(); g.globalCompositeOperation = 'lighter';
+    const first = Math.max(0, Math.floor(cx / TILE)), last = Math.min(this.rain.length - 1, Math.floor((cx + VIEW_W) / TILE));
+    for (let c = first; c <= last; c++) {
+      const bottom = this.rain[c];
+      if (bottom === null) continue;
+      for (let i = 0; i < 7; i++) {
+        const n = c * 7 + i, speed = 430 + hash(n, 5) * 170, span = bottom + 40;
+        const y = ((t * speed + hash(n, 6) * span) % span) - 40, x = c * TILE + Math.floor(hash(n, 7) * TILE);
+        const len = Math.min(9, bottom - y);
+        if (len <= 0) continue;
+        g.fillStyle = `rgba(160,185,230,${(0.22 + hash(n, 8) * 0.2).toFixed(2)})`;
+        g.fillRect(Math.round(x - cx), Math.round(y - cy), 1, Math.round(len));
+      }
+    }
+    g.restore();
+  }
+
+  // The water: under its surface, the place above mirrored and trembling, darker as it deepens; the
+  // blood in it; its surface glittering; rings on it; light thrown up on the wall above.
+  private drawWater(out: CanvasRenderingContext2D, cx: number, cy: number, t: number): void {
+    const water = this.world.level.settings.water, wy = Math.round(water - cy);
+    if (wy >= VIEW_H || wy < -VIEW_H) return;
+    const top = Math.max(0, wy);
+    this.mirror ??= Object.assign(document.createElement('canvas'), { width: VIEW_W, height: VIEW_H });
+    this.waterView ??= Object.assign(document.createElement('canvas'), { width: VIEW_W, height: VIEW_H });
+    const m = this.mirror.getContext('2d')!;
+    m.clearRect(0, 0, VIEW_W, VIEW_H); m.drawImage(out.canvas, 0, 0);
+    const g = this.waterView.getContext('2d')!;
+    g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+    g.clearRect(0, 0, VIEW_W, VIEW_H);
+    g.drawImage(this.mirror, 0, 0);           // the place as it is under the water, to be tinted and mirrored over
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    // The reflection: each row under the surface is the row as far above it, shaken by the ripples.
+    for (let y = top; y < VIEW_H; y++) {
+      const depth = y - wy, src = wy - depth - 1;
+      if (src < 0) break;
+      const dx = Math.round(Math.sin(y * 0.33 + t * 2.4) * (1 + depth * 0.035));
+      g.globalAlpha = Math.max(0, 0.62 - depth * 0.005);
+      g.drawImage(this.mirror, 0, src, VIEW_W, 1, dx, y, VIEW_W, 1);
+    }
+    g.globalAlpha = 1;
+    const deep = g.createLinearGradient(0, wy, 0, wy + 70);
+    deep.addColorStop(0, 'rgba(26,66,104,0.42)'); deep.addColorStop(1, 'rgba(6,18,40,0.84)');
+    g.fillStyle = deep; g.fillRect(0, top, VIEW_W, VIEW_H - top);
+    // The blood in it: clouds that swell and fade, a film on the surface.
+    for (const c of this.blood.clouds) {
+      const x = c.x - cx, y = c.y - cy;
+      if (x < -40 || x > VIEW_W + 40 || y < -40 || y > VIEW_H + 40) continue;
+      const red = c.shade >= 2 ? '150,14,22' : '110,8,16';
+      const cloud = g.createRadialGradient(x, y, 0, x, y, c.r);
+      cloud.addColorStop(0, `rgba(${red},${c.alpha.toFixed(3)})`); cloud.addColorStop(1, `rgba(${red},0)`);
+      g.fillStyle = cloud;
+      if (c.film) { g.save(); g.translate(x, y); g.scale(1, 0.25); g.translate(-x, -y); g.fillRect(x - c.r, y - c.r, c.r * 2, c.r * 2); g.restore(); }
+      else g.fillRect(x - c.r, y - c.r, c.r * 2, c.r * 2);
+    }
+    g.restore();
+    // Only where there is water: the air under its surface. Then onto the picture.
+    g.globalCompositeOperation = 'destination-in';
+    if (this.wet) g.drawImage(this.wet, -cx, -cy);
+    g.globalCompositeOperation = 'source-over';
+    out.drawImage(this.waterView, 0, 0);
+    // The surface, where the water is open: a line, its glitter, the light it throws up on the wall.
+    if (wy < 0) return;
+    out.save(); out.globalCompositeOperation = 'lighter';
+    for (let x = 0; x < VIEW_W; x++) {
+      if (!this.wetCols[Math.floor((x + cx) / TILE)]) continue;
+      out.fillStyle = 'rgba(120,165,225,0.5)'; out.fillRect(x, wy, 1, 1);
+      const shine = Math.sin((x + cx) * 0.13 + t * 3) + Math.sin((x + cx) * 0.07 - t * 1.7);
+      if (shine > 1.2) { out.fillStyle = `rgba(200,225,255,${((shine - 1.2) * 0.6).toFixed(2)})`; out.fillRect(x, wy, 1, 1); }
+      for (let i = 0; i < 4; i++) {
+        const k = Math.sin((x + cx) * 0.05 + t * (1.3 + i * 0.4) + i) * Math.sin((x + cx) * 0.021 - t * 0.9);
+        if (k > 0.55) { out.fillStyle = `rgba(120,170,230,${((k - 0.55) * 0.16).toFixed(3)})`; out.fillRect(x, wy - 6 - i * 7, 1, 1); }
+      }
+    }
+    out.restore();
+    out.save();
+    out.strokeStyle = 'rgba(190,220,255,0.5)'; out.lineWidth = 1;
+    for (const r of this.ripples) {
+      const k = r.t / (0.9 + r.size * 0.3);
+      out.globalAlpha = Math.max(0, 1 - k) * (r.size < 1 ? 0.6 : 1);
+      out.beginPath(); out.ellipse(r.x - cx, wy + 0.5, 3 + k * 18 * Math.max(1, r.size), 1 + k * 2.5, 0, 0, Math.PI * 2); out.stroke();
+    }
+    out.restore();
   }
 
   // The bats of the place, flying across it from one side to the other.

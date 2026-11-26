@@ -81,9 +81,10 @@ export function endWords(run: Readonly<Run>, record?: { best: number; isNew: boo
 
 // ---- the title and the end, seen over a level that nobody plays ---------------------------------
 
-/** The level the title stands in front of: the first one open on the night sky, or the first one. */
-export function titleLevel(levels: readonly { settings: { sky: boolean } }[]): number {
-  return Math.max(0, levels.findIndex(l => l.settings.sky));
+/** The level the title stands in front of: the one where the demon circles in the sky, else the first one open on the night sky, or the first one. */
+export function titleLevel(levels: readonly { settings: { sky: boolean; omen?: boolean } }[]): number {
+  const omen = levels.findIndex(l => l.settings.omen);
+  return omen >= 0 ? omen : Math.max(0, levels.findIndex(l => l.settings.sky));
 }
 
 const CLIMB = 60, SWAY = 37;     // seconds: up and down the level once, across it and back once

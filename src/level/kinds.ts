@@ -17,7 +17,7 @@ const FIRE = [255, 170, 92] as const, CANDLE = [255, 198, 128] as const, MOON = 
 export type Kind =
   | { role: 'decor'; plane: Plane; image: string; src: readonly [number, number, number, number]; anchor: readonly [number, number]; lights: readonly LightSpec[]; shaft: boolean }
   | { role: 'decor'; plane: Plane; sheet: string; lights: readonly LightSpec[] }                 // a sheet played in a loop, placed by its pivot
-  | { role: 'decor'; plane: Plane; painter: 'chain-lantern' | 'arch'; lights: readonly LightSpec[] }      // drawn by code; a chain lantern's lights hang from the end of its chain
+  | { role: 'decor'; plane: Plane; painter: 'chain-lantern' | 'arch' | 'breach'; lights: readonly LightSpec[] }      // drawn by code; a chain lantern's lights hang from the end of its chain
   | { role: 'spawn'; actor: ActorKind }
   | { role: 'ember' }
   | { role: 'door' }
@@ -47,6 +47,7 @@ export const KINDS: Readonly<Record<string, Kind>> = {
   torch: { role: 'decor', plane: 'back', sheet: 'torch', lights: [{ dx: 0, dy: -26, radius: 150, strength: 1, flicker: 1, color: FIRE }] },
   // An opening in the wall, on the sky: its foot on (x, y), `width` and `height` in its properties. The moon comes in.
   arch: { role: 'decor', plane: 'wall', painter: 'arch', lights: [{ dx: 0, dy: -40, radius: 96, strength: 0.6, flicker: 0, color: MOON }] },
+  breach: { role: 'decor', plane: 'wall', painter: 'breach', lights: [{ dx: 0, dy: 40, radius: 120, strength: 0.55, flicker: 0, color: MOON }] },
   'chain-lantern': { role: 'decor', plane: 'wall', painter: 'chain-lantern', lights: [{ dx: 0, dy: 6, radius: 62, strength: 0.8, flicker: 0.6, color: CANDLE }] },
 };
 

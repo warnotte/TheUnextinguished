@@ -370,6 +370,12 @@ export class Sound {
         this.hiss('lowpass', 1800, 160, { dur: 1.1, vol: 0.55, hall: 0.6 });
         for (let i = 0; i < 9; i++) { const at = 0.08 + Math.random() * 0.8, f = 300 + Math.random() * 900; this.tone('triangle', f, f * 0.5, { at, dur: 0.06, vol: 0.18, hall: 0.4 }); }
         break;
+      case 'splash':
+        // Water thrown up: a burst of noise, high and wet, and a hollow plop under it.
+        this.hiss('bandpass', 2400, 700, { dur: 0.32, vol: 0.4, hall: 0.4 }, 0.9);
+        this.tone('sine', 420, 120, { dur: 0.12, vol: 0.25, hall: 0.3 });
+        this.splatter(4, 0.25, 0.14);
+        break;
       case 'win':
         this.duck(1.2);
         [587.3, 740, 880, 1174.7].forEach((f, i) => { this.bell(f, i * 0.12, 0.16); this.tone('triangle', f / 2, f / 2, { at: i * 0.12, dur: 0.3, vol: 0.1, hall: 0.5 }); });

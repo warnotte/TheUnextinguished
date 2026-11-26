@@ -9,6 +9,7 @@
 
 mod arrival;
 mod collapse;
+mod flood;
 mod crypte;
 mod demon;
 mod mix;
@@ -40,6 +41,7 @@ fn tunes() -> Vec<Tune> {
         Tune { name: demon::NAME, about: demon::ABOUT, time: demon::time(), sections: demon::SECTIONS, mix: demon::mix, once: false },
         Tune { name: arrival::NAME, about: arrival::ABOUT, time: arrival::time(), sections: arrival::SECTIONS, mix: arrival::mix, once: true },
         Tune { name: collapse::NAME, about: collapse::ABOUT, time: collapse::time(), sections: collapse::SECTIONS, mix: collapse::mix, once: false },
+        Tune { name: flood::NAME, about: flood::ABOUT, time: flood::time(), sections: flood::SECTIONS, mix: flood::mix, once: false },
     ]
 }
 

@@ -4,7 +4,7 @@ import { KIND_NAMES } from '../../src/level/kinds';
 import { parseLevel } from '../../src/level/tiled';
 import { Camera, VIEW_H, VIEW_W } from '../../src/render/camera';
 import { inPolygon, levelLights, occluders, shafts, visibilityPolygon } from '../../src/render/lighting';
-import { groundLine, slabEnds } from '../../src/render/scene';
+import { groundLine, rainLine, slabEnds } from '../../src/render/scene';
 import { makeGrid, readLevelFile } from '../helpers';
 
 const level = parseLevel(readLevelFile('salle3') as any, KIND_NAMES, 'salle3');
@@ -99,5 +99,28 @@ describe('light', () => {
     const poly = visibilityPolygon(segments, 20, 20, 80);
     expect(inPolygon(poly, -60, 20)).toBe(false);
     expect(inPolygon(poly, 60, 20)).toBe(true);
+  });
+});
+
+describe('rain', () => {
+  const grid = makeGrid([
+    '###....#####',
+    '............',
+    '.....###....',
+    '............',
+    '############',
+  ]);
+  it('falls only where the roof is open, down to the first stone under it', () => {
+    const line = rainLine(grid, 0);
+    expect(line.slice(0, 3)).toEqual([null, null, null]);
+    expect(line[3]).toBe(4 * 16);
+    expect(line[5]).toBe(2 * 16);
+    expect(line[6]).toBe(2 * 16);
+    expect(line[7]).toBeNull();
+  });
+  it('stops at the water when the water comes first', () => {
+    const line = rainLine(grid, 50);
+    expect(line[3]).toBe(50);
+    expect(line[5]).toBe(2 * 16);
   });
 });

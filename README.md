@@ -5,7 +5,9 @@ back its flames. Keyboard and gamepad.
 
 This repository holds the engine and its levels. A level is a file; nothing of a level lives in
 the code. It is a duel game on ladders and walkways: collect the embers, reach the door, and fight
-what hunts you. Blows draw blood, which runs down the walls and stays on the floors. For adults.
+what hunts you. Blows draw blood, which runs down the walls and stays on the floors, gathers in
+pools that shine while they are fresh, and follows the hero's feet for a few steps. In water it
+spreads into red clouds. For adults.
 
 ## Play
 
@@ -55,6 +57,11 @@ Other foes walk, run and fly in the levels:
 - **The ghost** comes out of nothing close to the hero, floats a moment, raises its arms and
   shrieks (the guard stops that), then is gone, to come out again on his other side. A blow drives
   it off for longer.
+
+Under the crypt lies the flooded crypt. Its vault is broken open on the storm, the rain falls in
+through the breach, and the water stands half a man deep over its floor, deeper than a man in its
+two wells: everything above it is mirrored in it, trembling. The hero wades through it, slower,
+throwing it up at each step; under it he lets out bubbles; some embers lie at the bottom.
 
 Over the belfry, a giant shape of the demon circles in the storm: only its eyes show, until a flash
 cuts it out black against the sky. The bell chamber, at the top of the belfry, is the room of the
@@ -140,16 +147,17 @@ object, paint a cell); nothing drives them yet.
   Slabs, walls, ground, their broken ends and their brackets are dressed by the engine from that grid.
 - The object layers hold **point** objects whose type is their kind: `torch`, `window`, `pillar`,
   `altar`, `gargoyle`, `balustrade`, `chain-lantern` (with a `length` property), `arch` (an opening
-  on the sky, with `width` and `height`), `bell` (the great bell, hung by its top), `ember`, `door`,
+  on the sky, with `width` and `height`), `breach` (the vault torn open on the sky from the top of the
+  level, with `width` and `height`; the roof above it must be open in the grid for the rain to fall), `bell` (the great bell, hung by its top), `ember`, `door`,
   `grave` (where the bell raises a skeleton), `hero`, `shade`, `ghoul`, `skull` (its point is the
   bottom of its box, in the air), `hound`, `ghost`, `demon`. The point is the anchor of the kind: the bottom middle of a piece of
   decor, the feet of an actor, the pivot of a torch.
 - The map's own properties set the level: `title`, `darkness` (0 to 1), `music`, `mist`, `bats`,
   `intro` (a tune played once before `music`), `sky` (the night shows through the arches, in planes that slide at different speeds:
-  `src/render/sky.ts`), `snow` and `storm` (now and then lightning lights the place through its openings, each body throws a long shadow on the wall, and the thunder follows), `omen` (the giant shape of the demon in the sky) and `collapse` (px a second: the level comes down from the top).
-- The third level, the belfry, is written by `node tools/make-beffroi.mjs`; the fourth, the bell
-  chamber, by `node tools/make-clocher.mjs`; the fifth, the fall, by `node tools/make-effondrement.mjs`
-  from the belfry's map.
+  `src/render/sky.ts`), `snow` and `storm` (now and then lightning lights the place through its openings, each body throws a long shadow on the wall, and the thunder follows), `omen` (the giant shape of the demon in the sky), `collapse` (px a second: the level comes down from the top), `water` (the height of its surface, in px from the top: the air under it is water) and `rain` (it falls wherever the roof of the grid is open, down to the stone or the water).
+- The third level, the flooded crypt, is written by `node tools/make-inondee.mjs`; the fourth, the
+  belfry, by `node tools/make-beffroi.mjs`; the fifth, the bell chamber, by `node tools/make-clocher.mjs`;
+  the sixth, the fall, by `node tools/make-effondrement.mjs` from the belfry's map.
 - A level with a `demon` is won when the demon is ended, not by a door.
 - `node tools/add-creatures.mjs` puts the skull, the hounds and the ghosts into the nave and the crypt.
 - The levels are played in the order `index.html` loads them.
@@ -183,7 +191,7 @@ level. Behaviour that is new goes into `src/sim/`, never into a level.
 - Music: ours, played on the emulated sound chips of NoobSynth (FM operators and drum machines for
   the nave; NES and SNES oscillators, a pipe organ and an FM bell for the crypt; the NES chip, an
   808 kick and an FM bell for the bell chamber and the entrance of the demon; two SIDs of the
-  Commodore 64, emulated by reSID, for the fall) by the program in
+  Commodore 64, emulated by reSID, for the flooded crypt and the fall) by the program in
   `tools/music` (see its README to render them again). The belfry plays `assets/music/poursuite.*`,
   an earlier tune on the AY-3-8910, made by `essais/ay-essai`.
 - Sound effects: made on the spot by `src/audio.ts`, no samples.

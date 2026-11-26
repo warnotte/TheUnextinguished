@@ -65,6 +65,11 @@ describe('the title', () => {
     expect(titleLevel([lv(false), lv(false)])).toBe(0);
   });
 
+  it('stands in front of the level where the demon circles in the sky, if there is one', () => {
+    const lv = (sky: boolean, omen = false) => ({ settings: { sky, omen } });
+    expect(titleLevel([lv(false), lv(true), lv(true, true), lv(true)])).toBe(2);
+  });
+
   it('climbs the level slowly from the bottom to the top, then down again, never out of it', () => {
     const [, y0] = panAim(0, 768, 704);
     const [, yTop] = panAim(30, 768, 704);
