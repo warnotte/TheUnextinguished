@@ -207,6 +207,7 @@ await page.locator('#screen').screenshot({ path: 'tests/e2e/out/flooded.png' });
 
 // Its sound: the rain, the water that drips, the steps in the water, and under it, bubbles and the stifled world.
 check('the rain is heard in the flooded crypt', await game(() => __game.sound.ambience.rain));
+check('the drowned lie under its water', await game(() => { const d = __game.world.foes.filter(f => f.kind === 'drowned'); return d.length === 4 && d.some(f => f.mode === 'sunk'); }));
 check('each step in the water is heard', await game(() => window.__played.includes('wade')), (await game(() => window.__played)).join(' '));
 await page.waitForFunction(() => window.__played.includes('drip'), null, { timeout: 6000 }).catch(() => {});
 check('water drips somewhere in the crypt, now and then', await game(() => window.__played.includes('drip')));

@@ -2,7 +2,7 @@
 
 import { TILE } from './grid';
 
-export type ActorKind = 'hero' | 'shade' | 'ghoul' | 'skeleton' | 'demon' | 'skull' | 'hound' | 'ghost' | 'crow' | 'hand' | 'reaper';
+export type ActorKind = 'hero' | 'shade' | 'ghoul' | 'skeleton' | 'demon' | 'skull' | 'hound' | 'ghost' | 'crow' | 'hand' | 'reaper' | 'drowned';
 
 export interface Actor {
   kind: ActorKind;

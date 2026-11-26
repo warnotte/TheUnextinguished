@@ -11,6 +11,7 @@ import { type Fall, makeFall, stepFall } from './fall';
 import { BELL, DEMON, type Arena, type Demon, demonTouchable, makeDemon, SKELETON, stepDemon, stepSkeleton } from './demon';
 import type { Emit, GameEvent } from './events';
 import { type Grid, TILE } from './grid';
+import { DROWNED, drownedHurts, drownedThere, stepDrowned, strikeDrowned } from './drowned';
 import { stepGhoul } from './ghoul';
 import { control, type Controls, move } from './movement';
 import { SHADE_AGAIN, SHADE_GUARD, SHADE_GUARD_RANGE, SHADE_GUARD_REST, SHADE_PACE, SHADE_REACH, SHADE_STRIKE, thinkShade } from './shade';
@@ -136,9 +137,10 @@ export class World {
           // A moment of grace when the level starts: the shade holds its blow, the ghoul does not burn.
           if (kind.actor === 'shade' || kind.actor === 'skull') actor.cool = START_GRACE;
           else if (kind.actor === 'ghoul') actor.invul = START_GRACE;
-          actor.mode = kind.actor === 'skull' ? 'hover' : kind.actor === 'hound' ? 'sit' : kind.actor === 'ghost' ? 'away' : kind.actor === 'crow' ? 'perch' : kind.actor === 'hand' ? 'buried' : kind.actor === 'reaper' ? 'stone' : '';
+          actor.mode = kind.actor === 'skull' ? 'hover' : kind.actor === 'hound' ? 'sit' : kind.actor === 'ghost' ? 'away' : kind.actor === 'crow' ? 'perch' : kind.actor === 'hand' ? 'buried' : kind.actor === 'reaper' ? 'stone' : kind.actor === 'drowned' ? 'sunk' : '';
           if (kind.actor === 'reaper') actor.hp = REAPER.hp;
           if (kind.actor === 'hand') actor.hp = HAND.hp;
+          if (kind.actor === 'drowned') actor.hp = DROWNED.hp;
           if (kind.actor === 'hound') actor.hp = 2;
           if (kind.actor === 'ghost') actor.cool = GHOST.away[0];
           this.foes.push(actor);
@@ -373,6 +375,7 @@ export class World {
     if (f.kind === 'crow') return f.mode !== 'perch';
     if (f.kind === 'hand') return false;                     // only the struggle of the one it holds breaks it
     if (f.kind === 'reaper') return reaperThere(f);
+    if (f.kind === 'drowned') return drownedThere(f);
     if (f.kind === 'demon') return !!this.boss && demonTouchable(this.boss);
     return true;
   }
@@ -394,6 +397,16 @@ export class World {
       this.emit({ type: 'effect', kind: heavy ? 'crit-hit' : 'hit-spark', x: x - dir * 6, y: e.y + 24, flip: dir < 0 });
       this.emit({ type: 'debris', x, y: e.y + 20, count: fell ? 24 : 4 });
       if (fell) { this.slain++; this.emit({ type: 'sound', name: 'crash' }); } else this.emit({ type: 'sound', name: 'block' });
+      return;
+    }
+    if (e.kind === 'drowned') {
+      // No blood: water thrown up from its sodden body; the second blow sends it back under.
+      const under = strikeDrowned(e, dir, blow.damage), water = this.level.settings.water;
+      this.hitStop = heavy ? 0.07 : 0.05; this.shake = Math.max(this.shake, heavy ? 0.14 : 0.1);
+      this.emit({ type: 'effect', kind: heavy ? 'crit-hit' : 'hit-spark', x: x - dir * 4, y: e.y + 16, flip: dir < 0 });
+      this.emit({ type: 'splash', x, y: water > 0 ? water : y, size: under ? 3 : 1 });
+      this.emit({ type: 'sound', name: under ? 'splash' : 'hit' });
+      if (under) this.slain++;
       return;
     }
     if (e.kind === 'crow') {
@@ -480,6 +493,11 @@ export class World {
     if (e.kind === 'ghost') { stepGhost(e, this.arena, STEP); return; }
     if (e.kind === 'crow') { stepCrow(e, this.arena, STEP); return; }
     if (e.kind === 'hand') { this.stepHand(e); return; }
+    if (e.kind === 'drowned') {
+      stepDrowned(e, this.arena, this.level.settings.water, STEP);
+      if (playing && drownedHurts(e) && p.invul <= 0 && overlap(e, p)) this.hurtHero(centreX(p) >= centreX(e) ? 1 : -1, DROWNED.hurt);
+      return;
+    }
     if (e.kind === 'reaper') { stepReaper(e, this.arena, STEP, this.scytheHeld); return; }
     if (e.kind === 'demon') {
       const d = this.boss!;

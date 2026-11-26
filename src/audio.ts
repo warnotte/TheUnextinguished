@@ -493,6 +493,12 @@ export class Sound {
         if (Math.random() < 0.4) this.tone('sine', f * 1.2, f * 0.7, { at: 0.11, dur: 0.05, vol: 0.06, hall: 1.2, pan });
         break;
       }
+      case 'gurgle':
+        // A drowned man's throat: low and wet, the water bubbling up through it.
+        this.tone('sawtooth', 96, 60, { dur: 0.75, vol: 0.1, hall: 0.4 }, 9);
+        this.hiss('bandpass', 380, 210, { dur: 0.65, vol: 0.18, hall: 0.3 }, 3);
+        for (let i = 0; i < 4; i++) this.tone('sine', 230 + i * 45, 520 + i * 70, { at: 0.12 + i * 0.13, dur: 0.05, vol: 0.06 });
+        break;
       case 'bubble':
         // Air going up from the mouth: two small rising blips, round and close.
         this.tone('sine', 260, 640, { dur: 0.06, vol: 0.07, hall: 0.05 });

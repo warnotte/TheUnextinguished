@@ -79,7 +79,10 @@ through the breach, and the water stands half a man deep over its floor, deeper 
 two wells: everything above it is mirrored in it, trembling. The hero wades through it, slower,
 throwing it up at each step; under it he lets out bubbles; some embers lie at the bottom.
 The rain is heard where it falls in, drops plink somewhere in the dark of the vault, each step in
-the water is heard; under it the world is stifled, only its low comes through.
+the water is heard; under it the world is stifled, only its low comes through. The drowned lie under
+its water, a dark shape on the floor and a few bubbles: one rises as the hero wades near, with a
+gurgle, and wades to him, slower than he walks; its touch hurts. It keeps to the water. Two blows
+send it back under, and it rises again from its place a while later. It does not bleed.
 
 Over the belfry, a giant shape of the demon circles in the storm: only its eyes show, until a flash
 cuts it out black against the sky. The bell chamber, at the top of the belfry, is the room of the
@@ -187,7 +190,7 @@ object, paint a cell); nothing drives them yet.
   level, with `width` and `height`; the roof above it must be open in the grid for the rain to fall), `bell` (the great bell, hung by its top), `ember`, `door`,
   `grave` (where the bell raises a skeleton; in a level without a `bell`, it opens when the hero comes near, once),
   `crow` (it waits on its perch, its point under its feet, rises with a cry when the hero comes near and dives once at him),
-  `reaper-guard` (the reaper of stone: the door opens only once it is dust), `hand` (a hand of the dead under the ground, its point where it comes up: it holds the hero who steps on it until
+  `reaper-guard` (the reaper of stone: the door opens only once it is dust), `drowned` (a body under the water, its point on the floor it lies on: it rises when the hero wades near, and two blows send it back under for a while), `hand` (a hand of the dead under the ground, its point where it comes up: it holds the hero who steps on it until
   three blows break it, or squeezes and lets go), `flock` (crows perched about the point, `count` of them, that fly off
   when the hero comes near or the thunder rolls), `ledge` (ground two tiles thick held up on ruined columns, from its
   top left corner, `width`; the stone of the grid there is its body),

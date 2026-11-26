@@ -40,6 +40,7 @@ export const KINDS: Readonly<Record<string, Kind>> = {
   ghost: { role: 'spawn', actor: 'ghost' },
   crow: { role: 'spawn', actor: 'crow' },
   hand: { role: 'spawn', actor: 'hand' },
+  drowned: { role: 'spawn', actor: 'drowned' },
   'reaper-guard': { role: 'spawn', actor: 'reaper' },  // the reaper of stone who keeps the gate: the door opens only once it is dust              // under the ground: its point is where it comes up              // perched: its point is under its feet            // comes out near a hero within its haunt, either side of its point
   grave: { role: 'grave' },
   bell: { role: 'bell' },

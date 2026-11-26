@@ -46,6 +46,8 @@ const actors = [
   obj('ghoul', 400, 432), obj('ghoul', 700, 432),
   obj('shade', 120, 272), obj('shade', 560, 144),
   obj('ghost', 360, 272), obj('ghost', 600, 432),
+  // The drowned: under the water of the floor, and at the bottom of each well, by its ember.
+  obj('drowned', 330, 432), obj('drowned', 880, 432), obj('drowned', 236, 464), obj('drowned', 804, 464),
   obj('skull', 720, 200), obj('hound', 920, 272),
 ];
 const group = (lid, name, objects) => ({ id: lid, name, type: 'objectgroup', draworder: 'topdown', opacity: 1, visible: true, x: 0, y: 0, objects });

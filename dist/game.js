@@ -430,13 +430,13 @@
       }
     }
     /** A note that slides from one pitch to another; `wobble` makes it tremble (cycles a second). */
-    tone(wave, from, to3, l, wobble = 0) {
+    tone(wave, from, to4, l, wobble = 0) {
       const ac = this.ac;
       if (!ac || ac.state !== "running" || !this.bus) return;
       const t = ac.currentTime + (l.at ?? 0), o = ac.createOscillator();
       o.type = wave;
       o.frequency.setValueAtTime(from, t);
-      o.frequency.exponentialRampToValueAtTime(Math.max(20, to3), t + l.dur);
+      o.frequency.exponentialRampToValueAtTime(Math.max(20, to4), t + l.dur);
       if (wobble) {
         const lfo = ac.createOscillator(), depth = ac.createGain();
         lfo.frequency.value = wobble;
@@ -450,7 +450,7 @@
       o.stop(t + l.dur + 0.05);
     }
     /** Noise through a filter that sweeps from one frequency to another: a hiss, a crack, a squelch. */
-    hiss(kind, from, to3, l, q = 0.9) {
+    hiss(kind, from, to4, l, q = 0.9) {
       const ac = this.ac;
       if (!ac || ac.state !== "running" || !this.bus || !this.noise) return;
       const t = ac.currentTime + (l.at ?? 0), src = ac.createBufferSource(), f = ac.createBiquadFilter();
@@ -459,7 +459,7 @@
       f.type = kind;
       f.Q.value = q;
       f.frequency.setValueAtTime(from, t);
-      f.frequency.exponentialRampToValueAtTime(Math.max(30, to3), t + l.dur);
+      f.frequency.exponentialRampToValueAtTime(Math.max(30, to4), t + l.dur);
       src.connect(f);
       this.shape(f, l, t);
       src.start(t, Math.random() * 0.8);
@@ -659,6 +659,11 @@
           if (Math.random() < 0.4) this.tone("sine", f * 1.2, f * 0.7, { at: 0.11, dur: 0.05, vol: 0.06, hall: 1.2, pan });
           break;
         }
+        case "gurgle":
+          this.tone("sawtooth", 96, 60, { dur: 0.75, vol: 0.1, hall: 0.4 }, 9);
+          this.hiss("bandpass", 380, 210, { dur: 0.65, vol: 0.18, hall: 0.3 }, 3);
+          for (let i = 0; i < 4; i++) this.tone("sine", 230 + i * 45, 520 + i * 70, { at: 0.12 + i * 0.13, dur: 0.05, vol: 0.06 });
+          break;
         case "bubble":
           this.tone("sine", 260, 640, { dur: 0.06, vol: 0.07, hall: 0.05 });
           this.tone("sine", 330, 780, { at: 0.08, dur: 0.05, vol: 0.05, hall: 0.05 });
@@ -957,6 +962,7 @@
     ghost: { role: "spawn", actor: "ghost" },
     crow: { role: "spawn", actor: "crow" },
     hand: { role: "spawn", actor: "hand" },
+    drowned: { role: "spawn", actor: "drowned" },
     "reaper-guard": { role: "spawn", actor: "reaper" },
     // the reaper of stone who keeps the gate: the door opens only once it is dust              // under the ground: its point is where it comes up              // perched: its point is under its feet            // comes out near a hero within its haunt, either side of its point
     grave: { role: "grave" },
@@ -1053,7 +1059,7 @@
     "crouch-kick4",
     "crouch-kick5"
   ];
-  var range = (from, to3) => Array.from({ length: to3 - from + 1 }, (_, i) => from + i);
+  var range = (from, to4) => Array.from({ length: to4 - from + 1 }, (_, i) => from + i);
   var IMAGES = {
     tiles: CHURCH + "environment/tileset.png",
     tilesCut: CHURCH + "environment/tileset-cut.png",
@@ -2359,6 +2365,95 @@
     if (speed) e.animT += dt;
   }
 
+  // src/sim/drowned.ts
+  var DROWNED = {
+    hp: 2,
+    hurt: 1,
+    wake: 90,
+    // px: a hero this near, across...
+    high: 40,
+    // ...and this near up or down, wakes it
+    rise: 1,
+    // seconds to come up out of the water
+    speed: 30,
+    // px a second: it drags itself through the water
+    stagger: 0.45,
+    push: 70,
+    // a blow that does not send it under: how long it reels, how far
+    sink: 0.7,
+    // seconds to go back under
+    rest: 6
+    // seconds it lies under before it can rise again
+  };
+  function to3(e, mode) {
+    e.mode = mode;
+    e.modeT = 0;
+  }
+  function drownedThere(e) {
+    return e.mode === "walk" || e.mode === "stagger" || e.mode === "rise" && e.modeT > DROWNED.rise * 0.5;
+  }
+  function drownedHurts(e) {
+    return e.mode === "walk" || e.mode === "stagger";
+  }
+  function stepDrowned(e, a, water, dt) {
+    e.modeT += dt;
+    e.invul = Math.max(0, e.invul - dt);
+    const hero = a.hero, dx = centreX(hero) - centreX(e);
+    switch (e.mode) {
+      case "sunk":
+        e.vx = 0;
+        if (e.modeT < e.cool || !a.playing) return;
+        if (Math.abs(dx) < DROWNED.wake && Math.abs(feetY(hero) - feetY(e)) < DROWNED.high) {
+          to3(e, "rise");
+          e.facing = dx >= 0 ? 1 : -1;
+          a.emit({ type: "splash", x: centreX(e), y: water, size: 2 });
+          a.emit({ type: "sound", name: "gurgle" });
+        }
+        return;
+      case "rise":
+        e.vx = 0;
+        if (e.modeT >= DROWNED.rise) to3(e, "walk");
+        return;
+      case "sink":
+        e.vx = 0;
+        if (e.modeT >= DROWNED.sink) {
+          e.x = e.spawnX - e.w / 2;
+          e.y = e.spawnY - e.h;
+          e.vy = 0;
+          e.hp = DROWNED.hp;
+          e.cool = DROWNED.rest;
+          to3(e, "sunk");
+        }
+        return;
+      case "walk": {
+        if (Math.abs(dx) > 2) e.facing = dx > 0 ? 1 : -1;
+        const ahead = a.grid.groundUnder(centreX(e) + e.facing * 10, feetY(e));
+        const wet = ahead !== null && ahead > water;
+        e.vx = a.playing && wet && Math.abs(dx) > 4 ? e.facing * DROWNED.speed : 0;
+        if (e.vx) e.animT += dt;
+        break;
+      }
+      case "stagger":
+        e.vx *= Math.exp(-6 * dt);
+        if (e.modeT >= DROWNED.stagger) to3(e, "walk");
+        break;
+    }
+    e.vy = Math.min(TUNING.maxFall, e.vy + TUNING.gravity * dt);
+    move(e, a.grid, dt, a.emit);
+  }
+  function strikeDrowned(e, dir, damage) {
+    e.hp = Math.max(0, e.hp - damage);
+    if (e.hp <= 0) {
+      to3(e, "sink");
+      e.vx = 0;
+      return true;
+    }
+    to3(e, "stagger");
+    e.vx = dir * DROWNED.push;
+    e.invul = 0.2;
+    return false;
+  }
+
   // src/sim/ghoul.ts
   var GHOUL_SPEED = 118;
   var RELIGHT_GRACE = 1.2;
@@ -2536,9 +2631,10 @@
           } else {
             if (kind.actor === "shade" || kind.actor === "skull") actor.cool = START_GRACE;
             else if (kind.actor === "ghoul") actor.invul = START_GRACE;
-            actor.mode = kind.actor === "skull" ? "hover" : kind.actor === "hound" ? "sit" : kind.actor === "ghost" ? "away" : kind.actor === "crow" ? "perch" : kind.actor === "hand" ? "buried" : kind.actor === "reaper" ? "stone" : "";
+            actor.mode = kind.actor === "skull" ? "hover" : kind.actor === "hound" ? "sit" : kind.actor === "ghost" ? "away" : kind.actor === "crow" ? "perch" : kind.actor === "hand" ? "buried" : kind.actor === "reaper" ? "stone" : kind.actor === "drowned" ? "sunk" : "";
             if (kind.actor === "reaper") actor.hp = REAPER.hp;
             if (kind.actor === "hand") actor.hp = HAND.hp;
+            if (kind.actor === "drowned") actor.hp = DROWNED.hp;
             if (kind.actor === "hound") actor.hp = 2;
             if (kind.actor === "ghost") actor.cool = GHOST.away[0];
             this.foes.push(actor);
@@ -2886,6 +2982,7 @@
       if (f.kind === "crow") return f.mode !== "perch";
       if (f.kind === "hand") return false;
       if (f.kind === "reaper") return reaperThere(f);
+      if (f.kind === "drowned") return drownedThere(f);
       if (f.kind === "demon") return !!this.boss && demonTouchable(this.boss);
       return true;
     }
@@ -2915,6 +3012,16 @@
           this.slain++;
           this.emit({ type: "sound", name: "crash" });
         } else this.emit({ type: "sound", name: "block" });
+        return;
+      }
+      if (e.kind === "drowned") {
+        const under = strikeDrowned(e, dir, blow.damage), water = this.level.settings.water;
+        this.hitStop = heavy ? 0.07 : 0.05;
+        this.shake = Math.max(this.shake, heavy ? 0.14 : 0.1);
+        this.emit({ type: "effect", kind: heavy ? "crit-hit" : "hit-spark", x: x - dir * 4, y: e.y + 16, flip: dir < 0 });
+        this.emit({ type: "splash", x, y: water > 0 ? water : y, size: under ? 3 : 1 });
+        this.emit({ type: "sound", name: under ? "splash" : "hit" });
+        if (under) this.slain++;
         return;
       }
       if (e.kind === "crow") {
@@ -3045,6 +3152,11 @@
       }
       if (e.kind === "hand") {
         this.stepHand(e);
+        return;
+      }
+      if (e.kind === "drowned") {
+        stepDrowned(e, this.arena, this.level.settings.water, STEP);
+        if (playing && drownedHurts(e) && p.invul <= 0 && overlap3(e, p)) this.hurtHero(centreX(p) >= centreX(e) ? 1 : -1, DROWNED.hurt);
         return;
       }
       if (e.kind === "reaper") {
@@ -3208,7 +3320,7 @@
     // A hand of the dead: under the ground until the hero's feet come onto it; then it holds him by the
     // ankle until he breaks it, or until it squeezes and lets go; then it sinks back and rests a while.
     stepHand(e) {
-      const p = this.hero, to3 = (mode) => {
+      const p = this.hero, to4 = (mode) => {
         e.mode = mode;
         e.modeT = 0;
       };
@@ -3220,7 +3332,7 @@
         const feet = p.y + p.h;
         if (this.state !== "play" || e.cool > 0 || this.heldBy || !p.onGround || p.climbing) return;
         if (Math.abs(feet - e.spawnY) > 6 || Math.abs(centreX(p) - e.spawnX) > HAND.reach) return;
-        to3("grab");
+        to4("grab");
         this.heldBy = e;
         p.vx = 0;
         e.facing = centreX(p) >= e.spawnX ? 1 : -1;
@@ -3230,17 +3342,17 @@
       }
       if (e.mode === "grab") {
         if (this.heldBy !== e) {
-          to3("sink");
+          to4("sink");
           return;
         }
         if (e.modeT < HAND.hold) return;
         this.heldBy = null;
         this.hurtHero(centreX(p) >= e.spawnX ? 1 : -1, HAND.squeeze, true);
-        to3("sink");
+        to4("sink");
         return;
       }
       if (e.mode === "sink" && e.modeT >= HAND.sink) {
-        to3("buried");
+        to4("buried");
         e.cool = HAND.rest;
         e.hp = HAND.hp;
       }
@@ -3500,6 +3612,24 @@
     k.fillRect(0, 0, c.width, c.height);
     return c;
   }
+  function drownedSkin(source) {
+    const c = document.createElement("canvas");
+    c.width = source.width;
+    c.height = source.height;
+    const k = c.getContext("2d");
+    k.filter = "grayscale(1) contrast(0.9) brightness(1.15)";
+    k.drawImage(source, 0, 0);
+    k.filter = "none";
+    k.globalCompositeOperation = "multiply";
+    k.fillStyle = "rgb(172,204,188)";
+    k.fillRect(0, 0, c.width, c.height);
+    k.globalCompositeOperation = "screen";
+    k.fillStyle = "rgb(18,34,32)";
+    k.fillRect(0, 0, c.width, c.height);
+    k.globalCompositeOperation = "destination-in";
+    k.drawImage(source, 0, 0);
+    return c;
+  }
   function blotched(source, color) {
     const out = washed(source, color), k = out.getContext("2d");
     const mask = document.createElement("canvas");
@@ -3580,6 +3710,7 @@
     for (const n of MONK_FRAMES) {
       const monk = loaded.get("monk/" + n);
       images.set("shade/" + n, washed(monk, "rgba(110,255,165,0.6)"));
+      images.set("drowned/" + n, drownedSkin(monk));
       images.set("monkflash/" + n, washed(monk, "rgba(255,255,255,0.85)"));
       images.set("shadeflash/" + n, washed(monk, "rgba(235,225,255,0.9)"));
       images.set("gore/" + n, blotched(monk, "rgba(150,8,14,0.92)"));
@@ -5918,6 +6049,14 @@
         q.y += q.vy * dt;
       }
       this.particles = this.particles.filter((q) => q.life > 0);
+      for (const e of this.world.foes) {
+        if (e.kind !== "drowned") continue;
+        const cx = e.x + e.w / 2, feet = e.y + e.h, water = this.world.level.settings.water;
+        if (e.mode === "sunk" && e.modeT >= e.cool && water > 0 && Math.random() < dt * 0.9)
+          this.particles.push({ x: cx + (Math.random() - 0.5) * 16, y: feet - 6, vx: (Math.random() - 0.5) * 6, vy: -28 - Math.random() * 16, life: Math.max(0.2, (feet - 6 - water) / 36), color: "#b8dcff", g: -18 });
+        if ((e.mode === "walk" || e.mode === "stagger") && Math.random() < dt * 7)
+          this.particles.push({ x: cx + (Math.random() - 0.5) * 10, y: e.y + 10 + Math.random() * 18, vx: 0, vy: 10, life: 0.4, color: "#9cc4ef", g: 520 });
+      }
       for (const m of this.world.embers) {
         if (m.taken || Math.random() > dt * 2.5) continue;
         this.particles.push({ x: m.x - 4 + Math.random() * 8, y: m.y - 4, vx: (Math.random() - 0.5) * 16, vy: -18 - Math.random() * 26, life: 0.5 + Math.random() * 0.6, color: FIRE3[1 + Math.floor(Math.random() * 2)], g: -14 });
@@ -6010,6 +6149,7 @@
         for (const f of w.foes) if (f.kind === "crow") this.drawCrow(g2, f, t);
         this.drawFlocks(g2, t);
         for (const f of w.foes) if (f.kind === "ghoul") this.drawGhoul(g2, f, t);
+        for (const f of w.foes) if (f.kind === "drowned") this.drawDrowned(g2, f, t);
         for (const f of w.foes) if (f.kind === "shade") this.drawMonk(g2, f, t);
         this.drawMonk(g2, w.hero, t);
         for (const f of w.foes) if (f.kind === "hand") this.drawHand(g2, f, t);
@@ -6855,6 +6995,31 @@
         }
       }
     }
+    // The drowned: lying under the water, a dark shape on the floor (once it can rise again); rising and
+    // sinking, cut at the floor it lies on, the water over its lower part; risen, a monk the water took.
+    drawDrowned(g2, e, t) {
+      const cx = e.x + e.w / 2, feet = e.y + e.h, mirror = e.facing < 0;
+      if (e.mode === "sunk") {
+        if (e.modeT < e.cool) return;
+        g2.fillStyle = "rgba(6,14,24,0.5)";
+        g2.beginPath();
+        g2.ellipse(cx, feet - 3, 15, 3, 0, 0, Math.PI * 2);
+        g2.fill();
+        return;
+      }
+      const down = e.mode === "rise" ? 1 - Math.min(1, e.modeT / DROWNED.rise) : e.mode === "sink" ? Math.min(1, e.modeT / DROWNED.sink) : 0;
+      const frame = e.mode === "stagger" ? "hurt" + (1 + Math.floor(t * 10) % 2) : e.mode === "walk" && e.vx !== 0 ? "walk" + (1 + Math.floor(e.animT * 5) % 6) : "walk1";
+      const key = (e.invul > 0 ? "monkflash/" : "drowned/") + frame, at = feet + Math.round(down * e.h);
+      g2.save();
+      if (down > 0) {
+        g2.beginPath();
+        g2.rect(cx - 40, feet - 140, 80, 140);
+        g2.clip();
+      }
+      if (e.invul > 0) this.sprite(g2, key, cx, at, MONK_ANCHOR, mirror);
+      else this.picture(g2, this.litSprite(key, cx, at - e.h + 18, mirror, null, MONK_ANCHOR), cx, at, MONK_ANCHOR, mirror);
+      g2.restore();
+    }
     // Water thrown up from its surface, and a ring on it.
     splash(x, y, size) {
       for (let i = 0; i < 5 + size * 9; i++) this.particles.push({ x: x + (Math.random() - 0.5) * 10 * size, y: y - 1, vx: (Math.random() - 0.5) * 90 * size, vy: -60 - Math.random() * 110 * size, life: 0.3 + Math.random() * 0.4, color: ["#d8ecff", "#9cc4ef", "#eef7ff", "#6f9ccc"][Math.floor(Math.random() * 4)], g: 700 });
@@ -7083,13 +7248,13 @@
     footShadow(g2, x, feet, half) {
       const lamp = this.lights.sample(x, feet - 12).key;
       const away = lamp ? Math.max(-1, Math.min(1, (x - lamp.x) / FOOT_LEAN)) : 0;
-      const from = x - half - Math.max(0, -away) * half * FOOT_LONG, to3 = x + half + Math.max(0, away) * half * FOOT_LONG;
-      const dark = g2.createLinearGradient(from, 0, to3, 0), mid = (x - from) / (to3 - from);
+      const from = x - half - Math.max(0, -away) * half * FOOT_LONG, to4 = x + half + Math.max(0, away) * half * FOOT_LONG;
+      const dark = g2.createLinearGradient(from, 0, to4, 0), mid = (x - from) / (to4 - from);
       dark.addColorStop(0, "rgba(0,0,0,0)");
       dark.addColorStop(mid, `rgba(0,0,0,${FOOT_DARK})`);
       dark.addColorStop(1, "rgba(0,0,0,0)");
       g2.fillStyle = dark;
-      const y = Math.round(feet), l = Math.round(from), r = Math.round(to3);
+      const y = Math.round(feet), l = Math.round(from), r = Math.round(to4);
       g2.fillRect(l, y, r - l, 1);
       g2.globalAlpha = 0.5;
       g2.fillRect(l + 2, y + 1, r - l - 4, 1);

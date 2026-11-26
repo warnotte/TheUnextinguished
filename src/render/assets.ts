@@ -33,6 +33,22 @@ function washed(source: HTMLImageElement | HTMLCanvasElement, color: string): HT
   return c;
 }
 
+// A copy of a picture in the colours of a body the water took: grey, so that its drawing stays
+// readable, then pale green-grey over it, and the darks lifted to the green of rotten weed. Done by
+// drawing, not by reading pixels: a page opened from the disk may not read its pictures.
+function drownedSkin(source: HTMLImageElement): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = source.width; c.height = source.height;
+  const k = c.getContext('2d')!;
+  k.filter = 'grayscale(1) contrast(0.9) brightness(1.15)';
+  k.drawImage(source, 0, 0);
+  k.filter = 'none';
+  k.globalCompositeOperation = 'multiply'; k.fillStyle = 'rgb(172,204,188)'; k.fillRect(0, 0, c.width, c.height);
+  k.globalCompositeOperation = 'screen'; k.fillStyle = 'rgb(18,34,32)'; k.fillRect(0, 0, c.width, c.height);
+  k.globalCompositeOperation = 'destination-in'; k.drawImage(source, 0, 0);
+  return c;
+}
+
 // A copy of a picture that keeps only blotches of it, in one colour: the blood a fighter wears.
 // The blotches are the same for every frame, so that they do not crawl as the frames change.
 function blotched(source: HTMLImageElement, color: string): HTMLCanvasElement {
@@ -98,6 +114,8 @@ export async function loadAssets(base = 'assets/'): Promise<Assets> {
     const monk = loaded.get('monk/' + n)!;
     // A spectral green: the one colour that stands out from the purple stone, the hero's blue and the fire.
     images.set('shade/' + n, washed(monk, 'rgba(110,255,165,0.6)'));
+    // A monk the water took: pale, grey-green, bloated with it.
+    images.set('drowned/' + n, drownedSkin(monk));
     images.set('monkflash/' + n, washed(monk, 'rgba(255,255,255,0.85)'));
     images.set('shadeflash/' + n, washed(monk, 'rgba(235,225,255,0.9)'));
     images.set('gore/' + n, blotched(monk, 'rgba(150,8,14,0.92)'));

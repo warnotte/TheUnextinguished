@@ -4,6 +4,7 @@
 import { EFFECTS, effectDuration, KINDS, SHEETS, STRIPS } from '../level/kinds';
 import { GHOST, SKULL } from '../sim/creatures';
 import { DEMON, type Demon, SKELETON } from '../sim/demon';
+import { DROWNED } from '../sim/drowned';
 import { REAPER } from '../sim/reaper';
 import type { Fall } from '../sim/fall';
 import type { Actor } from '../sim/actor';
@@ -263,6 +264,14 @@ export class Stage {
       q.x += q.vx * dt; q.y += q.vy * dt;
     }
     this.particles = this.particles.filter(q => q.life > 0);
+    for (const e of this.world.foes) {
+      if (e.kind !== 'drowned') continue;
+      const cx = e.x + e.w / 2, feet = e.y + e.h, water = this.world.level.settings.water;
+      if (e.mode === 'sunk' && e.modeT >= e.cool && water > 0 && Math.random() < dt * 0.9)
+        this.particles.push({ x: cx + (Math.random() - 0.5) * 16, y: feet - 6, vx: (Math.random() - 0.5) * 6, vy: -28 - Math.random() * 16, life: Math.max(0.2, (feet - 6 - water) / 36), color: '#b8dcff', g: -18 });
+      if ((e.mode === 'walk' || e.mode === 'stagger') && Math.random() < dt * 7)
+        this.particles.push({ x: cx + (Math.random() - 0.5) * 10, y: e.y + 10 + Math.random() * 18, vx: 0, vy: 10, life: 0.4, color: '#9cc4ef', g: 520 });
+    }
     // Each ember that waits throws a spark now and then.
     for (const m of this.world.embers) {
       if (m.taken || Math.random() > dt * 2.5) continue;
@@ -351,6 +360,7 @@ export class Stage {
       for (const f of w.foes) if (f.kind === 'crow') this.drawCrow(g, f, t);
       this.drawFlocks(g, t);
       for (const f of w.foes) if (f.kind === 'ghoul') this.drawGhoul(g, f, t);
+      for (const f of w.foes) if (f.kind === 'drowned') this.drawDrowned(g, f, t);
       for (const f of w.foes) if (f.kind === 'shade') this.drawMonk(g, f, t);
       this.drawMonk(g, w.hero, t);
       for (const f of w.foes) if (f.kind === 'hand') this.drawHand(g, f, t);           // in front of the feet it holds
@@ -1020,6 +1030,27 @@ export class Stage {
         this.particles.push({ x: x + a.facing * 4 + (Math.random() - 0.5) * 4, y: a.y + 6, vx: (Math.random() - 0.5) * 8, vy: -30 - Math.random() * 20, life: Math.min(1.2, (a.y - water) / 40), color: '#b8dcff', g: -20 });
       }
     }
+  }
+
+  // The drowned: lying under the water, a dark shape on the floor (once it can rise again); rising and
+  // sinking, cut at the floor it lies on, the water over its lower part; risen, a monk the water took.
+  private drawDrowned(g: CanvasRenderingContext2D, e: Actor, t: number): void {
+    const cx = e.x + e.w / 2, feet = e.y + e.h, mirror = e.facing < 0;
+    if (e.mode === 'sunk') {
+      if (e.modeT < e.cool) return;
+      g.fillStyle = 'rgba(6,14,24,0.5)';
+      g.beginPath(); g.ellipse(cx, feet - 3, 15, 3, 0, 0, Math.PI * 2); g.fill();
+      return;
+    }
+    const down = e.mode === 'rise' ? 1 - Math.min(1, e.modeT / DROWNED.rise) : e.mode === 'sink' ? Math.min(1, e.modeT / DROWNED.sink) : 0;
+    const frame = e.mode === 'stagger' ? 'hurt' + (1 + Math.floor(t * 10) % 2)
+      : e.mode === 'walk' && e.vx !== 0 ? 'walk' + (1 + Math.floor(e.animT * 5) % 6) : 'walk1';
+    const key = (e.invul > 0 ? 'monkflash/' : 'drowned/') + frame, at = feet + Math.round(down * e.h);
+    g.save();
+    if (down > 0) { g.beginPath(); g.rect(cx - 40, feet - 140, 80, 140); g.clip(); }
+    if (e.invul > 0) this.sprite(g, key, cx, at, MONK_ANCHOR, mirror);
+    else this.picture(g, this.litSprite(key, cx, at - e.h + 18, mirror, null, MONK_ANCHOR), cx, at, MONK_ANCHOR, mirror);
+    g.restore();
   }
 
   // Water thrown up from its surface, and a ring on it.
