@@ -104,6 +104,9 @@ export async function loadAssets(base = 'assets/'): Promise<Assets> {
     images.set('shadow/' + n, washed(monk, '#000'));          // its outline, for the shadow it casts
   }
   for (const key of Object.keys(IMAGES)) if (key.startsWith('ghoul/') || key.startsWith('skeleton')) images.set('shadow-' + key, washed(loaded.get(key)!, '#000'));
+  // The reaper of stone: its statue grey as stone, white for the instant a blow lands, black for its shadow.
+  const statue = loaded.get('cemetery/statue');
+  if (statue) { images.set('reaper/stone', washed(statue, 'rgba(118,114,128,0.82)')); images.set('reaper/flash', washed(statue, 'rgba(255,245,235,0.85)')); }
   const torch = SHEETS.torch;
   sheets.set('torch', feathered(loaded.get('sheet:torch')!, torch.w, torch.h, torch.cols, torch.frames));
 

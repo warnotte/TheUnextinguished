@@ -18,6 +18,45 @@ export function planeShift(depth: number, camX: number, rise: number): [number, 
 
 const ridge = (u: number): number => 26 * Math.sin(u * 0.011) + 15 * Math.sin(u * 0.029 + 1.7) + 7 * Math.sin(u * 0.067 + 0.4);
 
+/** The pictures the cemetery's sky is made of: three planes of the pack, each the size of its screen (384 x 224). */
+export interface CemeteryPictures { moon: CanvasImageSource; mountains: CanvasImageSource; graveyard: CanvasImageSource }
+
+/**
+ * The night over the cemetery, as the pack lays it out: its three planes, each of them the size of its
+ * screen, at their own size: the sky from the top of the view, the rocks and the far graves standing on
+ * the ground (`ground`, the top of the ground on the view).
+ * The moon stays where it is; the view being wider than the pack's, the sky is mirrored on either side
+ * of it. The rocks slide a little, the far graves more.
+ */
+export function paintCemetery(k: CanvasRenderingContext2D, camX: number, ground: number, t: number, p: CemeteryPictures, dawn = 0): void {
+  const PW = 384, PH = 224, top = Math.round(ground + 48 - PH), mid = Math.round((VIEW_W - PW) / 2);
+  k.fillStyle = '#000022'; k.fillRect(0, 0, VIEW_W, VIEW_H);
+  // The view is taller than the pack's screen: the sky hangs from the top of the view, the rest stands on the ground.
+  const sky = Math.min(0, top);
+  k.drawImage(p.moon, mid, sky);
+  k.save(); k.translate(mid, 0); k.scale(-1, 1); k.drawImage(p.moon, 0, sky); k.restore();
+  k.save(); k.translate(mid + PW * 2, 0); k.scale(-1, 1); k.drawImage(p.moon, 0, sky); k.restore();
+  const glow = k.createRadialGradient(VIEW_W / 2, sky + 70, 10, VIEW_W / 2, sky + 70, 120);
+  glow.addColorStop(0, `rgba(255,40,140,${(0.06 + 0.04 * Math.sin(t * 0.7)).toFixed(3)})`); glow.addColorStop(1, 'rgba(255,40,140,0)');
+  k.fillStyle = glow; k.fillRect(0, 0, VIEW_W, VIEW_H);
+  if (dawn > 0) {
+    // The dawn: the sky warming from its foot up, the moon fading into it, the sun coming up behind the rocks.
+    const warm = k.createLinearGradient(0, 0, 0, top + PH);
+    warm.addColorStop(0, `rgba(90,100,170,${(0.7 * dawn).toFixed(3)})`); warm.addColorStop(0.5, `rgba(255,140,120,${(0.78 * dawn).toFixed(3)})`); warm.addColorStop(1, `rgba(255,210,140,${(0.95 * dawn).toFixed(3)})`);
+    k.fillStyle = warm; k.fillRect(0, 0, VIEW_W, VIEW_H);
+    const sx = VIEW_W * 0.86, sy = top + 190 - 90 * dawn;
+    const sun = k.createRadialGradient(sx, sy, 8, sx, sy, 230);
+    sun.addColorStop(0, `rgba(255,235,170,${(0.85 * dawn).toFixed(3)})`); sun.addColorStop(0.25, `rgba(255,190,120,${(0.45 * dawn).toFixed(3)})`); sun.addColorStop(1, 'rgba(255,170,110,0)');
+    k.fillStyle = sun; k.fillRect(0, 0, VIEW_W, VIEW_H);
+    k.fillStyle = `rgba(255,246,214,${dawn.toFixed(3)})`;
+    for (let dy = -20; dy <= 20; dy++) { const half = Math.round(Math.sqrt(400 - dy * dy)); k.fillRect(Math.round(sx - half), Math.round(sy + dy), half * 2, 1); }
+  }
+  // The rocks stand higher than the pack sets them, to rise into the taller view; the far graves stay on the ground.
+  for (const [picture, depth, lift] of [[p.mountains, 0.07, 56], [p.graveyard, 0.25, 0]] as const) {
+    for (let x = -mod(camX * depth, PW); x < VIEW_W; x += PW) k.drawImage(picture, Math.round(x), top - lift);
+  }
+}
+
 /** Paints the whole view with the night. `rise` is 0 at the foot of the level and grows as the camera climbs. */
 export function paintSky(k: CanvasRenderingContext2D, camX: number, rise: number, t: number, snow: boolean): void {
   const r = (x: number, y: number, w: number, h: number, color: string) => { k.fillStyle = color; k.fillRect(Math.round(x), Math.round(y), w, h); };

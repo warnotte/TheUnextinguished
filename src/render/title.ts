@@ -91,7 +91,7 @@ export function drawTitle(g: CanvasRenderingContext2D, t: number, page: { title:
   }
 
   if (blink(t)) centered(g, 'PRESS JUMP TO START', 286, GOLD, 3);
-  centered(g, 'F FULL SCREEN    M MUSIC    P PAUSE', 334, DIM);
+  centered(g, 'F FULL SCREEN    M MUSIC    P PAUSE    H COLLISIONS', 334, DIM);
 }
 
 /** The end: the name again, what the run cost, and the name asked for if the run goes on the board. */

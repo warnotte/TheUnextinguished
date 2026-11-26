@@ -7,6 +7,9 @@ NoobSynth3's `dsp-core` (taken by path, read only: `E:/CODEX/NoobSynth3/crates/d
 |---|---|---|
 | `nef` | 1, the Nave | FM (`FmMatrix` lead, stabs, pad, pluck; `FmOperator` bass), TR-909 drums |
 | `crypte` | 2, the Crypt | `NesOsc` pulses, triangle and noise, `SnesOsc` strings and bass, `PipeOrgan`, an `FmMatrix` bell, `Kick808` and `Tom909` |
+| `dirge` | 7, played once as the Cemetery begins | two SIDs: a drone on the tritone, a music box out of tune creeping down by half tones, chords diminished; the wind, a far bell |
+| `graves` | 7, the Cemetery, after `dirge` | two SIDs, faster: a bass round the tritone, the Dies irae (the old chant, free of rights); dull blows, a clock, the bell |
+| `dawn` | the end, over the cemetery at dawn | two SIDs: the music box of `dirge` climbing at last, in D major; a warm pad, a far bell |
 | `flood` | 3, the Flooded Crypt | two SIDs of the Commodore 64: a drone through the filter, drops of water, a lament; the rain, a heart, the chords |
 | `demon` | 5, the Bell Chamber | `NesOsc` pulses, triangle and noise, a `Kick808`, an `FmMatrix` bell |
 | `arrival` | 5, played once as the demon comes in | the same, its tail kept to ring over the start of `demon` |
@@ -29,6 +32,9 @@ ffmpeg -y -i <tmp dir>/demon.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music
 ffmpeg -y -i <tmp dir>/arrival.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/arrival.ogg
 ffmpeg -y -i <tmp dir>/collapse.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/collapse.ogg
 ffmpeg -y -i <tmp dir>/flood.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/flood.ogg
+ffmpeg -y -i <tmp dir>/dawn.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/dawn.ogg
+ffmpeg -y -i <tmp dir>/dirge.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/dirge.ogg
+ffmpeg -y -i <tmp dir>/graves.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/graves.ogg
 cd tools/music
 cargo run --release -- pack ../../assets/music
 ```
@@ -48,7 +54,7 @@ cargo run --release -- measure <tmp dir>/nef-decoded.wav
 
 ## How a tune is written
 
-- `src/nef.rs`, `src/crypte.rs`, `src/demon.rs`, `src/arrival.rs`, `src/collapse.rs`, `src/flood.rs`: the tunes. A tune
+- `src/nef.rs`, `src/crypte.rs`, `src/demon.rs`, `src/arrival.rs`, `src/collapse.rs`, `src/flood.rs`, `src/dirge.rs`, `src/graves.rs`, `src/dawn.rs`: the tunes. A tune
   played once (`arrival`) keeps its tail after it; its script says when the next tune comes in.
 - `src/sid.rs`: the SID, its instruments, arpeggios, drum tables and filter, fifty times a second. Notes are text on a grid of sixteenths
   (`"e5:2 g5:3 -:1"`, bars separated by `|`), drums are one character per sixteenth

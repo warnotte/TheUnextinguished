@@ -4,6 +4,7 @@
 import { EFFECTS, effectDuration, KINDS, SHEETS, STRIPS } from '../level/kinds';
 import { GHOST, SKULL } from '../sim/creatures';
 import { DEMON, type Demon, SKELETON } from '../sim/demon';
+import { REAPER } from '../sim/reaper';
 import type { Fall } from '../sim/fall';
 import type { Actor } from '../sim/actor';
 import type { GameEvent, SoundName } from '../sim/events';
@@ -16,7 +17,7 @@ import { Camera, VIEW_H, VIEW_W } from './camera';
 import { type Caster, type Light, LightSheet, shaftPath, shafts } from './lighting';
 import { flashSource, rimOffset } from './shading';
 import { groundLine, rainLine, paintBackdrop } from './scene';
-import { paintSky, paintSnow } from './sky';
+import { paintCemetery, paintSky, paintSnow } from './sky';
 import { drawBolt, Storm } from './storm';
 import type { LevelResult, Words } from '../campaign';
 import type { Initials } from '../initials';
@@ -64,7 +65,8 @@ export class Stage {
   private readonly skyView: HTMLCanvasElement | null = null;
   private readonly bench = [document.createElement('canvas'), document.createElement('canvas')];     // where a sprite is lit before it is drawn
   private aim: [number, number] | null = null;          // where the camera looks, when it is not the hero
-  private readonly storm: Storm | null;
+  private storm: Storm | null;
+  private dawnT = -1;                                   // seconds since the dawn began, -1 at night
   private heardNow: SoundName[] = [];                   // what the stage itself makes heard: the thunder
   private readonly openings: { x: number; y: number }[] = [];     // the middle of each opening on the sky, where a flash comes in
   private flashSheet: HTMLCanvasElement | null = null;
@@ -74,6 +76,9 @@ export class Stage {
   private readonly wetCols: boolean[] = [];                       // the columns where the surface is open water
   private readonly rain: (number | null)[] = [];                  // where the rain stops, column by column; null under the roof
   private readonly wading = new Map<Actor, number>();             // px each body has waded since its last splash
+  /** H: what collides, drawn over the picture. */
+  collisions = false;
+  private readonly flocks: { x: number; y: number; t: number; birds: { dx: number; dy: number; vx: number; vy: number; flap: number }[] }[] = [];     // t: seconds since they flew, -1 perched
   private ripples: { x: number; t: number; size: number }[] = [];  // rings on the water, in level x
   private feet = { x: 0, walked: 0, bloody: 0, side: 1 };          // the hero's steps: the blood his feet carry
   private readonly bells: { x: number; y: number }[] = [];        // where each great bell hangs
@@ -127,6 +132,10 @@ export class Stage {
     level.objects.forEach((o, i) => {
       const kind = KINDS[o.kind];
       if (kind && kind.role === 'bell') this.bells.push({ x: o.x, y: o.y });
+      if (o.kind === 'flock') {
+        const n = Math.max(1, Number(o.props.count ?? 5));
+        this.flocks.push({ x: o.x, y: o.y, t: -1, birds: Array.from({ length: n }, (_, k) => ({ dx: (k - (n - 1) / 2) * 9 + (hash(k, i) - 0.5) * 4, dy: (hash(k, i + 1) - 0.5) * 6, vx: 0, vy: 0, flap: hash(k, i + 2) * 6 })) });
+      }
       if (kind && kind.role === 'decor' && 'sheet' in kind) this.loops.push({ sheet: kind.sheet, x: o.x, y: o.y, phase: i * 17, front: kind.plane === 'front' });
     });
     const [fx, fy] = this.focus();
@@ -146,6 +155,10 @@ export class Stage {
     this.aim = [x, y];
     if (jump) this.camera.follow(x, y);
   }
+
+  /** The night ends over the place: the storm is gone, the sky warms, the sun comes up, the crows fly off. */
+  dawn(): void { this.dawnT = 0; this.storm = null; }
+  private dawnLight(): number { return this.dawnT < 0 ? 0 : Math.min(1, this.dawnT / 14); }
 
   /** The level won, against the board, and the name being given for it if its time is good enough. */
   setResult(result: LevelResult, naming: Initials | null): void { this.hud.result = result; this.hud.naming = naming; }
@@ -206,7 +219,10 @@ export class Stage {
     if (this.punch) { this.punch.t += dt; if (this.punch.t >= ZOOM_OUT) this.punch = null; }
     if (this.world.hitStop > 0) return;
     this.hud.update(dt);
-    if (this.storm?.update(dt).thunder) this.heardNow.push('thunder');
+    if (this.dawnT >= 0) { this.dawnT += dt; if (this.dawnT > 1.5) for (const f of this.flocks) if (f.t < 0) this.fly(f); }
+    const thunder = !!this.storm?.update(dt).thunder;
+    if (thunder) this.heardNow.push('thunder');
+    this.stepFlocks(dt, thunder);
     for (const fx of this.effects) fx.t += dt;
     this.effects = this.effects.filter(fx => fx.t < effectDuration(fx.kind));
     this.swing.t += dt; this.swing.amp *= Math.exp(-0.45 * dt);
@@ -277,14 +293,15 @@ export class Stage {
     // The light falls on the wall and on what hangs on it; the bodies throw their shadows there.
     const moving = this.movingLights(t);
     const casters = this.casters(t);
-    this.lights.draw(g, cx, cy, level.settings.darkness, this.restingLights(), moving, t, casters);
+    this.lights.draw(g, cx, cy, level.settings.darkness * (1 - 0.6 * this.dawnLight()), this.restingLights(), moving, t, casters);
     if (this.storm && this.storm.glow > 0.02) this.lightning(g, casters, cx, cy, this.storm.glow);
 
     // The night, where the wall is open: it has its own light, and no shadow falls on it.
     if (this.holes && this.skyView) {
       const k = this.skyView.getContext('2d')!;
       k.globalCompositeOperation = 'source-over';
-      paintSky(k, cx, level.height - VIEW_H - cy, t, level.settings.snow);
+      if (level.settings.skyline === 'cemetery') paintCemetery(k, cx, this.ground - cy, t, { moon: this.assets.image('cemetery/bg-moon'), mountains: this.assets.image('cemetery/bg-mountains'), graveyard: this.assets.image('cemetery/bg-graveyard') }, this.dawnLight());
+      else paintSky(k, cx, level.height - VIEW_H - cy, t, level.settings.snow);
       const storm = this.storm;
       if (storm && storm.flash > 0) {                // the whole sky lights up
         k.globalCompositeOperation = 'lighter';
@@ -304,15 +321,21 @@ export class Stage {
     g.translate(-cx, -cy);
     this.drawBells(g);                               // it hangs in front of the opening, over the sky
     this.drawEmbers(g, t);
+    this.drawCandles(g, t);
     if (!this.scenery) {
       if (w.boss) { this.drawDemon(g, w.boss, t); this.drawWaves(g, w.boss, t); }
       for (const f of w.foes) if (f.kind === 'skeleton') this.drawSkeleton(g, f, t);
       for (const f of w.foes) if (f.kind === 'hound') this.drawHound(g, f, t);
       for (const f of w.foes) if (f.kind === 'ghost') this.drawGhost(g, f, t);
       for (const f of w.foes) if (f.kind === 'skull') this.drawSkull(g, f, t);
+      for (const f of w.foes) if (f.kind === 'reaper') this.drawReaper(g, f, t);
+      this.drawScythe(g, t);
+      for (const f of w.foes) if (f.kind === 'crow') this.drawCrow(g, f, t);
+      this.drawFlocks(g, t);
       for (const f of w.foes) if (f.kind === 'ghoul') this.drawGhoul(g, f, t);
       for (const f of w.foes) if (f.kind === 'shade') this.drawMonk(g, f, t);
       this.drawMonk(g, w.hero, t);
+      for (const f of w.foes) if (f.kind === 'hand') this.drawHand(g, f, t);           // in front of the feet it holds
     }
     for (const fx of this.effects) this.drawEffect(g, fx);
     this.drawRings(g);
@@ -343,6 +366,7 @@ export class Stage {
     }
     this.closeIn(g, cx, cy);
     this.drawLens(g);
+    if (this.collisions) this.drawCollisions(g, cx, cy);
     if (!this.scenery) this.hud.draw(g, t, paused, this.won);
   }
 
@@ -362,6 +386,7 @@ export class Stage {
   private restingLights(): Light[] {
     const w = this.world, out: Light[] = [];
     for (const m of w.embers) if (!m.taken) out.push({ x: m.x, y: m.y, radius: 54, strength: 0.75, flicker: 0, color: [255, 150, 70] });
+    for (const c of w.candles) if (c.lit) out.push({ x: c.x, y: c.y - 14, radius: 46, strength: 0.7, flicker: 0, color: [255, 200, 120] });
     if (w.door && w.doorOpen) out.push({ x: w.door.x + 16, y: w.door.y + 36, radius: 140, strength: 1, flicker: 0, color: [255, 215, 140] });
     const flash = this.storm?.glow ?? 0;
     if (flash > 0.02) for (const o of this.openings) out.push({ x: o.x, y: o.y, radius: LIGHTNING.radius, strength: LIGHTNING.strength * flash, flicker: 0, color: LIGHTNING.color });
@@ -602,6 +627,194 @@ export class Stage {
     } else if (e.mode === 'vanish') this.stripFrame(g, 'ghost/vanish', Math.min(6, Math.floor((e.modeT / GHOST.vanish) * 7)), cx, feet, mirror, false, 0.9);
   }
 
+  // A crow, drawn pixel by pixel: on its perch, its head turning now and then; flying, its wings beating;
+  // fallen, on its side.
+  private drawCrow(g: CanvasRenderingContext2D, e: Actor, t: number): void {
+    if (e.mode === 'gone') return;
+    const cx = e.x + e.w / 2, feet = e.y + e.h;
+    if (e.mode === 'fallen') this.crowShape(g, cx, feet, e.facing, 'fallen', false);
+    else if (e.mode === 'perch') this.crowShape(g, cx, feet, e.facing, 'perch', false, Math.sin(t * 1.3 + e.spawnX) > 0.8 ? -1 : 1);
+    else this.crowShape(g, cx, feet + (e.mode === 'dive' ? -1 : 0), e.facing, 'fly', Math.floor(e.animT * 14) % 2 === 0);
+  }
+
+  // The view of what collides (H): stone in red, what one jumps up through and stands on in yellow,
+  // ladders in green, what hurts in magenta, the line of the hills in cyan, the door in blue; the
+  // bodies, the hero's in white and the others' in orange (dashed when they cannot be struck now), and
+  // the reach of his blow while it can strike. A legend at the foot of the picture.
+  private drawCollisions(g: CanvasRenderingContext2D, cx: number, cy: number): void {
+    const w = this.world, grid = w.grid;
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.translate(-Math.round(cx), -Math.round(cy));
+    const c0 = Math.max(0, Math.floor(cx / TILE)), c1 = Math.min(grid.cols - 1, Math.floor((cx + VIEW_W) / TILE));
+    const r0 = Math.max(0, Math.floor(cy / TILE)), r1 = Math.min(grid.rows - 1, Math.floor((cy + VIEW_H) / TILE));
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+      const x = c * TILE, y = r * TILE;
+      if (grid.solidAt(c, r)) { g.fillStyle = 'rgba(255,40,50,0.28)'; g.fillRect(x, y, TILE, TILE); g.strokeStyle = 'rgba(255,70,80,0.7)'; g.strokeRect(x + 0.5, y + 0.5, TILE - 1, TILE - 1); }
+      else if (grid.platformAt(c, r)) { g.fillStyle = 'rgba(255,220,40,0.25)'; g.fillRect(x, y, TILE, TILE); g.fillStyle = 'rgba(255,230,60,0.95)'; g.fillRect(x, y, TILE, 2); for (let k = 2; k < TILE; k += 4) g.fillRect(x + k, y + 4, 1, 3); }
+      else if (grid.ladderAt(c, r)) { g.fillStyle = 'rgba(60,255,110,0.3)'; g.fillRect(x, y, TILE, TILE); if (grid.ladderTopAt(c, r)) { g.fillStyle = 'rgba(80,255,130,0.9)'; g.fillRect(x, y, TILE, 2); } }
+    }
+    for (const z of w.hazards) {
+      g.fillStyle = 'rgba(255,40,220,0.35)'; g.fillRect(z.x, z.y, z.w, z.h);
+      g.strokeStyle = 'rgba(255,80,230,0.9)'; g.beginPath();
+      for (let x = z.x; x < z.x + z.w; x += 6) { g.moveTo(x + 0.5, z.y + z.h); g.lineTo(x + 3.5, z.y); }
+      g.stroke(); g.strokeRect(z.x + 0.5, z.y + 0.5, z.w - 1, z.h - 1);
+    }
+    if (grid.terrain) {
+      g.strokeStyle = 'rgba(60,240,255,0.95)'; g.lineWidth = 1; g.beginPath();
+      let drawing = false;
+      for (let x = Math.floor(cx); x < cx + VIEW_W; x++) {
+        const y = grid.groundAt(x);
+        if (y === null) { drawing = false; continue; }
+        if (drawing) g.lineTo(x + 0.5, y + 0.5); else { g.moveTo(x + 0.5, y + 0.5); drawing = true; }
+      }
+      g.stroke();
+    }
+    if (w.door) { g.strokeStyle = w.doorOpen ? 'rgba(80,170,255,1)' : 'rgba(80,120,200,0.8)'; g.strokeRect(w.door.x + 0.5, w.door.y + 0.5, w.door.w - 1, w.door.h - 1); }
+    const box = (a: { x: number; y: number; w: number; h: number }, color: string, dashed: boolean) => {
+      g.strokeStyle = color; g.setLineDash(dashed ? [2, 2] : []); g.strokeRect(Math.round(a.x) + 0.5, Math.round(a.y) + 0.5, Math.round(a.w) - 1, Math.round(a.h) - 1);
+    };
+    for (const f of w.foes) if (f.dead <= 0 || f.kind === 'crow' && f.mode === 'fallen') box(f, 'rgba(255,160,40,0.95)', !(f.ko <= 0 && f.dead <= 0 && f.invul <= 0) || f.mode === 'buried' || f.mode === 'stone' || f.mode === 'perch');
+    box(w.hero, 'rgba(255,255,255,0.95)', w.hero.invul > 0);
+    g.setLineDash([]);
+    const blow = w.blowBox();
+    if (blow) { g.fillStyle = 'rgba(255,255,120,0.35)'; g.fillRect(blow.x, blow.y, blow.w, blow.h); box(blow, 'rgba(255,255,120,1)', false); }
+    if (w.scythe) box({ x: w.scythe.x - 10, y: w.scythe.y - 10, w: 20, h: 20 }, 'rgba(255,40,220,0.95)', false);
+    g.restore();
+    // The legend.
+    const items: [string, string][] = [['SOLID', '#ff4650'], ['PLATFORM', '#ffe63c'], ['LADDER', '#50ff82'], ['HURTS', '#ff50e6'], ['HILL', '#3cf0ff'], ['HERO', '#ffffff'], ['FOE', '#ffa028'], ['BLOW', '#ffff78']];
+    const top = 46;                                          // under the bars of health, clear of the ground
+    g.fillStyle = 'rgba(5,5,15,0.7)'; g.fillRect(4, top, VIEW_W - 8, 18);
+    let x = 10;
+    for (const [name, color] of items) { g.fillStyle = color; g.fillRect(x, top + 5, 8, 8); text(g, name, x + 11, top + 4, color, 1); x += 14 + textWidth(name, 1) + 10; }
+  }
+
+  // The reaper of stone: grey and still as a statue; coming out of the stone, the colour coming into it
+  // as it shakes; awake, its eyes lit red, a cold breath about it; raising its blade, then a crescent of
+  // light where it sweeps; stunned, white an instant; falling to dust, fading as the stone flies.
+  private drawReaper(g: CanvasRenderingContext2D, e: Actor, t: number): void {
+    if (e.dead > 0) return;
+    const statue = this.assets.image('cemetery/statue') as HTMLImageElement, stone = this.assets.image('reaper/stone') as HTMLCanvasElement;
+    const cx = Math.round(e.x + e.w / 2), feet = Math.round(e.y + e.h), mirror = e.facing < 0;
+    const shake = e.mode === 'waking' ? (Math.floor(t * 30) % 2 ? 1 : -1) : 0;
+    const wake = e.mode === 'stone' ? 0 : e.mode === 'waking' ? Math.min(1, e.modeT / REAPER.waking) : 1;
+    g.save();
+    if (e.mode === 'dust') g.globalAlpha = Math.max(0, 1 - e.modeT / REAPER.dust);
+    if (wake > 0 && e.mode !== 'dust') {                        // the cold about it
+      const aura = g.createRadialGradient(cx, feet - 38, 6, cx, feet - 38, 48);
+      aura.addColorStop(0, `rgba(120,40,160,${(0.35 * wake).toFixed(3)})`); aura.addColorStop(1, 'rgba(120,40,160,0)');
+      g.fillStyle = aura; g.fillRect(cx - 48, feet - 86, 96, 96);
+    }
+    const tilt = e.mode === 'windup' ? -0.12 * Math.min(1, e.modeT / REAPER.windup) : e.mode === 'sweep' ? 0.16 : 0;
+    g.translate(cx + shake, feet); g.rotate(tilt); if (mirror) g.scale(-1, 1);
+    g.drawImage(stone, -31, -75);
+    if (wake > 0) { g.globalAlpha *= wake; g.drawImage(e.mode === 'stunned' && e.modeT < 0.08 ? this.assets.image('reaper/flash') : statue, -31, -75); }
+    g.restore();
+    if (wake > 0.5 && e.mode !== 'dust') {                       // its eyes
+      const ex = cx + (mirror ? 1 : -1) * 2, ey = feet - 64, pulse = 0.6 + 0.4 * Math.sin(t * 6);
+      g.save(); g.globalCompositeOperation = 'lighter';
+      g.fillStyle = `rgba(255,40,40,${pulse.toFixed(2)})`; g.fillRect(ex - 3, ey, 2, 1); g.fillRect(ex + 1, ey, 2, 1);
+      this.glow(g, ex, ey, 10, `rgba(255,30,30,${(0.35 * pulse).toFixed(2)})`);
+      g.restore();
+    }
+    if (e.mode === 'sweep') {                                    // the crescent of the blade
+      const k = Math.min(1, e.modeT / REAPER.sweep), f = e.facing;
+      g.save(); g.globalCompositeOperation = 'lighter';
+      g.strokeStyle = `rgba(200,235,255,${(0.9 * (1 - k * 0.6)).toFixed(2)})`; g.lineWidth = 3;
+      g.beginPath(); g.arc(cx, feet - 34, REAPER.reach - 8, f > 0 ? -1.3 + k * 1.6 - 0.9 : Math.PI + 1.3 - k * 1.6 - 0.9, f > 0 ? -1.3 + k * 1.6 + 0.4 : Math.PI + 1.3 - k * 1.6 + 0.4); g.stroke();
+      g.restore();
+    }
+  }
+
+  // The reaper's scythe in flight: a crescent of cold light, turning.
+  private drawScythe(g: CanvasRenderingContext2D, t: number): void {
+    const s = this.world.scythe;
+    if (!s) return;
+    const a = s.t * 14;
+    g.save(); g.globalCompositeOperation = 'lighter';
+    this.glow(g, s.x, s.y, 22, 'rgba(150,200,255,0.35)');
+    g.strokeStyle = 'rgba(220,240,255,0.95)'; g.lineWidth = 2;
+    g.beginPath(); g.arc(s.x, s.y, 10, a, a + 2.4); g.stroke();
+    g.strokeStyle = 'rgba(120,170,255,0.6)'; g.lineWidth = 1;
+    g.beginPath(); g.arc(s.x, s.y, 7, a + 0.3, a + 2.1); g.stroke();
+    g.restore();
+    void t;
+  }
+
+  // The votive candles: a stub of wax on a little stone, its flame alive while it is lit; out, a wisp.
+  private drawCandles(g: CanvasRenderingContext2D, t: number): void {
+    for (const c of this.world.candles) {
+      const x = Math.round(c.x), y = Math.round(c.y);
+      g.fillStyle = '#4a3f5c'; g.fillRect(x - 5, y - 3, 10, 3); g.fillStyle = '#6d5f80'; g.fillRect(x - 5, y - 3, 10, 1);
+      g.fillStyle = '#e8dcc0'; g.fillRect(x - 2, y - 11, 4, 8); g.fillStyle = '#b9a98a'; g.fillRect(x + 1, y - 11, 1, 8);
+      g.fillStyle = '#2b2019'; g.fillRect(x, y - 12, 1, 1);
+      if (!c.lit) { if (Math.sin(t * 2 + x) > 0) { g.fillStyle = 'rgba(160,150,170,0.5)'; g.fillRect(x, y - 15 - Math.floor((t * 6) % 4), 1, 2); } continue; }
+      const f = Math.floor(t * 12 + x) % 3;
+      g.save(); g.globalCompositeOperation = 'lighter';
+      this.glow(g, x, y - 15, 14, 'rgba(255,190,90,0.45)');
+      g.fillStyle = '#ffb34a'; g.fillRect(x - 1, y - 17 + (f === 1 ? 1 : 0), 3, 4);
+      g.fillStyle = '#fff2b0'; g.fillRect(x, y - 16, 1, 2 + (f === 2 ? 1 : 0));
+      g.restore();
+    }
+  }
+
+  // A hand of the dead, pixel by pixel. Under the ground: a little turned earth, and now and then its
+  // fingertips stirring. Holding: the forearm out of the ground, the fingers shut on the ankle, shaking
+  // under the blows. Sinking back, then resting. Broken: splinters of bone on the ground.
+  private drawHand(g: CanvasRenderingContext2D, e: Actor, t: number): void {
+    const x = Math.round(e.spawnX), y = Math.round(e.spawnY), f = e.facing >= 0 ? 1 : -1;
+    const r = (dx: number, dy: number, w: number, h: number, color: string) => { g.fillStyle = color; g.fillRect(f > 0 ? x + dx : x - dx - w, y + dy, w, h); };
+    const BONE = '#d8cbb0', SHADE = '#8f8270', DARK = '#2b2019', EARTH = '#3b2a1e';
+    if (e.mode === 'broken') {
+      if (e.modeT > 4) return;
+      g.globalAlpha = Math.min(1, 4 - e.modeT);
+      r(-6, -1, 2, 1, BONE); r(-1, -1, 3, 1, SHADE); r(4, -1, 2, 1, BONE); r(1, -2, 1, 1, BONE);
+      g.globalAlpha = 1;
+      return;
+    }
+    r(-5, -1, 10, 1, EARTH); r(-3, -2, 6, 1, EARTH);                   // the turned earth
+    let h = 0;
+    if (e.mode === 'buried') {
+      const stir = (t + e.spawnX * 0.013) % 2.6;
+      if (stir < 0.45) { const k = Math.floor(stir * 12) % 2; r(-2, -3 - k, 1, 1 + k, BONE); r(0, -3, 1, 1, BONE); r(2, -2 - k, 1, 1, SHADE); }
+      return;
+    }
+    if (e.mode === 'grab') h = Math.min(1, e.modeT / 0.12) * 18;
+    else if (e.mode === 'sink') h = Math.max(0, 1 - e.modeT / 0.4) * 18;
+    if (h < 2) return;
+    const shake = e.stun > 0 ? (Math.floor(e.animT * 40) % 2 ? 1 : -1) : 0, top = -Math.round(h);
+    g.save(); g.translate(shake, 0);
+    r(-2, top + 6, 4, -top - 6, DARK); r(-1, top + 6, 2, -top - 6, BONE); r(0, top + 7, 1, -top - 8, SHADE);       // the forearm
+    r(-3, top + 2, 6, 5, DARK); r(-2, top + 3, 4, 3, BONE);                                                          // the palm
+    for (const [dx, len] of [[-3, 4], [-1, 5], [1, 5], [3, 4]] as const) {                                            // the fingers, shut forward
+      r(dx, top - len + 3, 1, len, BONE); r(dx + 1, top - len + 3, 2, 1, BONE);
+    }
+    r(-5, top + 4, 2, 1, BONE); r(-6, top + 3, 1, 1, BONE);                                                          // the thumb
+    g.restore();
+  }
+
+  // A crow, pixel by pixel, its feet (or the middle of its body, flying) at (x, y): on its perch, its head
+  // turned (`look` -1) now and then; flying, wings up or down; fallen, on its side.
+  private crowShape(g: CanvasRenderingContext2D, x: number, y: number, f: number, pose: 'perch' | 'fly' | 'fallen', up: boolean, look = 1): void {
+    const cx = Math.round(x), feet = Math.round(y);
+    const px = (dx: number, dy: number, w: number, h: number, color: string) => { g.fillStyle = color; g.fillRect(f > 0 ? cx + dx : cx - dx - w, feet + dy, w, h); };
+    const BLACK = '#0d0a12', DARK = '#241d33', SHEEN = '#3d3560', BEAK = '#6a6070', EYE = '#ff3a2a';
+    if (pose === 'fallen') {
+      px(-5, -3, 10, 3, BLACK); px(-3, -4, 5, 1, DARK); px(5, -3, 2, 1, BEAK); px(-7, -2, 3, 1, DARK);
+      return;
+    }
+    if (pose === 'perch') {
+      px(-4, -7, 8, 6, BLACK); px(-3, -7, 5, 1, SHEEN);
+      px(look > 0 ? 2 : -5, -10, 4, 4, BLACK); px(look > 0 ? 6 : -7, -9, 2, 1, BEAK); px(look > 0 ? 4 : -4, -9, 1, 1, EYE);
+      px(-7, -4, 4, 2, BLACK); px(-1, -1, 1, 1, DARK); px(2, -1, 1, 1, DARK);
+      return;
+    }
+    const b = -5;
+    px(-5, b, 10, 3, BLACK); px(-4, b, 7, 1, SHEEN); px(4, b - 1, 3, 3, BLACK); px(7, b, 2, 1, BEAK); px(5, b, 1, 1, EYE); px(-8, b + 1, 3, 2, BLACK);
+    if (up) { px(-3, b - 4, 2, 4, BLACK); px(-5, b - 6, 2, 2, DARK); px(0, b - 3, 2, 3, BLACK); }
+    else { px(-3, b + 3, 2, 3, BLACK); px(-5, b + 5, 2, 2, DARK); px(0, b + 3, 2, 3, BLACK); }
+  }
+
   // Its entrance: out of the great opening, small and far, then growing as it comes, wings beating.
   private drawEntrance(g: CanvasRenderingContext2D, d: Demon, t: number): void {
     const e = DEMON.enter, b = d.body;
@@ -679,7 +892,8 @@ export class Stage {
     if (line > 0 && this.skyView) {
       const k = this.skyView.getContext('2d')!, h = Math.min(VIEW_H, line);
       k.globalCompositeOperation = 'source-over';
-      paintSky(k, cx, level.height - VIEW_H - cy, t, level.settings.snow);
+      if (level.settings.skyline === 'cemetery') paintCemetery(k, cx, this.ground - cy, t, { moon: this.assets.image('cemetery/bg-moon'), mountains: this.assets.image('cemetery/bg-mountains'), graveyard: this.assets.image('cemetery/bg-graveyard') }, this.dawnLight());
+      else paintSky(k, cx, level.height - VIEW_H - cy, t, level.settings.snow);
       if (this.storm && this.storm.flash > 0) { k.globalCompositeOperation = 'lighter'; k.fillStyle = `rgba(160,175,240,${0.85 * this.storm.flash})`; k.fillRect(0, 0, VIEW_W, h); }
       if (this.storm?.bolt) drawBolt(k, this.storm.bolt, Math.min(1, 0.35 + this.storm.flash));
       g.drawImage(this.skyView, 0, 0, VIEW_W, h, 0, 0, VIEW_W, h);
@@ -878,10 +1092,47 @@ export class Stage {
 
   // The bats of the place, flying across it from one side to the other.
   private drawBats(g: CanvasRenderingContext2D, t: number): void {
-    const level = this.world.level;
+    const level = this.world.level, crows = level.settings.fliers === 'crows';
     for (let i = 0; i < level.settings.bats; i++) {
+      if (crows) {
+        // Crows going over, in twos and threes, some one way, some the other.
+        const back = i % 3 === 1, speed = 46 + i * 7, span = level.width + 300;
+        const x0 = ((t * speed + i * 523) % span) - 150, x = back ? level.width - x0 : x0, y = 40 + ((i * 37) % 140) + 10 * Math.sin(t * 1.1 + i);
+        for (let k = 0; k < 1 + (i % 3); k++) this.crowShape(g, x - (back ? -1 : 1) * k * 16, y + k * 7 + ((k * 5) % 3), back ? -1 : 1, 'fly', Math.floor(t * 9 + i * 3 + k * 2) % 2 === 0);
+        continue;
+      }
       const x = ((t * (38 + i * 9) + i * 390) % (level.width + 200)) - 100, y = 34 + i * 96 + 12 * Math.sin(t * 0.9 + i * 2);
       this.sheetFrame(g, 'bat', Math.floor(t * 30 + i * 20) % SHEETS.bat.frames, x, y, i % 2 === 1);
+    }
+  }
+
+  // The flocks: perched until the hero comes near or the thunder rolls; then all of them fly off, crying.
+  private stepFlocks(dt: number, thunder: boolean): void {
+    const p = this.world.hero, hx = p.x + p.w / 2, hy = p.y + p.h / 2;
+    for (const f of this.flocks) {
+      if (f.t < 0) {
+        if (!thunder && (Math.abs(hx - f.x) > 150 || Math.abs(hy - f.y) > 170)) continue;
+        this.fly(f, hx < f.x ? 1 : -1);
+        continue;
+      }
+      f.t += dt;
+      for (const b of f.birds) { b.flap += dt; if (b.flap < 0) continue; b.vy -= 18 * dt; b.dx += b.vx * dt; b.dy += b.vy * dt; }
+    }
+  }
+
+  private fly(f: { x: number; y: number; t: number; birds: { dx: number; dy: number; vx: number; vy: number; flap: number }[] }, away: number = f.x % 2 ? 1 : -1): void {
+    f.t = 0;
+    this.heardNow.push('caw');
+    f.birds.forEach((b, k) => { b.vx = away * (50 + hash(k, f.x) * 90) + (hash(k, f.y) - 0.5) * 60; b.vy = -70 - hash(k, f.x + 1) * 80; b.flap = -k * 0.07; });
+  }
+
+  private drawFlocks(g: CanvasRenderingContext2D, t: number): void {
+    for (const f of this.flocks) {
+      if (f.t > 4) continue;
+      f.birds.forEach((b, k) => {
+        if (f.t < 0 || b.flap < 0) this.crowShape(g, f.x + b.dx, f.y + b.dy, k % 2 ? -1 : 1, 'perch', false, Math.sin(t * 1.4 + k * 2) > 0.85 ? -1 : 1);
+        else this.crowShape(g, f.x + b.dx, f.y + b.dy, b.vx >= 0 ? 1 : -1, 'fly', Math.floor((t + k) * 13) % 2 === 0);
+      });
     }
   }
 

@@ -36,6 +36,14 @@ export const GHOST = {
   driven: 6,                     // seconds it stays away when a blow drives it off
 } as const;
 
+export const CROW = {
+  hurt: 1,
+  wake: 150, high: 150,          // px: how near the hero must come, across and up or down, to wake it
+  rise: 0.35, climb: 70,         // seconds it rises from its perch, and how fast
+  dive: 1.0, speed: 210,         // seconds it dives at where the hero was, and how fast
+  away: 1.4, flee: 150,          // seconds it flies off after, and how fast, then it is gone
+} as const;
+
 const to = (e: Actor, mode: string): void => { e.mode = mode; e.modeT = 0; e.struck = false; };
 const towards = (e: Actor, tx: number, ty: number, speed: number, dt: number): number => {
   const cx = centreX(e), cy = e.y + e.h / 2, dx = tx - cx, dy = ty - cy, d = Math.hypot(dx, dy);
@@ -99,6 +107,58 @@ export function stepSkull(e: Actor, a: Arena, dt: number): void {
 export function strikeSkull(e: Actor, dir: 1 | -1): void {
   to(e, 'out');
   e.vx = dir * 120; e.vy = -140; e.onGround = false;
+}
+
+// ---- the crow ----------------------------------------------------------------------------------------
+
+/** A crow sits on its perch until the hero comes near; then it rises with a cry, dives once at where he was, and flies off. */
+export function stepCrow(e: Actor, a: Arena, dt: number): void {
+  const hero = a.hero;
+  e.modeT += dt; e.animT += dt;
+  if (e.mode === 'fallen') {
+    e.vy = Math.min(TUNING.maxFall, e.vy + TUNING.gravity * dt);
+    if (e.onGround) e.vx = 0;
+    move(e, a.grid, dt, () => {});
+    return;
+  }
+  if (e.dead > 0) return;
+  const cx = centreX(e), cy = e.y + e.h / 2, hx = centreX(hero), hy = hero.y + hero.h / 3;
+  switch (e.mode) {
+    case 'perch':
+      if (a.playing && Math.abs(hx - cx) < CROW.wake && Math.abs(hy - cy) < CROW.high) {
+        to(e, 'rise'); e.facing = hx >= cx ? 1 : -1;
+        a.emit({ type: 'sound', name: 'caw' });
+      }
+      return;
+    case 'rise':
+      e.y -= CROW.climb * dt; e.x -= e.facing * 20 * dt;
+      if (e.modeT >= CROW.rise) {
+        const dx = hx - cx, dy = hy - cy, d = Math.hypot(dx, dy) || 1;
+        e.vx = (dx / d) * CROW.speed; e.vy = (dy / d) * CROW.speed; e.facing = dx >= 0 ? 1 : -1;
+        to(e, 'dive');
+      }
+      break;
+    case 'dive':
+      e.x += e.vx * dt; e.y += e.vy * dt;
+      if (e.modeT >= CROW.dive) { to(e, 'away'); e.vy = -CROW.flee * 0.6; e.vx = e.facing * CROW.flee; }
+      break;
+    case 'away':
+      e.x += e.vx * dt; e.y += e.vy * dt;
+      if (e.modeT >= CROW.away) { to(e, 'gone'); e.dead = 1; }
+      return;
+  }
+  // Its beak and its claws; the guard beats it down.
+  if (a.playing && e.mode === 'dive' && overlap(e, hero)) {
+    const got = a.hurt(sideOf(hero, e), CROW.hurt, false);
+    if (got === 'blocked') strikeCrow(e, sideOf(e, hero));
+    else if (got) { to(e, 'away'); e.vy = -CROW.flee * 0.6; e.vx = e.facing * CROW.flee; }
+  }
+}
+
+/** A blow, or the guard, beats the crow down: it falls and lies there. */
+export function strikeCrow(e: Actor, dir: 1 | -1): void {
+  to(e, 'fallen'); e.dead = 1;
+  e.vx = dir * 90; e.vy = -120; e.onGround = false;
 }
 
 // ---- the hell hound ---------------------------------------------------------------------------------

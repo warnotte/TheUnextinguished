@@ -82,9 +82,13 @@ export function control(a: Actor, c: Controls, grid: Grid, dt: number, pace: num
   a.vy = Math.min(TUNING.maxFall, a.vy + TUNING.gravity * dt);
 }
 
-/** Moves the actor by its speed for one step and settles it against the grid. */
+// Hills: a rise steeper than this, in one step, is a wall; a walker going down one keeps to it within this.
+const STEP_UP = 6, KEEP_DOWN = 8;
+
+/** Moves the actor by its speed for one step and settles it against the grid and the hills. */
 export function move(a: Actor, grid: Grid, dt: number, emit: Emit): void {
   a.blocked = false;
+  const x0 = a.x;
   a.x += a.vx * dt;
   const r0 = Math.floor(a.y / TILE), r1 = Math.floor((a.y + a.h - 0.01) / TILE);
   if (a.vx > 0) {
@@ -94,6 +98,10 @@ export function move(a: Actor, grid: Grid, dt: number, emit: Emit): void {
     const c = Math.floor(a.x / TILE);
     for (let r = r0; r <= r1; r++) if (grid.solidAt(c, r)) { a.x = (c + 1) * TILE; a.vx = 0; a.blocked = true; break; }
   }
+  if (grid.terrain && a.vx !== 0 && !a.climbing) {
+    const ty = grid.groundAt(a.x + a.w / 2);
+    if (ty !== null && a.y + a.h > ty + STEP_UP) { a.x = x0; a.vx = 0; a.blocked = true; }      // too steep: a wall
+  }
 
   const before = a.y + a.h, wasGround = a.onGround, fall = a.vy;
   a.y += a.vy * dt;
@@ -102,8 +110,8 @@ export function move(a: Actor, grid: Grid, dt: number, emit: Emit): void {
   if (a.vy >= 0) {
     const r = Math.floor((a.y + a.h) / TILE);
     for (let c = c0; c <= c1; c++) {
-      // Stone always holds; the top of a ladder holds whoever comes from above and is not climbing.
-      if (grid.solidAt(c, r) || (!a.climbing && grid.ladderTopAt(c, r) && before <= r * TILE + 0.01)) {
+      // Stone always holds; the top of a ladder, and a platform, hold whoever comes from above and is not climbing.
+      if (grid.solidAt(c, r) || (!a.climbing && (grid.ladderTopAt(c, r) || grid.platformAt(c, r)) && before <= r * TILE + 0.01)) {
         a.y = r * TILE - a.h; a.vy = 0; a.onGround = true; a.climbing = false; a.lastFloor = r;
         break;
       }
@@ -111,6 +119,18 @@ export function move(a: Actor, grid: Grid, dt: number, emit: Emit): void {
   } else {
     const r = Math.floor(a.y / TILE);
     for (let c = c0; c <= c1; c++) if (grid.solidAt(c, r)) { a.y = (r + 1) * TILE; a.vy = 0; break; }
+  }
+
+  // A hill: whoever comes down onto it, or walks up or down it, stands on it.
+  // The hill wins over the stone under it when it is higher.
+  if (grid.terrain && !a.climbing && a.vy >= 0) {
+    const ty = grid.groundAt(a.x + a.w / 2);
+    if (ty !== null) {
+      const feet = a.y + a.h;
+      if ((feet >= ty && before <= ty + STEP_UP) || (!a.onGround && wasGround && feet < ty && ty - feet <= KEEP_DOWN)) {
+        a.y = ty - a.h; a.vy = 0; a.onGround = true; a.lastFloor = Math.round(ty / TILE);
+      }
+    }
   }
 
   if (a.onGround && !wasGround && fall > SOFT_LANDING) {

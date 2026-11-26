@@ -22,6 +22,12 @@ export function ambientOf(darkness: number): RGB {
   return [Math.round(255 * base * 0.6), Math.round(255 * base * 0.64), Math.round(255 * Math.min(1, base * 1.15))];
 }
 
+/** The night out of doors: lighter than indoors, under a red moon. */
+export function moonlit(darkness: number): RGB {
+  const base = Math.max(0, Math.min(1, 1 - darkness * 0.15));
+  return [Math.round(255 * base * 0.98), Math.round(255 * base * 0.88), Math.round(255 * base * 0.98)];
+}
+
 /** The colour of the light at a point: the ambient light and what every lamp adds, never past white. */
 export function lightAt(lights: readonly Light[], ambient: RGB, x: number, y: number): [number, number, number] {
   const out: [number, number, number] = [ambient[0], ambient[1], ambient[2]];

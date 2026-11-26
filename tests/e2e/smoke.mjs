@@ -142,12 +142,35 @@ await page.waitForTimeout(600);
 // After the demon, the tower falls: the last level, the collapse coming down after the hero.
 const falling = await game(() => ({ name: __game.world.level.settings.name, fall: !!__game.world.fall }));
 check('after the demon the tower falls', falling.name === 'effondrement' && falling.fall, JSON.stringify(falling));
-await page.waitForTimeout(2600);
+await page.waitForFunction(() => __game.world.fall.y > -20, null, { timeout: 8000 }).catch(() => {});
 check('and comes down', await game(() => __game.world.fall.y > -20));
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/fall.png' });
 await game(() => { const w = __game.world, h = w.hero, d = w.door; Object.assign(h, { x: d.x + 9, y: d.y + d.h - h.h, vx: 0, vy: 0, onGround: true, climbing: false, lastFloor: 41 }); });
 await page.waitForFunction(() => __game.world.state === 'won', null, { timeout: 4000 }).catch(() => {});
 check('its door at the foot is the way out', await game(() => __game.world.state === 'won'));
+await page.waitForTimeout(300);
+if (await game(() => !!__game.naming)) { await page.keyboard.type('ace'); await page.keyboard.press('Enter'); await page.waitForTimeout(200); }
+await page.keyboard.press('Space');
+await page.waitForTimeout(600);
+// Out of the fallen belfry, the cemetery: out of doors under its own sky; the dead come up out of the ground.
+const cemetery = await game(() => ({ name: __game.world.level.settings.name, skyline: __game.world.level.settings.skyline }));
+check('out of the fallen belfry, the cemetery, under its own sky', cemetery.name === 'cimetiere' && cemetery.skyline === 'cemetery', JSON.stringify(cemetery));
+await game(() => { const w = __game.world, h = w.hero; w.invincible = true; Object.assign(h, { x: 1000, y: 320 - h.h, vx: 0, vy: 0, onGround: true, climbing: false, lastFloor: 20 }); });
+await page.waitForFunction(() => __game.world.foes.some(f => f.kind === 'skeleton' && f.dead <= 0), null, { timeout: 6000 }).catch(() => {});
+check('the dead come up out of the ground as the hero goes', await game(() => __game.world.foes.some(f => f.kind === 'skeleton' && f.dead <= 0)));
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/cemetery.png' });
+await game(() => {
+  const w = __game.world;
+  for (const m of w.embers) m.taken = true;
+});
+check('the reaper of stone keeps its gate shut, every ember gathered', await game(() => !__game.world.doorOpen));
+await game(() => {
+  const w = __game.world, h = w.hero, d = w.door;
+  for (const f of w.foes) if (f.kind === 'reaper') f.dead = 1;
+  Object.assign(h, { x: d.x + 9, y: d.y + d.h - h.h, vx: 0, vy: 0, onGround: true, climbing: false });
+});
+await page.waitForFunction(() => __game.world.state === 'won', null, { timeout: 4000 }).catch(() => {});
+check('once it is dust, its gate is the way out', await game(() => __game.world.state === 'won'));
 await page.waitForTimeout(300);
 if (await game(() => !!__game.naming)) { await page.keyboard.type('ace'); await page.keyboard.press('Enter'); await page.waitForTimeout(200); }
 await page.keyboard.press('Space');

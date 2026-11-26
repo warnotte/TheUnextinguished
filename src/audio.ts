@@ -370,6 +370,30 @@ export class Sound {
         this.hiss('lowpass', 1800, 160, { dur: 1.1, vol: 0.55, hall: 0.6 });
         for (let i = 0; i < 9; i++) { const at = 0.08 + Math.random() * 0.8, f = 300 + Math.random() * 900; this.tone('triangle', f, f * 0.5, { at, dur: 0.06, vol: 0.18, hall: 0.4 }); }
         break;
+      case 'reaper':
+        // Stone cracking open, and a long hollow moan under it.
+        this.hiss('lowpass', 900, 120, { dur: 0.9, vol: 0.5, hall: 0.6 }, 0.6);
+        this.tone('sawtooth', 110, 52, { dur: 1.4, vol: 0.3, hall: 0.8 });
+        this.tone('triangle', 330, 156, { dur: 1.2, vol: 0.2, hall: 0.8, at: 0.15 });
+        break;
+      case 'grab':
+        // Earth bursting, bones snapping shut on an ankle.
+        this.hiss('lowpass', 700, 200, { dur: 0.25, vol: 0.4, hall: 0.3 }, 0.5);
+        this.tone('square', 220, 90, { dur: 0.08, vol: 0.25, hall: 0.2 });
+        this.tone('square', 180, 70, { dur: 0.08, vol: 0.2, hall: 0.2, at: 0.07 });
+        break;
+      case 'caw':
+        // A crow: a hoarse cry, twice, falling.
+        this.tone('sawtooth', 1150, 620, { dur: 0.16, vol: 0.22, hall: 0.3 });
+        this.hiss('bandpass', 1800, 900, { dur: 0.16, vol: 0.25, hall: 0.3 }, 0.5);
+        this.tone('sawtooth', 1050, 560, { dur: 0.18, vol: 0.2, hall: 0.3, at: 0.2 });
+        break;
+      case 'grave':
+        // The earth of a grave breaking open: a low rumble, and clods falling.
+        this.tone('sawtooth', 70, 38, { dur: 0.6, vol: 0.35, hall: 0.5 });
+        this.hiss('lowpass', 500, 160, { dur: 0.55, vol: 0.45, hall: 0.4 }, 0.6);
+        this.splatter(5, 0.3, 0.18);
+        break;
       case 'splash':
         // Water thrown up: a burst of noise, high and wet, and a hollow plop under it.
         this.hiss('bandpass', 2400, 700, { dur: 0.32, vol: 0.4, hall: 0.4 }, 0.9);

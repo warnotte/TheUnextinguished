@@ -2,7 +2,7 @@
 
 import { TILE } from './grid';
 
-export type ActorKind = 'hero' | 'shade' | 'ghoul' | 'skeleton' | 'demon' | 'skull' | 'hound' | 'ghost';
+export type ActorKind = 'hero' | 'shade' | 'ghoul' | 'skeleton' | 'demon' | 'skull' | 'hound' | 'ghost' | 'crow' | 'hand' | 'reaper';
 
 export interface Actor {
   kind: ActorKind;
@@ -35,7 +35,7 @@ export interface Actor {
 
 export const ACTOR_W = 14, ACTOR_H = 40;
 // The bodies that are not the size of a man.
-const SIZE: Partial<Record<ActorKind, [number, number]>> = { skeleton: [16, 44], demon: [48, 92], skull: [18, 18], hound: [30, 18], ghost: [20, 40] };
+const SIZE: Partial<Record<ActorKind, [number, number]>> = { skeleton: [16, 44], demon: [48, 92], skull: [18, 18], hound: [30, 18], ghost: [20, 40], crow: [14, 10], hand: [12, 22], reaper: [30, 62] };
 export const MAX_HP = 6;
 
 /** An actor standing with its feet on feetY, centred on centreX. */

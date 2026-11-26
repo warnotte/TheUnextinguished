@@ -29,7 +29,7 @@ const skeletons = (w: World) => w.foes.filter(f => f.kind === 'skeleton' && f.de
 const stand = (w: World, x: number) => Object.assign(w.hero, { x: x - w.hero.w / 2, y: FLOOR - w.hero.h, vx: 0, vy: 0, onGround: true, climbing: false });
 
 describe('the bell and its skeletons', () => {
-  const graves = (...xs: number[]) => xs.map(x => at('grave', x));
+  const graves = (...xs: number[]) => [at('bell', 320, 20), ...xs.map(x => at('grave', x))];
 
   it('tolls, and the skeletons come out of their graves, too slow to strike or be struck at first', () => {
     const w = new World(makeLevel(ROWS, [at('hero', 60), ...graves(300, 500)]));

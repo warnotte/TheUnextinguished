@@ -9,7 +9,10 @@
 
 mod arrival;
 mod collapse;
+mod dawn;
+mod dirge;
 mod flood;
+mod graves;
 mod crypte;
 mod demon;
 mod mix;
@@ -42,6 +45,9 @@ fn tunes() -> Vec<Tune> {
         Tune { name: arrival::NAME, about: arrival::ABOUT, time: arrival::time(), sections: arrival::SECTIONS, mix: arrival::mix, once: true },
         Tune { name: collapse::NAME, about: collapse::ABOUT, time: collapse::time(), sections: collapse::SECTIONS, mix: collapse::mix, once: false },
         Tune { name: flood::NAME, about: flood::ABOUT, time: flood::time(), sections: flood::SECTIONS, mix: flood::mix, once: false },
+        Tune { name: dawn::NAME, about: dawn::ABOUT, time: dawn::time(), sections: dawn::SECTIONS, mix: dawn::mix, once: false },
+        Tune { name: dirge::NAME, about: dirge::ABOUT, time: dirge::time(), sections: dirge::SECTIONS, mix: dirge::mix, once: true },
+        Tune { name: graves::NAME, about: graves::ABOUT, time: graves::time(), sections: graves::SECTIONS, mix: graves::mix, once: false },
     ]
 }
 

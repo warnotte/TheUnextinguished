@@ -51,7 +51,7 @@ describe('the bell chamber', () => {
   it('is played fifth, after the belfry, with its tune', () => {
     const page = readFileSync('index.html', 'utf8');
     const order = [...page.matchAll(/levels\/(\w+)\.js/g)].map(m => m[1]);
-    expect(order).toEqual(['salle3', 'crypte', 'inondee', 'beffroi', 'clocher', 'effondrement']);
+    expect(order).toEqual(['salle3', 'crypte', 'inondee', 'beffroi', 'clocher', 'effondrement', 'cimetiere']);
     expect(page).toContain('assets/music/demon.js');
     expect(page).toContain('assets/music/arrival.js');
   });

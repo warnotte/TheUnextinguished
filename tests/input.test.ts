@@ -42,6 +42,13 @@ describe('Input', () => {
     expect(input.read()).toMatchObject({ pausePressed: false, restartPressed: false, musicPressed: false });
   });
 
+  it('reads H as a press: the view of what collides', () => {
+    const keys = new Keys(), input = new Input(keys, () => []);
+    keys.down('KeyH');
+    expect(input.read().viewPressed).toBe(true);
+    expect(input.read().viewPressed).toBe(false);
+  });
+
   it('reads G as a press: the cheat', () => {
     const keys = new Keys(), input = new Input(keys, () => []);
     keys.down('KeyG');

@@ -45,7 +45,7 @@ export function moveObject(o: TiledObject, x: number, y: number, snap = 2): void
   o.y = Math.round(y / snap) * snap;
 }
 
-const LAYER_OF = { decor: 'decor', bell: 'decor', ember: 'items', door: 'items', grave: 'items', spawn: 'actors' } as const;
+const LAYER_OF = { decor: 'decor', bell: 'decor', ember: 'items', door: 'items', grave: 'items', hazard: 'items', terrain: 'decor', heal: 'items', spawn: 'actors' } as const;
 
 export function addObject(map: TiledMap, kindName: string, x: number, y: number): TiledObject {
   const kind = KINDS[kindName];

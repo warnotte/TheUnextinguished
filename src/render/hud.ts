@@ -109,7 +109,9 @@ export class Hud {
     }
 
     const got = w.carried;
-    if (w.embers.length) centered(g, `EMBERS ${got}/${w.embers.length}`, VIEW_H - 20, w.doorOpen ? '#ffe27a' : '#e2d8f0');
+    // What the door asks for, then what he carries over it (embers won from the foes, for the charge).
+    const need = w.embers.length, over = got > need ? `  +${got - need}` : '';
+    if (need) centered(g, `EMBERS ${Math.min(got, need)}/${need}${over}`, VIEW_H - 20, w.doorOpen ? '#ffe27a' : '#e2d8f0');
     else if (w.boss) centered(g, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? '#ffe27a' : '#e2d8f0');
     const clock = clockText(w.clock);
     text(g, clock, VIEW_W - MARGIN - textWidth(clock), VIEW_H - 20, '#e2d8f0');

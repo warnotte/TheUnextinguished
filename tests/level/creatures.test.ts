@@ -7,7 +7,7 @@ import { readLevelFile } from '../helpers';
 
 const kinds = new Set(Object.keys(KINDS));
 
-describe.each(['salle3', 'crypte', 'inondee', 'beffroi'])('the creatures of %s', name => {
+describe.each(['salle3', 'crypte', 'inondee', 'cimetiere', 'beffroi'])('the creatures of %s', name => {
   const lv = parseLevel(readLevelFile(name), kinds, name);
   const of = (kind: string) => lv.objects.filter(o => o.kind === kind);
 

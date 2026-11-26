@@ -60,6 +60,9 @@ function run(assets: Assets, levels: Level[]): void {
   const place = levels[titleLevel(levels)];
   const sceneryWorld = new World(place);
   const scenery = new Stage(sceneryWorld, assets, [], { title: '', lines: [] }, true);
+  // The end is seen over the last level, at dawn when it is out of doors; or over the title's place.
+  const endPlace = levels[levels.length - 1].settings.skyline ? levels[levels.length - 1] : place;
+  let ending = scenery;
   let scene: Scene = 'title', sceneT = 0, tally: Run = NO_RUN;
   let index = 0;
   let world: World | null = null, stage: Stage | null = null;
@@ -70,6 +73,7 @@ function run(assets: Assets, levels: Level[]): void {
   if (trial) seedBoard(board, ['run', ...levels.map(l => l.settings.name)]);
   let fromTitle = false;                 // the run began on the title: its time is a run's time
   let cheat = false;                     // G: the hero cannot be harmed, from level to level, until G again
+  let collisions = false;                // H: the view of what collides, over the picture, until H again
   let levelCheated = false, runCheated = false;      // the cheat was on: no place on the board
   let result: LevelResult | null = null;              // the level in hand, once won, against the board
   let naming: { name: Initials; key: string; time: number } | null = null;     // a name being given for the board
@@ -104,9 +108,11 @@ function run(assets: Assets, levels: Level[]): void {
       endLines = endWords(tally, counts ? { best: board.best('run') ?? tally.time, isNew: at === 0 } : undefined);
       if (at !== null) naming = { name: new Initials(board.lastName), key: 'run', time: tally.time };
     }
-    scenery.look(...panAim(0, place.width, place.height), true);
-    sound.setMusic(place.settings.music);
-    sound.preload([place.settings.music, levels[0].settings.music]);                                 // the first level's, for jump
+    if (s === 'end' && endPlace !== place) { ending = new Stage(new World(endPlace), assets, [], { title: '', lines: [] }, true); ending.dawn(); }
+    const where = s === 'end' ? endPlace : place, st = s === 'end' ? ending : scenery;
+    st.look(...panAim(0, where.width, where.height), true);
+    sound.setMusic(s === 'end' && endPlace.settings.ending ? endPlace.settings.ending : place.settings.music);
+    sound.preload([place.settings.music, levels[0].settings.music, endPlace.settings.ending].filter(Boolean));     // the first level's, for jump; the end's
     paused = false; sound.hush(false);
   };
   if (asked === null) show('title'); else { fromTitle = false; start(asked); }
@@ -119,10 +125,11 @@ function run(assets: Assets, levels: Level[]): void {
     const go = c.jumpPressed || c.restartPressed;
     if (scene === 'title' && go) { tally = NO_RUN; fromTitle = true; runCheated = cheat; start(0); return; }
     if (scene === 'end' && go && sceneT > 1.5 && !naming) { show('title'); return; }
-    scenery.look(...panAim(sceneT, place.width, place.height));
-    scenery.update(dt);
-    for (const name of scenery.heard()) sound.play(name);
-    scenery.draw(g, clock, false);
+    const where = scene === 'end' ? endPlace : place, st = scene === 'end' ? ending : scenery;
+    st.look(...panAim(sceneT, where.width, where.height));
+    st.update(dt);
+    for (const name of st.heard()) sound.play(name);
+    st.draw(g, clock, false);
     if (scene === 'title') {
       const page = pages[titlePage(sceneT, pages.length)];
       drawTitle(g, sceneT, page && { title: page.title, entries: board.table(page.key) });
@@ -165,6 +172,7 @@ function run(assets: Assets, levels: Level[]): void {
       if (at !== null) naming = { name: new Initials(board.lastName), key, time: w.clock };
       st.setResult(result, naming?.name ?? null);
     }
+    st.collisions = collisions;
     st.draw(g, clock, paused);
     if (trial) text(g, 'TEST  N WINS THE LEVEL', 16, VIEW_H - 20, '#ff8a2a');
   };
@@ -187,6 +195,7 @@ function run(assets: Assets, levels: Level[]): void {
     } else {
       if (c.musicPressed) sound.toggleMusic();
       if (c.fullPressed) toggleFull();
+      if (c.viewPressed) collisions = !collisions;
       if (c.cheatPressed) { cheat = !cheat; if (world) world.invincible = cheat; if (cheat) { levelCheated = true; runCheated = true; } }
     }
     if (scene === 'play' && world && stage) play(world, stage, c, elapsed);

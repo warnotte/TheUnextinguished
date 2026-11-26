@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { KINDS } from '../../src/level/kinds';
 import type { Light } from '../../src/render/lighting';
-import { ambientOf, flashSource, keyLight, lightAt, reach, rimOffset, shadowOf, SHADOW_DEPTH } from '../../src/render/shading';
+import { ambientOf, flashSource, keyLight, lightAt, moonlit, reach, rimOffset, shadowOf, SHADOW_DEPTH } from '../../src/render/shading';
 
 const lamp = (x: number, y: number, radius = 100, strength = 1, color: [number, number, number] = [255, 170, 90]): Light => ({ x, y, radius, strength, flicker: 0, color });
 
@@ -99,5 +99,16 @@ describe('the lights of the kinds', () => {
     const [tr, , tb] = torch.lights[0].color, [wr, , wb] = window.lights[0].color;
     expect(tr).toBeGreaterThan(tb);
     expect(wb).toBeGreaterThan(wr);
+  });
+});
+
+describe('the light out of doors', () => {
+  it('is lighter than the light indoors, and leans to the red of the moon', () => {
+    for (const darkness of [0.4, 0.6, 0.8]) {
+      const inside = ambientOf(darkness), outside = moonlit(darkness);
+      expect(outside[0] + outside[1] + outside[2]).toBeGreaterThan(inside[0] + inside[1] + inside[2]);
+      expect(outside[0]).toBeGreaterThan(outside[1]);
+      for (const c of outside) expect(c).toBeLessThanOrEqual(255);
+    }
   });
 });

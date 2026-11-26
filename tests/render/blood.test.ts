@@ -217,3 +217,26 @@ describe('the pools, seen', () => {
     expect(none).toHaveLength(0);
   });
 });
+
+describe('blood on a platform', () => {
+  it('lands on it from above, and stays there', () => {
+    const grid = makeGrid([...Array(5).fill('.'.repeat(40)), '.'.repeat(10) + '='.repeat(20) + '.'.repeat(10), '.'.repeat(40), '.'.repeat(40), '#'.repeat(40), '#'.repeat(40)]);
+    const b = new Blood(grid, seeded());
+    b.spurt(320, 40, 1, 40, 0);
+    const stains = settle(b, 3);
+    expect(stains.filter(s => s.y === 5 * 16).length).toBeGreaterThan(10);
+  });
+});
+
+describe('blood on a hill', () => {
+  it('lands on the hill, not on the stone under it', async () => {
+    const { terrainOf } = await import('../../src/sim/terrain');
+    const grid = makeGrid([...Array(8).fill('.'.repeat(40)), '#'.repeat(40), '#'.repeat(40)]);
+    grid.terrain = terrainOf([{ kind: 'hill', x: 100, y: FLOOR, props: { width: 400, height: 80, top: 200 } }], 640);
+    const b = new Blood(grid, seeded());
+    b.spurt(300, 20, 1, 40, 0);
+    const stains = settle(b, 3);
+    expect(stains.length).toBeGreaterThan(10);
+    for (const s of stains) expect(s.y).toBeLessThan(FLOOR - 40);
+  });
+});

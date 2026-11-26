@@ -4,7 +4,9 @@
 import { KINDS } from '../level/kinds';
 import type { Level } from '../level/tiled';
 import { type Actor, centreX, makeActor, MAX_HP } from './actor';
-import { ghostThere, GHOST, stepGhost, stepHound, stepSkull, strikeGhost, strikeHound, strikeSkull } from './creatures';
+import { terrainOf } from './terrain';
+import { REAPER, reaperThere, type Scythe, stepReaper, strikeReaper } from './reaper';
+import { ghostThere, GHOST, stepCrow, stepGhost, stepHound, stepSkull, strikeCrow, strikeGhost, strikeHound, strikeSkull } from './creatures';
 import { type Fall, makeFall, stepFall } from './fall';
 import { BELL, DEMON, type Arena, type Demon, demonTouchable, makeDemon, SKELETON, stepDemon, stepSkeleton } from './demon';
 import type { Emit, GameEvent } from './events';
@@ -14,6 +16,12 @@ import { control, type Controls, move } from './movement';
 import { SHADE_AGAIN, SHADE_GUARD, SHADE_GUARD_RANGE, SHADE_GUARD_REST, SHADE_PACE, SHADE_REACH, SHADE_STRIKE, thinkShade } from './shade';
 
 export const STEP = 1 / 120;
+/** A grave with no bell to wake it opens when the hero comes this near (px, across), from as high above it as `height`. */
+export const GRAVE = { near: 110, height: 60 } as const;
+/** A restless cemetery: at most `most` of its dead out at once, coming up between `near` and `far` px from the hero; those he leaves `gone` px behind go back under. */
+export const RESTLESS = { most: 3, near: 90, far: 220, gone: 520 } as const;
+/** A hand of the dead: the blows it takes, how near the hero's feet must come, how long it holds before it squeezes, how much that hurts, how long it rests after. */
+export const HAND = { hp: 3, reach: 9, hold: 1.6, squeeze: 1, sink: 0.4, rest: 3.5 } as const;
 
 export type WorldState = 'play' | 'won' | 'lost';
 export interface Ember { x: number; y: number; taken: boolean }
@@ -78,8 +86,20 @@ export class World {
   boss: Demon | null = null;       // the demon of the bell chamber, when the level has one
   fall: Fall | null = null;        // the tower coming down, when the level falls
   readonly graves: { x: number; y: number }[] = [];
+  readonly hazards: { x: number; y: number; w: number; h: number }[] = [];     // pits of spikes
+  readonly candles: { x: number; y: number; lit: boolean }[] = [];              // votive candles: health back, once
   private bellT: number = BELL.first;
   private risen = 0;               // skeletons raised so far: every other one wears rags
+  private bell = false;            // the level has a great bell: it wakes the graves
+  private readonly opened = new Set<number>();     // the graves that have let their dead out, where no bell wakes them
+  private readonly restless = new Set<Actor>();    // the dead that came up by themselves
+  heldBy: Actor | null = null;      // the hand of the dead that holds the hero by the ankle
+  private readonly scytheHeld: { scythe: Scythe | null } = { scythe: null };
+  /** The reaper's scythe, while it flies. */
+  get scythe(): Scythe | null { return this.scytheHeld.scythe; }
+  private restT = 0;               // seconds before the next of them comes up
+  private tremorT = 0;             // seconds before the next stones fall, while the ground still shakes
+  private shook = false;           // the first of them has fallen, with its crash
   private readonly arena: Arena;
 
   private events: GameEvent[] = [];
@@ -94,6 +114,7 @@ export class World {
 
   constructor(readonly level: Level) {
     this.grid = level.grid;
+    this.grid.terrain = terrainOf(level.objects, level.width);
     let hero: Actor | null = null;
     for (const o of level.objects) {
       const kind = KINDS[o.kind];
@@ -112,7 +133,9 @@ export class World {
           // A moment of grace when the level starts: the shade holds its blow, the ghoul does not burn.
           if (kind.actor === 'shade' || kind.actor === 'skull') actor.cool = START_GRACE;
           else if (kind.actor === 'ghoul') actor.invul = START_GRACE;
-          actor.mode = kind.actor === 'skull' ? 'hover' : kind.actor === 'hound' ? 'sit' : kind.actor === 'ghost' ? 'away' : '';
+          actor.mode = kind.actor === 'skull' ? 'hover' : kind.actor === 'hound' ? 'sit' : kind.actor === 'ghost' ? 'away' : kind.actor === 'crow' ? 'perch' : kind.actor === 'hand' ? 'buried' : kind.actor === 'reaper' ? 'stone' : '';
+          if (kind.actor === 'reaper') actor.hp = REAPER.hp;
+          if (kind.actor === 'hand') actor.hp = HAND.hp;
           if (kind.actor === 'hound') actor.hp = 2;
           if (kind.actor === 'ghost') actor.cool = GHOST.away[0];
           this.foes.push(actor);
@@ -120,6 +143,9 @@ export class World {
       } else if (kind.role === 'ember') this.embers.push({ x: o.x, y: o.y, taken: false });
       else if (kind.role === 'door') this.door = { x: o.x - DOOR_W / 2, y: o.y - DOOR_H, w: DOOR_W, h: DOOR_H };
       else if (kind.role === 'grave') this.graves.push({ x: o.x, y: o.y });
+      else if (kind.role === 'bell') this.bell = true;
+      else if (kind.role === 'heal') this.candles.push({ x: o.x, y: o.y, lit: true });
+      else if (kind.role === 'hazard') this.hazards.push({ x: o.x, y: o.y, w: Number(o.props.width ?? 32), h: TILE });
     }
     if (!hero) throw new Error(`level "${level.settings.name}" has no hero`);
     this.hero = hero;
@@ -138,7 +164,8 @@ export class World {
   get carried(): number { return this.embers.reduce((n, m) => n + (m.taken ? 1 : 0), 0) + this.spare; }
 
   /** As many embers in hand as the level holds. A level without embers has its door open from the start. */
-  get doorOpen(): boolean { return this.carried >= this.embers.length; }
+  /** The door opens with every ember gathered, and once no reaper of stone keeps it. */
+  get doorOpen(): boolean { return this.carried >= this.embers.length && !this.foes.some(f => f.kind === 'reaper' && f.dead <= 0); }
 
   /** Advances by one STEP and returns what happened since the last call. */
   step(controls: Controls): GameEvent[] {
@@ -151,7 +178,7 @@ export class World {
         this.stepHero(controls);
       }
       for (const foe of this.foes) this.stepFoe(foe);
-      if (this.state === 'play') { this.stepItems(); this.stepBell(); }
+      if (this.state === 'play') { this.stepItems(); this.stepBell(); this.stepGraves(); this.stepRestless(); this.stepTremor(); this.stepHazards(); this.stepCandles(); }
       if (this.fall && this.state === 'play') stepFall(this.fall, this.arena, () => this.crush(), STEP);
     }
     const out = this.events;
@@ -236,9 +263,12 @@ export class World {
       }
       this.emit({ type: 'sound', name: 'swing' });
     }
+    // Held by a hand of the dead: he cannot walk or jump, only strike to break free.
+    const held = this.heldBy !== null;
+    if (held) { p.vx = 0; if (c.attackPressed) this.struggle(); }
     const water = this.level.settings.water, inWater = water > 0 && p.y + p.h > water + WATER.deep && !p.climbing;
     const falling = p.vy;
-    control(p, p.guard ? { ...c, x: 0 } : c, this.grid, STEP, inWater ? WATER.pace : 1, this.emit);
+    control(p, held ? { ...c, x: 0, jump: false, jumpPressed: false, guard: false } : p.guard ? { ...c, x: 0 } : c, this.grid, STEP, inWater ? WATER.pace : 1, this.emit);
     if (p.climbing) p.guard = false;               // down, over a ladder, is the way down
     move(p, this.grid, STEP, this.emit);
     if (water > 0) this.splashes(p, water, falling);
@@ -314,6 +344,14 @@ export class World {
   }
 
   // Where the strike in hand can land.
+  /** Where the hero's blow reaches now, while it can strike; null otherwise. */
+  blowBox(): Box | null {
+    const p = this.hero;
+    if (p.attackT <= 0) return null;
+    const s = this.strikeOf(p), since = s.time - p.attackT;
+    return since > s.from && since < s.to ? this.reach(p) : null;
+  }
+
   private reach(p: Actor): Box {
     const s = this.strikeOf(p);
     const half = p.w / 2;                          // from his middle: a foe standing against him is struck too
@@ -329,6 +367,9 @@ export class World {
     if (f.kind === 'skeleton') return f.rise <= SKELETON.soft;
     if (f.kind === 'skull') return f.mode !== 'out';
     if (f.kind === 'ghost') return ghostThere(f);
+    if (f.kind === 'crow') return f.mode !== 'perch';
+    if (f.kind === 'hand') return false;                     // only the struggle of the one it holds breaks it
+    if (f.kind === 'reaper') return reaperThere(f);
     if (f.kind === 'demon') return !!this.boss && demonTouchable(this.boss);
     return true;
   }
@@ -342,6 +383,22 @@ export class World {
       this.hitStop = 0.05; this.shake = Math.max(this.shake, 0.12);
       this.emit({ type: 'effect', kind: 'hit-spark', x, y: e.y + e.h, flip: dir < 0 });
       this.emit({ type: 'sound', name: 'ko' });
+      return;
+    }
+    if (e.kind === 'reaper') {
+      const fell = strikeReaper(e, blow.damage);
+      this.hitStop = heavy ? 0.08 : 0.05; this.shake = Math.max(this.shake, heavy ? 0.16 : 0.1);
+      this.emit({ type: 'effect', kind: heavy ? 'crit-hit' : 'hit-spark', x: x - dir * 6, y: e.y + 24, flip: dir < 0 });
+      this.emit({ type: 'debris', x, y: e.y + 20, count: fell ? 24 : 4 });
+      if (fell) { this.slain++; this.emit({ type: 'sound', name: 'crash' }); } else this.emit({ type: 'sound', name: 'block' });
+      return;
+    }
+    if (e.kind === 'crow') {
+      strikeCrow(e, dir); this.slain++;
+      this.hitStop = 0.04;
+      this.bleed(e, dir, blow.blood * 0.5, 0);
+      this.emit({ type: 'effect', kind: 'hit-spark', x, y: e.y + e.h / 2, flip: dir < 0 });
+      this.emit({ type: 'sound', name: 'hit' });
       return;
     }
     if (e.kind === 'ghost') {
@@ -418,6 +475,9 @@ export class World {
     if (e.kind === 'skull') { stepSkull(e, this.arena, STEP); return; }
     if (e.kind === 'hound') { stepHound(e, this.arena, STEP); this.trickle(e); return; }
     if (e.kind === 'ghost') { stepGhost(e, this.arena, STEP); return; }
+    if (e.kind === 'crow') { stepCrow(e, this.arena, STEP); return; }
+    if (e.kind === 'hand') { this.stepHand(e); return; }
+    if (e.kind === 'reaper') { stepReaper(e, this.arena, STEP, this.scytheHeld); return; }
     if (e.kind === 'demon') {
       const d = this.boss!;
       stepDemon(d, this.arena, STEP);
@@ -499,7 +559,7 @@ export class World {
   // The great bell tolls now and then, while the demon lives, and the dead come out of their graves:
   // never too many at once, and never under the hero's feet.
   private stepBell(): void {
-    if (!this.graves.length) return;
+    if (!this.graves.length || !this.bell) return;
     const d = this.boss;
     if (d && (d.phase === 'dying' || d.phase === 'gone')) return;
     if ((this.bellT -= STEP) > 0) return;
@@ -520,6 +580,134 @@ export class World {
       s.facing = hx < g.x ? -1 : 1;
       this.foes.push(s);
     }
+  }
+
+  // Where no bell wakes them, a grave lets its dead out when the hero comes near it, once.
+  private stepGraves(): void {
+    if (this.bell) return;
+    const hx = centreX(this.hero), feet = this.hero.y + this.hero.h;
+    this.graves.forEach((g, i) => {
+      if (this.opened.has(i) || Math.abs(g.x - hx) > GRAVE.near || feet < g.y - GRAVE.height || feet > g.y + 8) return;
+      this.opened.add(i);
+      const s = makeActor('skeleton', g.x, g.y);
+      s.rise = SKELETON.rise; s.look = this.risen++ % 2; s.hp = 1;
+      s.facing = hx < g.x ? -1 : 1;
+      this.foes.push(s);
+      this.emit({ type: 'debris', x: g.x, y: g.y - 4, count: 10 });
+      this.emit({ type: 'sound', name: 'grave' });
+      this.shake = Math.max(this.shake, 0.12);
+    });
+  }
+
+  // A hand of the dead: under the ground until the hero's feet come onto it; then it holds him by the
+  // ankle until he breaks it, or until it squeezes and lets go; then it sinks back and rests a while.
+  private stepHand(e: Actor): void {
+    const p = this.hero, to = (mode: string) => { e.mode = mode; e.modeT = 0; };
+    e.modeT += STEP; e.animT += STEP;
+    if (e.dead > 0) return;
+    if (e.mode === 'buried') {
+      e.cool = Math.max(0, e.cool - STEP);
+      const feet = p.y + p.h;
+      if (this.state !== 'play' || e.cool > 0 || this.heldBy || !p.onGround || p.climbing) return;
+      if (Math.abs(feet - e.spawnY) > 6 || Math.abs(centreX(p) - e.spawnX) > HAND.reach) return;
+      to('grab'); this.heldBy = e; p.vx = 0; e.facing = centreX(p) >= e.spawnX ? 1 : -1;
+      this.emit({ type: 'debris', x: e.spawnX, y: e.spawnY - 2, count: 6 });
+      this.emit({ type: 'sound', name: 'grab' });
+      return;
+    }
+    if (e.mode === 'grab') {
+      if (this.heldBy !== e) { to('sink'); return; }
+      if (e.modeT < HAND.hold) return;
+      this.heldBy = null;
+      this.hurtHero(centreX(p) >= e.spawnX ? 1 : -1, HAND.squeeze, true);
+      to('sink');
+      return;
+    }
+    if (e.mode === 'sink' && e.modeT >= HAND.sink) { to('buried'); e.cool = HAND.rest; e.hp = HAND.hp; }
+  }
+
+  // The hero strikes at the hand that holds him: three blows break it.
+  private struggle(): void {
+    const e = this.heldBy!, dir = centreX(this.hero) >= e.spawnX ? -1 : 1;
+    e.hp -= 1; e.stun = 0.12;
+    this.hitStop = 0.03;
+    this.bleed(e, dir, BLOOD.finish / 3, 0);
+    this.emit({ type: 'effect', kind: 'hit-spark', x: e.spawnX, y: e.spawnY - 10, flip: dir < 0 });
+    if (e.hp > 0) { this.emit({ type: 'sound', name: 'hit' }); return; }
+    e.dead = 1; e.mode = 'broken'; e.modeT = 0; this.slain++; this.heldBy = null;
+    this.emit({ type: 'debris', x: e.spawnX, y: e.spawnY - 8, count: 8 });
+    this.emit({ type: 'sound', name: 'bones' });
+  }
+
+  // A votive candle gives a hurt hero who comes to it all his health back; then it is out.
+  private stepCandles(): void {
+    const p = this.hero, hx = centreX(p), feet = p.y + p.h;
+    for (const c of this.candles) {
+      if (!c.lit || p.hp >= MAX_HP || Math.abs(hx - c.x) > 12 || Math.abs(feet - c.y) > 24) continue;
+      c.lit = false; p.hp = MAX_HP;
+      this.emit({ type: 'effect', kind: 'collect-burst', x: c.x, y: c.y - 6 + EMBER_BURST_DROP, flip: false });
+      this.emit({ type: 'sound', name: 'ember' });
+    }
+  }
+
+  // Spikes: whoever comes down into their pit is hurt, whatever his guard, and thrown up out of it.
+  private stepHazards(): void {
+    const p = this.hero, feet = p.y + p.h;
+    for (const z of this.hazards) {
+      if (p.x + p.w <= z.x || p.x >= z.x + z.w || feet <= z.y + 2 || p.y >= z.y + z.h) continue;
+      if (p.invul <= 0) this.hurtHero(p.x + p.w / 2 < z.x + z.w / 2 ? -1 : 1, 1, true);
+      p.vy = -430; p.onGround = false; p.climbing = false;
+    }
+  }
+
+  // The ground still shakes as the level begins: stones fall about the place the hero started from.
+  private stepTremor(): void {
+    const tremor = this.level.settings.tremor;
+    if (!tremor || this.clock > tremor || (this.tremorT -= STEP) > 0) return;
+    this.tremorT = 0.25 + Math.random() * 0.3;
+    if (!this.shook) { this.shook = true; this.emit({ type: 'sound', name: 'crash' }); }
+    const p = this.hero;
+    this.emit({ type: 'debris', x: p.spawnX + (Math.random() - 0.5) * 200, y: p.spawnY - 140 - Math.random() * 120, count: 5 });
+    this.shake = Math.max(this.shake, 0.12);
+  }
+
+  // A restless cemetery: now and then one of its dead comes up out of the ground near the hero, on his
+  // floor, ahead of him more often than behind; those he leaves far behind go back under.
+  private stepRestless(): void {
+    const hx = centreX(this.hero);
+    for (const s of this.restless) {
+      if (s.dead > 0 || !this.foes.includes(s)) { this.restless.delete(s); continue; }
+      if (Math.abs(centreX(s) - hx) > RESTLESS.gone) { this.foes = this.foes.filter(f => f !== s); this.restless.delete(s); }
+    }
+    const every = this.level.settings.restless;
+    if (!every || (this.restT -= STEP) > 0) return;
+    const p = this.hero, wait = () => { this.restT = every * (0.75 + Math.random() * 0.5); };
+    if (this.restless.size >= RESTLESS.most) { wait(); return; }
+    if (!p.onGround || p.climbing) return;                     // as soon as he stands again
+    const row = p.lastFloor, feet = p.y + p.h, spots: { x: number; y: number; ahead: boolean }[] = [];
+    for (let d = RESTLESS.near; d <= RESTLESS.far; d += TILE) for (const side of [1, -1] as const) {
+      const col = Math.floor((hx + side * d) / TILE), sx = col * TILE + TILE / 2;
+      if (Math.abs(sx - hx) < RESTLESS.near || Math.abs(sx - hx) > RESTLESS.far) continue;      // where it comes up, not where it was looked for
+      const hill = this.grid.groundAt(sx);
+      if (hill !== null) {                                       // out of a hill, about as high as the hero
+        if (Math.abs(hill - feet) < 48) spots.push({ x: sx, y: hill, ahead: side === p.facing });
+        continue;
+      }
+      if (!(this.grid.solidAt(col, row) || this.grid.platformAt(col, row)) || this.grid.ladderAt(col, row)) continue;
+      if ([1, 2, 3].some(k => this.grid.solidAt(col, row - k))) continue;
+      spots.push({ x: sx, y: row * TILE, ahead: side === p.facing });
+    }
+    if (!spots.length) return;                                 // as soon as there is room about him
+    wait();
+    const ahead = spots.filter(s => s.ahead), pool = ahead.length && Math.random() < 0.7 ? ahead : spots;
+    const spot = pool[Math.floor(Math.random() * pool.length)];
+    this.foes = this.foes.filter(f => !(f.kind === 'skeleton' && f.dead > 0 && !this.restless.has(f)) || f.dead <= 0);
+    const s = makeActor('skeleton', spot.x, spot.y);
+    s.rise = SKELETON.rise; s.look = this.risen++ % 2; s.hp = 1;
+    s.facing = hx < spot.x ? -1 : 1;
+    this.foes.push(s); this.restless.add(s);
+    this.emit({ type: 'debris', x: spot.x, y: spot.y - 4, count: 8 });
+    this.emit({ type: 'sound', name: 'grave' });
   }
 
   // A skeleton falls apart at the first blow, and the ember it carried is the hero's.

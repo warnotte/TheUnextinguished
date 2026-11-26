@@ -8,7 +8,8 @@ import { KINDS } from '../level/kinds';
 import type { Level } from '../level/tiled';
 import { type Grid, TILE } from '../sim/grid';
 import { VIEW_H, VIEW_W } from './camera';
-import { ambientOf, keyLight, lightAt, type RGB, shadowOf } from './shading';
+import { ambientOf, keyLight, lightAt, moonlit, type RGB, shadowOf } from './shading';
+import { outdoors, outside, type Rect } from './scene';
 
 export interface Light { x: number; y: number; radius: number; strength: number; flicker: number; color: RGB }
 /** A body that casts a shadow: its middle, the height of its feet, the lamp it carries itself (which casts none of it), and how to draw its outline in black. */
@@ -133,11 +134,14 @@ export class LightSheet {
   private lit: HTMLCanvasElement | null = null;             // the ambient light and the lamps: what multiplies the picture
   private shown: { light: Light; poly: readonly number[] }[] = [];      // the lamps of the last frame, for sample()
   private ambient: RGB = [255, 255, 255];
+  private moon: RGB = [255, 255, 255];                       // the ambient light out of doors
+  private readonly open: Rect[];                             // the places out of doors
 
   constructor(level: Level) {
     this.segments = occluders(level.grid);
     this.fixed = levelLights(level).map(light => ({ light, poly: visibilityPolygon(this.segments, light.x, light.y, light.radius * 1.07) }));
     this.beams = shafts(level);
+    this.open = outdoors(level.objects);
   }
 
   // The light of one lamp, inside what it can see.
@@ -230,6 +234,9 @@ export class LightSheet {
     const q = this.lit.getContext('2d')!;
     q.globalCompositeOperation = 'source-over';
     q.fillStyle = `rgb(${this.ambient[0]},${this.ambient[1]},${this.ambient[2]})`; q.fillRect(0, 0, W, H);
+    this.moon = moonlit(darkness);
+    q.fillStyle = `rgb(${this.moon[0]},${this.moon[1]},${this.moon[2]})`;
+    for (const o of this.open) q.fillRect(o.x + MARGIN - camX, o.y + MARGIN - camY, o.w, o.h);
     q.globalCompositeOperation = 'lighter';
     q.drawImage(this.map, 0, 0);
     // The shadow a body casts from the lamp that lights it most is deeper: it dims the ambient light too.
@@ -274,6 +281,6 @@ export class LightSheet {
   /** The light at a point of the level, as of the last frame: its colour, and the lamp that gives most of it (`not` left aside). */
   sample(x: number, y: number, not: Light | null = null): { color: [number, number, number]; key: Light | null } {
     const reaching = this.shown.filter(s => inPolygon(s.poly, x, y)).map(s => s.light);
-    return { color: lightAt(reaching, this.ambient, x, y), key: keyLight(reaching.filter(l => l !== not), x, y) };
+    return { color: lightAt(reaching, outside(this.open, x, y) ? this.moon : this.ambient, x, y), key: keyLight(reaching.filter(l => l !== not), x, y) };
   }
 }

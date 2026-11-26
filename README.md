@@ -14,6 +14,9 @@ spreads into red clouds. For adults.
 Open `index.html` by double-click (after a build, see below). No server, no network. The game opens
 on its title, which shows the controls; jump starts it.
 
+H shows what collides over the picture: stone in red, platforms in yellow, ladders in green, what
+hurts in magenta, the line of the hills in cyan, the bodies and the reach of a blow; H again hides it.
+
 | | Keyboard | Gamepad |
 |---|---|---|
 | Move | arrows, or Q / D | stick or d-pad |
@@ -72,6 +75,21 @@ door: it is won when the demon is ended.
 Then the tower falls. The last level is the belfry again, coming down from the top: the hero runs
 down to the door at its foot ahead of the collapse, which leaves the stormy sky where the tower
 stood, throws stones down ahead of it (the guard does not stop them) and crushes whoever it catches.
+
+Out of the falling belfry, the last level: the cemetery under a red moon, one screen high and six
+wide, its rocks and its far graves sliding behind one another as the hero runs to its gate. It is
+built as its pack builds its own demo: a band of grass over earth full of skulls, pits of spikes of
+bone, columns to jump on; great hills to run up and down; and tiers, ledges held up on ruined columns
+over the ground, one over another, reached by ladders: the high road or the low one, full of spikes.
+The storm breaks over it. The ground still shakes and stones fall as he comes out; then the dead keep
+coming up out of the ground about him as he goes; hands of the dead, under the ground, take him by
+the ankle (strike to break free, or they squeeze); crows wait on the columns and the stones and dive
+at him, flocks of them fly off the trees as he comes or the thunder rolls; ghosts and a hound haunt
+it; and before the gate stands a reaper of stone, a statue until he comes near: it wakes, floats at
+him, sweeps its blade, throws its scythe that comes back, and the gate opens only when it is dust.
+The columns and the ledges are platforms: one walks through them, jumps up through them from under
+them, and stands on them. Votive candles on the graves give the hero all his health back, once each. The game ends over the
+cemetery, at dawn, to a tune of its own. Its tune comes in slow and grave, then gathers pace.
 
 - **The demon** (36 points of health) floats over its floor and is not thrown by blows. Its wings
   rise, then beat all round it, at a hero who comes close, and at once at one who strikes it again
@@ -143,21 +161,42 @@ There is no editor yet: for now the file is written by hand or by a script. `src
 reads and writes that file and holds the edits an editor will need (pick, move, add, remove an
 object, paint a cell); nothing drives them yet.
 
-- The tile layer **collision** uses the two tiles of the `collision` tileset: stone and ladder.
+- The tile layer **collision** uses the three tiles of the `collision` tileset: stone, ladder, and platform (it holds
+  only whoever comes down onto it from above: one walks and jumps up through it).
   Slabs, walls, ground, their broken ends and their brackets are dressed by the engine from that grid.
 - The object layers hold **point** objects whose type is their kind: `torch`, `window`, `pillar`,
   `altar`, `gargoyle`, `balustrade`, `chain-lantern` (with a `length` property), `arch` (an opening
   on the sky, with `width` and `height`), `breach` (the vault torn open on the sky from the top of the
   level, with `width` and `height`; the roof above it must be open in the grid for the rain to fall), `bell` (the great bell, hung by its top), `ember`, `door`,
-  `grave` (where the bell raises a skeleton), `hero`, `shade`, `ghoul`, `skull` (its point is the
+  `grave` (where the bell raises a skeleton; in a level without a `bell`, it opens when the hero comes near, once),
+  `crow` (it waits on its perch, its point under its feet, rises with a cry when the hero comes near and dives once at him),
+  `reaper-guard` (the reaper of stone: the door opens only once it is dust), `hand` (a hand of the dead under the ground, its point where it comes up: it holds the hero who steps on it until
+  three blows break it, or squeezes and lets go), `flock` (crows perched about the point, `count` of them, that fly off
+  when the hero comes near or the thunder rolls), `ledge` (ground two tiles thick held up on ruined columns, from its
+  top left corner, `width`; the stone of the grid there is its body),
+  `outdoors` (a place out of doors, from its point, its top left corner, with `width` and `height`: no
+  wall there, only the sky, and the ground is dressed in grass and earth; where the stone of the grid is
+  a slab, it is a clod of earth floating), `rock` and `masonry` (the same corner and size: the stone
+  of the grid there is a mound of rock with grass on top, or masonry), `hill` (from the left of its foot on the ground: `width`, `height`, its flat `top`; whoever walks goes up
+  and down it, a rise too steep is a wall), `column` (two tiles wide, from its bottom left corner on the
+  ground, `height` tiles high: the stone of the grid under it is its body), `spikes` (a pit one tile
+  deep, from its top left corner, `width`: it hurts whoever comes down into it, guard or not, and
+  throws him out), `ruin-wall` (a wall left
+  standing out of doors, from its bottom left corner, `width`, `height`, `door` 1 for a doorway at its
+  foot, `windows` for arched openings on the sky), `railing` (iron, from its bottom left corner,
+  `width`, `height`), the cemetery's `tree`,
+  `mossy-tree`, `great-tree`, `reaper`, `headstone-1` to `headstone-4`, `bush`, `shrub` (in front of the
+  actors), `mound`, `knoll`, `ruin`, `hero`, `shade`, `ghoul`, `skull` (its point is the
   bottom of its box, in the air), `hound`, `ghost`, `demon`. The point is the anchor of the kind: the bottom middle of a piece of
   decor, the feet of an actor, the pivot of a torch.
 - The map's own properties set the level: `title`, `darkness` (0 to 1), `music`, `mist`, `bats`,
   `intro` (a tune played once before `music`), `sky` (the night shows through the arches, in planes that slide at different speeds:
-  `src/render/sky.ts`), `snow` and `storm` (now and then lightning lights the place through its openings, each body throws a long shadow on the wall, and the thunder follows), `omen` (the giant shape of the demon in the sky), `collapse` (px a second: the level comes down from the top), `water` (the height of its surface, in px from the top: the air under it is water) and `rain` (it falls wherever the roof of the grid is open, down to the stone or the water).
+  `src/render/sky.ts`), `snow` and `storm` (now and then lightning lights the place through its openings, each body throws a long shadow on the wall, and the thunder follows), `omen` (the giant shape of the demon in the sky), `collapse` (px a second: the level comes down from the top), `water` (the height of its surface, in px from the top: the air under it is water) `rain` (it falls wherever the roof of the grid is open, down to the stone or the water) `skyline` (`cemetery`: the cemetery's own sky, its red moon, its rocks, its far graves, as its pack lays them out), `restless` (seconds: now and then one of the dead comes up out of the ground near the hero, a few at a time), `tremor` (seconds: the ground shakes and stones fall as the level begins) `fliers` (`crows`: crows fly over the level instead of bats; `bats` says how many) and `ending` (on the last level: the
+  tune of the end, which is then seen over that level, at dawn when it is out of doors).
 - The third level, the flooded crypt, is written by `node tools/make-inondee.mjs`; the fourth, the
   belfry, by `node tools/make-beffroi.mjs`; the fifth, the bell chamber, by `node tools/make-clocher.mjs`;
-  the sixth, the fall, by `node tools/make-effondrement.mjs` from the belfry's map.
+  the sixth, the fall, by `node tools/make-effondrement.mjs` from the belfry's map; the seventh, the
+  cemetery, by `node tools/make-cimetiere.mjs`.
 - A level with a `demon` is won when the demon is ended, not by a door.
 - `node tools/add-creatures.mjs` puts the skull, the hounds and the ghosts into the nave and the crypt.
 - The levels are played in the order `index.html` loads them.
@@ -181,7 +220,7 @@ level. Behaviour that is new goes into `src/sim/`, never into a level.
 
 ## Credits
 
-- Sprites and tiles: "Gothicvania Church", the skeletons of "Gothicvania Cemetery" and the demon of
+- Sprites and tiles: "Gothicvania Church", the skeletons and the scenery of "Gothicvania Cemetery" and the demon of
   the "Gothicvania Patreon's Collection" (with the fire skull, the hell hound and the ghost), all by
   Luis Zuno (ansimuz), public domain (CC0; their
   licences are in `assets/gothicvania-*/public-license.txt`). The files ending in `-cut.png` are the
@@ -191,7 +230,7 @@ level. Behaviour that is new goes into `src/sim/`, never into a level.
 - Music: ours, played on the emulated sound chips of NoobSynth (FM operators and drum machines for
   the nave; NES and SNES oscillators, a pipe organ and an FM bell for the crypt; the NES chip, an
   808 kick and an FM bell for the bell chamber and the entrance of the demon; two SIDs of the
-  Commodore 64, emulated by reSID, for the flooded crypt and the fall) by the program in
+  Commodore 64, emulated by reSID, for the flooded crypt, the cemetery and the fall) by the program in
   `tools/music` (see its README to render them again). The belfry plays `assets/music/poursuite.*`,
   an earlier tune on the AY-3-8910, made by `essais/ay-essai`.
 - Sound effects: made on the spot by `src/audio.ts`, no samples.

@@ -1,13 +1,16 @@
-// The collision grid of a level: stone, ladders and air, in tiles of 16 pixels.
+// The collision grid of a level: stone, ladders, platforms and air, in tiles of 16 pixels. A platform
+// holds only whoever comes down onto it from above: one walks through it, and jumps up through it.
 
 export const TILE = 16;
-export const AIR = 0, STONE = 1, LADDER = 2;
+export const AIR = 0, STONE = 1, LADDER = 2, PLATFORM = 3;
 
 /** A ladder as the pursuit sees it: its columns, its rows, and the x of its middle in pixels. */
 export interface Ladder { col: number; cols: number; rowTop: number; rowBottom: number; x: number }
 
 export class Grid {
   readonly ladders: readonly Ladder[];
+  /** The top of the hills, for each pixel across (NaN where there is none), or null in a level without hills (src/sim/terrain.ts). */
+  terrain: Float32Array | null = null;
 
   constructor(readonly cols: number, readonly rows: number, private readonly cells: Uint8Array) {
     if (cells.length !== cols * rows) throw new Error(`grid of ${cols} x ${rows} given ${cells.length} cells`);
@@ -19,10 +22,21 @@ export class Grid {
   /** Stone. Everything outside the grid is stone too. */
   solidAt(c: number, r: number): boolean { return !this.inside(c, r) || this.cells[r * this.cols + c] === STONE; }
   ladderAt(c: number, r: number): boolean { return this.inside(c, r) && this.cells[r * this.cols + c] === LADDER; }
+  /** A platform: it holds only what comes down onto it from above. */
+  platformAt(c: number, r: number): boolean { return this.inside(c, r) && this.cells[r * this.cols + c] === PLATFORM; }
   /** A ladder cell with no ladder above it: one can stand on it. */
   ladderTopAt(c: number, r: number): boolean { return this.ladderAt(c, r) && !this.ladderAt(c, r - 1); }
-  /** Something to stand on at this cell: stone or the top of a ladder. */
-  floorAt(c: number, r: number): boolean { return this.solidAt(c, r) || this.ladderTopAt(c, r); }
+  /** The top of the hill at this x, in pixels, or null where there is no hill. */
+  groundAt(x: number): number | null {
+    if (!this.terrain) return null;
+    const i = Math.floor(x);
+    if (i < 0 || i >= this.terrain.length) return null;
+    const y = this.terrain[i];
+    return Number.isNaN(y) ? null : y;
+  }
+
+  /** Something to stand on at this cell: stone, a platform, or the top of a ladder. */
+  floorAt(c: number, r: number): boolean { return this.solidAt(c, r) || this.platformAt(c, r) || this.ladderTopAt(c, r); }
 
   // Vertical runs of ladder cells; neighbouring columns of the same height make one ladder.
   private findLadders(): Ladder[] {

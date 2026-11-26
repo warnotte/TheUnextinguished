@@ -17,12 +17,15 @@ const FIRE = [255, 170, 92] as const, CANDLE = [255, 198, 128] as const, MOON = 
 export type Kind =
   | { role: 'decor'; plane: Plane; image: string; src: readonly [number, number, number, number]; anchor: readonly [number, number]; lights: readonly LightSpec[]; shaft: boolean }
   | { role: 'decor'; plane: Plane; sheet: string; lights: readonly LightSpec[] }                 // a sheet played in a loop, placed by its pivot
-  | { role: 'decor'; plane: Plane; painter: 'chain-lantern' | 'arch' | 'breach'; lights: readonly LightSpec[] }      // drawn by code; a chain lantern's lights hang from the end of its chain
+  | { role: 'decor'; plane: Plane; painter: 'chain-lantern' | 'arch' | 'breach' | 'outdoors' | 'masonry' | 'ruin-wall' | 'railing' | 'column' | 'ledge' | 'flock'; lights: readonly LightSpec[] }      // drawn by code; a chain lantern's lights hang from the end of its chain
   | { role: 'spawn'; actor: ActorKind }
   | { role: 'ember' }
   | { role: 'door' }
   | { role: 'grave' }                // where the bell raises a skeleton
-  | { role: 'bell' };                // the great bell, hung by its top: it swings when it tolls
+  | { role: 'bell' }
+  | { role: 'hazard' }
+  | { role: 'terrain' }
+  | { role: 'heal' };                // a votive candle: all his health back to the hero who comes to it, once             // a hill: the left of its foot, its width, height and flat top (src/sim/terrain.ts)              // spikes: a pit one tile deep, from its point (its top left corner) as wide as its width                // the great bell, hung by its top: it swings when it tolls
 
 const lantern = (dx: number): LightSpec => ({ dx, dy: -80, radius: 48, strength: 0.7, flicker: 0.5, color: CANDLE });
 
@@ -33,9 +36,15 @@ export const KINDS: Readonly<Record<string, Kind>> = {
   demon: { role: 'spawn', actor: 'demon' },
   skull: { role: 'spawn', actor: 'skull' },            // flies: its point is the bottom of its box, in the air
   hound: { role: 'spawn', actor: 'hound' },
-  ghost: { role: 'spawn', actor: 'ghost' },            // comes out near a hero within its haunt, either side of its point
+  ghost: { role: 'spawn', actor: 'ghost' },
+  crow: { role: 'spawn', actor: 'crow' },
+  hand: { role: 'spawn', actor: 'hand' },
+  'reaper-guard': { role: 'spawn', actor: 'reaper' },  // the reaper of stone who keeps the gate: the door opens only once it is dust              // under the ground: its point is where it comes up              // perched: its point is under its feet            // comes out near a hero within its haunt, either side of its point
   grave: { role: 'grave' },
   bell: { role: 'bell' },
+  spikes: { role: 'hazard' },
+  hill: { role: 'terrain' },
+  candle: { role: 'heal' },
   ember: { role: 'ember' },
   door: { role: 'door' },
 
@@ -47,6 +56,40 @@ export const KINDS: Readonly<Record<string, Kind>> = {
   torch: { role: 'decor', plane: 'back', sheet: 'torch', lights: [{ dx: 0, dy: -26, radius: 150, strength: 1, flicker: 1, color: FIRE }] },
   // An opening in the wall, on the sky: its foot on (x, y), `width` and `height` in its properties. The moon comes in.
   arch: { role: 'decor', plane: 'wall', painter: 'arch', lights: [{ dx: 0, dy: -40, radius: 96, strength: 0.6, flicker: 0, color: MOON }] },
+  // Out of doors: a place where there is no wall, only the sky (its point is the top left corner; width, height).
+  outdoors: { role: 'decor', plane: 'wall', painter: 'outdoors', lights: [] },
+  // Stone out of doors: the stone of the grid inside it is dressed as stone, not as earth (top left corner; width, height).
+  masonry: { role: 'decor', plane: 'wall', painter: 'masonry', lights: [] },
+  // Rock out of doors: the stone of the grid inside it is dressed as the cemetery's mounds of rock, grass on top (top left corner; width, height).
+  rock: { role: 'decor', plane: 'wall', painter: 'masonry', lights: [] },
+  // A wall left standing out of doors, ragged at its top and its sides, from its bottom left corner (width, height;
+  // `door` 1 for a doorway at its foot, `windows` for so many arched openings on the sky).
+  'ruin-wall': { role: 'decor', plane: 'wall', painter: 'ruin-wall', lights: [] },
+  // An iron railing, spears on top, from its bottom left corner (width, height).
+  railing: { role: 'decor', plane: 'wall', painter: 'railing', lights: [] },
+  // A column of the cemetery, two tiles wide, standing on the ground: its point is its bottom left corner on the
+  // top of the ground, `height` the tiles it rises above it. The stone of the grid under it is its body.
+  column: { role: 'decor', plane: 'back', painter: 'column', lights: [] },
+  // A ledge of the cemetery: ground two tiles thick held up in the air, from its top left corner, `width` wide; the
+  // stone of the grid there is its body. Ruined columns behind hold it up: one walks under it, or on it.
+  ledge: { role: 'decor', plane: 'back', painter: 'ledge', lights: [] },
+  // Crows perched together, `count` of them about the point (on a branch, a stone): they fly off all at once when the
+  // hero comes near or the thunder rolls. Only seen, never felt.
+  flock: { role: 'decor', plane: 'front', painter: 'flock', lights: [] },
+  // The cemetery (ansimuz, public domain): its trees, its stones, its statue, its bushes, its mounds.
+  tree: { role: 'decor', plane: 'wall', image: 'cemetery/tree-1', src: [0, 0, 166, 117], anchor: [72, 117], lights: [], shaft: false },
+  'mossy-tree': { role: 'decor', plane: 'wall', image: 'cemetery/tree-2', src: [0, 0, 166, 117], anchor: [72, 117], lights: [], shaft: false },
+  'great-tree': { role: 'decor', plane: 'wall', image: 'cemetery/tree-3', src: [0, 0, 176, 171], anchor: [78, 171], lights: [], shaft: false },
+  reaper: { role: 'decor', plane: 'wall', image: 'cemetery/statue', src: [0, 0, 63, 75], anchor: [31, 75], lights: [], shaft: false },
+  'headstone-1': { role: 'decor', plane: 'wall', image: 'cemetery/stone-1', src: [0, 0, 27, 39], anchor: [13, 39], lights: [], shaft: false },
+  'headstone-2': { role: 'decor', plane: 'wall', image: 'cemetery/stone-2', src: [0, 0, 27, 40], anchor: [13, 40], lights: [], shaft: false },
+  'headstone-3': { role: 'decor', plane: 'wall', image: 'cemetery/stone-3', src: [0, 0, 27, 33], anchor: [13, 33], lights: [], shaft: false },
+  'headstone-4': { role: 'decor', plane: 'wall', image: 'cemetery/stone-4', src: [0, 0, 19, 38], anchor: [9, 38], lights: [], shaft: false },
+  bush: { role: 'decor', plane: 'wall', image: 'cemetery/bush-large', src: [0, 0, 76, 65], anchor: [38, 65], lights: [], shaft: false },
+  shrub: { role: 'decor', plane: 'front', image: 'cemetery/bush-small', src: [0, 0, 34, 29], anchor: [17, 29], lights: [], shaft: false },
+  mound: { role: 'decor', plane: 'wall', image: 'cemetery/tiles', src: [278, 71, 148, 73], anchor: [74, 73], lights: [], shaft: false },
+  knoll: { role: 'decor', plane: 'wall', image: 'cemetery/tiles', src: [304, 16, 96, 48], anchor: [48, 48], lights: [], shaft: false },
+  ruin: { role: 'decor', plane: 'back', image: 'cemetery/tiles', src: [224, 48, 32, 96], anchor: [16, 64], lights: [], shaft: false },     // its base sunk into the ground, as the pack sets it
   breach: { role: 'decor', plane: 'wall', painter: 'breach', lights: [{ dx: 0, dy: 40, radius: 120, strength: 0.55, flicker: 0, color: MOON }] },
   'chain-lantern': { role: 'decor', plane: 'wall', painter: 'chain-lantern', lights: [{ dx: 0, dy: 6, radius: 62, strength: 0.8, flicker: 0.6, color: CANDLE }] },
 };
@@ -75,6 +118,8 @@ export const IMAGES: Readonly<Record<string, string>> = {
   ...Object.fromEntries(range(2, 8).map(i => ['death/' + i, `${CHURCH}fx/enemy-death${i}.png`])),
   ...Object.fromEntries(range(1, 3).map(i => ['orb/' + i, `${CHURCH}fx/fireball${i}.png`])),
   // The skeletons of the cemetery pack: bare (0) or in rags (1), walking and coming out of the ground.
+  ...Object.fromEntries(['bg-moon', 'bg-mountains', 'bg-graveyard', 'tileset', 'tree-1', 'tree-2', 'tree-3', 'statue', 'stone-1', 'stone-2', 'stone-3', 'stone-4', 'bush-large', 'bush-small']
+    .map(n => ['cemetery/' + (n === 'tileset' ? 'tiles' : n), `${CEMETERY}environment/${n}.png`])),
   ...Object.fromEntries([0, 1].flatMap(look => range(1, 8).map(i => [`skeleton/${look}/${i}`, `${CEMETERY}skeleton/skeleton${look ? '-clothed' : ''}-${i}.png`]))),
   ...Object.fromEntries([0, 1].flatMap(look => range(1, 6).map(i => [`skeleton-rise/${look}/${i}`, `${CEMETERY}skeleton/skeleton-rise${look ? '-clothed' : ''}-${i}.png`]))),
 };

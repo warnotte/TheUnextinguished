@@ -106,7 +106,16 @@ export class Blood {
     if (this.clouds.length > CLOUD_CAP) this.clouds.splice(0, this.clouds.length - CLOUD_CAP);
   }
 
-  private solid(x: number, y: number): boolean { return this.grid.solidAt(Math.floor(x / TILE), Math.floor(y / TILE)); }
+  private solid(x: number, y: number): boolean {
+    const hill = this.grid.groundAt(x);
+    return this.grid.solidAt(Math.floor(x / TILE), Math.floor(y / TILE)) || (hill !== null && y >= hill);
+  }
+
+  // The top of what a drop at x has come down onto: a hill, or the stone under y.
+  private floorAt(x: number, y: number): number {
+    const hill = this.grid.groundAt(x);
+    return hill !== null && y >= hill ? Math.round(hill) : Math.floor(y / TILE) * TILE;
+  }
 
   /**
    * Throws `amount` drops from (x, y) the way of the blow (dir), as a ragged cone that rises a
@@ -160,9 +169,11 @@ export class Blood {
         else this.startRun(cell + TILE - 1, Math.round(d.y), cell + TILE, d, 8 + r() * 40);
         continue;
       }
-      if (this.solid(nx, ny)) {
+      // A platform holds what comes down onto it from above.
+      const row = Math.floor(ny / TILE), onPlatform = d.vy > 0 && this.grid.platformAt(Math.floor(nx / TILE), row) && d.y < row * TILE;
+      if (this.solid(nx, ny) || onPlatform) {
         if (d.vy > 0) {
-          const floorY = Math.floor(ny / TILE) * TILE;
+          const floorY = this.floorAt(nx, ny);
           if (d.size === 3 && d.bounces < 1 && d.vy > 120) {        // a heavy piece hops once, leaving a mark
             stains.push({ x: Math.round(nx) - 1, y: floorY, w: 3, h: 1, shade: 0 });
             d.x = nx; d.y = floorY - 0.5; d.vy = -d.vy * 0.38; d.vx *= 0.55; d.bounces++;

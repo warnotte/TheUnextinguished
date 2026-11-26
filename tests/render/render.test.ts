@@ -4,7 +4,7 @@ import { KIND_NAMES } from '../../src/level/kinds';
 import { parseLevel } from '../../src/level/tiled';
 import { Camera, VIEW_H, VIEW_W } from '../../src/render/camera';
 import { inPolygon, levelLights, occluders, shafts, visibilityPolygon } from '../../src/render/lighting';
-import { groundLine, rainLine, slabEnds } from '../../src/render/scene';
+import { groundLine, outdoors, outside, rainLine, slabEnds } from '../../src/render/scene';
 import { makeGrid, readLevelFile } from '../helpers';
 
 const level = parseLevel(readLevelFile('salle3') as any, KIND_NAMES, 'salle3');
@@ -122,5 +122,19 @@ describe('rain', () => {
     const line = rainLine(grid, 50);
     expect(line[3]).toBe(50);
     expect(line[5]).toBe(2 * 16);
+  });
+});
+
+describe('out of doors', () => {
+  const at = (kind: string, x: number, y: number, props: Record<string, number> = {}) => ({ kind, x, y, props });
+  it('reads the places open to the sky from their objects: top left corner, width and height', () => {
+    const rects = outdoors([at('torch', 10, 10), at('outdoors', 288, 0, { width: 1024, height: 480 }), at('outdoors', 0, 300, { width: 64, height: 32 })]);
+    expect(rects).toEqual([{ x: 288, y: 0, w: 1024, h: 480 }, { x: 0, y: 300, w: 64, h: 32 }]);
+  });
+  it('tells whether a point is out of doors', () => {
+    const rects = [{ x: 288, y: 0, w: 1024, h: 480 }];
+    expect(outside(rects, 300, 100)).toBe(true);
+    expect(outside(rects, 287, 100)).toBe(false);
+    expect(outside(rects, 1312, 100)).toBe(false);
   });
 });
