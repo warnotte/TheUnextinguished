@@ -118,6 +118,9 @@
   var MUSIC_VOLUME = 0.12;
   var HALL = 0.9;
   var WIND = 0.035;
+  var RAIN = 0.024;
+  var OPEN = 22e3;
+  var STIFLED = 520;
   var Sound = class {
     ac = null;
     gain = null;
@@ -133,6 +136,14 @@
     asked = false;
     on = true;
     hushed = false;
+    ear = null;
+    // everything heard goes through it: under the water it closes
+    place = { rain: false, drips: false };
+    // what the place sounds of, beside its tune
+    rainfall = null;
+    dripT = 1.5;
+    // seconds to the next drop that falls somewhere in the dark
+    under = false;
     musicLv = 7;
     // the levels of the options, 0 to 10; 7 is the mix as made
     soundsLv = 7;
@@ -152,9 +163,73 @@
     get soundsLevel() {
       return this.soundsLv;
     }
-    /** The gains in the mix now: the music's (null while no tune plays) and the effects'. */
+    /** The gains in the mix now: the music's (null while no tune plays) and the effects'; how open the ear is (Hz). */
     get mixNow() {
-      return { music: this.gain ? this.gain.gain.value : null, sounds: this.bus ? this.bus.gain.value : levelGain(this.soundsLv) };
+      return { music: this.gain ? this.gain.gain.value : null, sounds: this.bus ? this.bus.gain.value : levelGain(this.soundsLv), muffle: this.ear ? this.ear.frequency.value : null };
+    }
+    /** What the place sounds of now, beside its tune. */
+    get ambience() {
+      return { ...this.place };
+    }
+    /** The place: rain falling into it, water dripping in its dark. Heard as soon as sound is allowed. */
+    setPlace(place) {
+      this.place = { ...place };
+      this.dripT = 0.8 + Math.random();
+      if (this.ac && this.bus) this.rain(place.rain);
+    }
+    /** Each frame of play: the drops that fall somewhere in the dark. */
+    tick(dt) {
+      if (!this.place.drips || !this.ac || this.ac.state !== "running") return;
+      if ((this.dripT -= dt) > 0) return;
+      this.dripT = 0.7 + Math.random() * 2.2;
+      this.play("drip");
+    }
+    /** The hero's head under the water: the world is stifled, only the low of it comes through. */
+    setUnder(under) {
+      if (under === this.under) return;
+      this.under = under;
+      if (this.ear && this.ac) this.ear.frequency.setTargetAtTime(under ? STIFLED : OPEN, this.ac.currentTime, 0.06);
+    }
+    // The rain: a hiss high and soft, swelling and falling slowly, and the patter of it on water and
+    // stone lower under it. It comes in and goes out gently.
+    rain(on) {
+      const ac = this.ac;
+      if (!on) {
+        const r = this.rainfall;
+        if (!r) return;
+        this.rainfall = null;
+        r.level.gain.setTargetAtTime(0, ac.currentTime, 0.25);
+        for (const s of r.sources) {
+          try {
+            s.stop(ac.currentTime + 1.5);
+          } catch {
+          }
+        }
+        return;
+      }
+      if (this.rainfall || !this.noise) return;
+      const level = ac.createGain();
+      level.gain.setValueAtTime(0, ac.currentTime);
+      level.gain.setTargetAtTime(1, ac.currentTime, 0.4);
+      level.connect(this.bus);
+      const layer = (lowCut, highCut, vol, swell) => {
+        const src = ac.createBufferSource(), hp = ac.createBiquadFilter(), lp = ac.createBiquadFilter(), g2 = ac.createGain(), lfo = ac.createOscillator(), depth = ac.createGain();
+        src.buffer = this.noise;
+        src.loop = true;
+        hp.type = "highpass";
+        hp.frequency.value = lowCut;
+        lp.type = "lowpass";
+        lp.frequency.value = highCut;
+        g2.gain.value = vol;
+        lfo.frequency.value = swell;
+        depth.gain.value = vol * 0.35;
+        lfo.connect(depth).connect(g2.gain);
+        src.connect(hp).connect(lp).connect(g2).connect(level);
+        src.start(ac.currentTime, Math.random() * 0.9);
+        lfo.start();
+        return [src, lfo];
+      };
+      this.rainfall = { level, sources: [...layer(1400, 7e3, RAIN, 0.07), ...layer(250, 900, RAIN * 0.5, 0.05)] };
     }
     /** The levels of the options, 0 to 10: they are laid on the mix at once. */
     setLevels(music, sounds) {
@@ -202,7 +277,12 @@
       squeeze.ratio.value = 5;
       squeeze.attack.value = 3e-3;
       squeeze.release.value = 0.18;
-      squeeze.connect(ac.destination);
+      this.ear = ac.createBiquadFilter();
+      this.ear.type = "lowpass";
+      this.ear.frequency.value = this.under ? STIFLED : OPEN;
+      this.ear.Q.value = 0.6;
+      this.ear.connect(ac.destination);
+      squeeze.connect(this.ear);
       this.bus = ac.createGain();
       this.bus.gain.value = levelGain(this.soundsLv);
       this.bus.connect(squeeze);
@@ -241,6 +321,7 @@
       air.connect(low).connect(level).connect(this.bus);
       air.start();
       swell.start();
+      if (this.place.rain) this.rain(true);
     }
     /**
      * Reads these tunes now, in the background, so that they play at once when their level starts.
@@ -283,7 +364,7 @@
         if (tune !== this.tune || this.gain) return;
         this.gain = ac.createGain();
         this.gain.gain.value = this.level();
-        this.gain.connect(ac.destination);
+        this.gain.connect(this.ear ?? ac.destination);
         let at = ac.currentTime;
         if (first) {
           const opening = ac.createBufferSource();
@@ -337,7 +418,11 @@
       env.gain.exponentialRampToValueAtTime(Math.max(2e-4, l.vol), t + 4e-3);
       env.gain.exponentialRampToValueAtTime(1e-4, t + l.dur);
       node.connect(env);
-      env.connect(this.bus);
+      if (l.pan) {
+        const p = ac.createStereoPanner();
+        p.pan.value = l.pan;
+        env.connect(p).connect(this.bus);
+      } else env.connect(this.bus);
       if (l.hall && this.hall) {
         const send = ac.createGain();
         send.gain.value = l.hall;
@@ -562,6 +647,21 @@
           this.tone("sawtooth", 70, 38, { dur: 0.6, vol: 0.35, hall: 0.5 });
           this.hiss("lowpass", 500, 160, { dur: 0.55, vol: 0.45, hall: 0.4 }, 0.6);
           this.splatter(5, 0.3, 0.18);
+          break;
+        case "wade":
+          this.hiss("bandpass", 900, 330, { dur: 0.2, vol: 0.32, hall: 0.25 }, 1.1);
+          this.hiss("bandpass", 1600, 700, { at: 0.07, dur: 0.12, vol: 0.13, hall: 0.2 }, 1.6);
+          this.tone("sine", 240, 110, { at: 0.02, dur: 0.08, vol: 0.13 });
+          break;
+        case "drip": {
+          const f = 1300 + Math.random() * 1500, pan = (Math.random() - 0.5) * 1.4;
+          this.tone("sine", f, f * 0.55, { dur: 0.07, vol: 0.14, hall: 1.2, pan });
+          if (Math.random() < 0.4) this.tone("sine", f * 1.2, f * 0.7, { at: 0.11, dur: 0.05, vol: 0.06, hall: 1.2, pan });
+          break;
+        }
+        case "bubble":
+          this.tone("sine", 260, 640, { dur: 0.06, vol: 0.07, hall: 0.05 });
+          this.tone("sine", 330, 780, { at: 0.08, dur: 0.05, vol: 0.05, hall: 0.05 });
           break;
         case "splash":
           this.hiss("bandpass", 2400, 700, { dur: 0.32, vol: 0.4, hall: 0.4 }, 0.9);
@@ -5717,7 +5817,7 @@
       this.hud.named = { name: name2, place };
       this.hud.naming = null;
     }
-    /** The sounds of the stage since the last call: the thunder. */
+    /** The sounds of the stage since the last call: the thunder, the steps in the water, the bubbles. */
     heard() {
       const out = this.heardNow;
       this.heardNow = [];
@@ -6741,13 +6841,15 @@
           this.wading.delete(a);
           continue;
         }
-        if (a !== w.hero && a.onGround && a.y < water) {
+        if (a.onGround && a.y < water) {
           const far = (this.wading.get(a) ?? 0) + Math.abs(a.vx) * dt;
           if (far > 24) {
             this.wading.set(a, 0);
-            this.splash(x, water, 1);
+            if (a !== w.hero) this.splash(x, water, 1);
+            if (a === w.hero || Math.abs(x - (w.hero.x + w.hero.w / 2)) < 200) this.heardNow.push("wade");
           } else this.wading.set(a, far);
         }
+        if (a === w.hero && a.y > water + 2 && Math.random() < dt * 1.4) this.heardNow.push("bubble");
         if (a === w.hero && a.y > water + 2 && Math.random() < dt * 5) {
           this.particles.push({ x: x + a.facing * 4 + (Math.random() - 0.5) * 4, y: a.y + 6, vx: (Math.random() - 0.5) * 8, vy: -30 - Math.random() * 20, life: Math.min(1.2, (a.y - water) / 40), color: "#b8dcff", g: -20 });
         }
@@ -7273,6 +7375,7 @@
       stage = new Stage(world, assets, openingWords(level.settings.title, boss ? "boss" : world.fall ? "fall" : ""), wonWords(i, levels.length, boss));
       stage.ash = ashen();
       sound.setMusic(level.settings.music, level.settings.intro);
+      sound.setPlace({ rain: level.settings.rain, drips: level.settings.water > 0 });
       const next = levels[i + 1]?.settings;
       sound.preload([level.settings.music, level.settings.intro, next?.music ?? place.settings.music, next?.intro ?? ""].filter(Boolean));
       paused = false;
@@ -7298,6 +7401,8 @@
       const where = s === "end" ? endPlace : place, st = s === "end" ? ending : scenery;
       st.look(...panAim(0, where.width, where.height), true);
       sound.setMusic(s === "end" && endPlace.settings.ending ? endPlace.settings.ending : place.settings.music);
+      sound.setPlace({ rain: false, drips: false });
+      sound.setUnder(false);
       sound.preload([place.settings.music, levels[0].settings.music, endPlace.settings.ending].filter(Boolean));
       paused = false;
       sound.hush(false);
@@ -7442,6 +7547,11 @@
           options = new OptionsMenu(settings);
           Object.assign(c, { jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, pausePressed: false });
         }
+      }
+      if (scene === "play" && world && !paused) {
+        sound.tick(Math.min(MAX_FRAME, elapsed));
+        const water = world.level.settings.water;
+        sound.setUnder(water > 0 && world.hero.y > water + 2);
       }
       if (scene === "play" && world && stage) play(world, stage, c, elapsed);
       else showScene(c, elapsed);

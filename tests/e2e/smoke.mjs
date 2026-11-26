@@ -196,6 +196,8 @@ await page.waitForTimeout(400);
 const flooded = await game(() => ({ name: __game.world.level.settings.name, water: __game.world.level.settings.water, rain: __game.world.level.settings.rain }));
 check('the third level is the flooded crypt, its water and its rain', flooded.name === 'inondee' && flooded.water > 0 && flooded.rain, JSON.stringify(flooded));
 await game(() => { const w = __game.world, h = w.hero; w.invincible = true; Object.assign(h, { x: 560, y: 432 - h.h, vx: 0, vy: 0, onGround: true, climbing: false, lastFloor: 27 }); });
+// Every sound played from now on is written down.
+await game(() => { const snd = __game.sound, play = snd.play.bind(snd); window.__played = []; snd.play = n => { window.__played.push(n); play(n); }; });
 await page.waitForTimeout(500);
 const w0 = await game(() => __game.world.hero.x);
 await page.keyboard.down('ArrowRight'); await page.waitForTimeout(600); await page.keyboard.up('ArrowRight');
@@ -203,10 +205,25 @@ const w1 = await game(() => __game.world.hero.x);
 check('in its water the hero wades, slower than he runs', w1 - w0 > 20 && w1 - w0 < (x1 - x0) * 0.85, `${(w1 - w0).toFixed(0)} px against ${(x1 - x0).toFixed(0)} on dry stone`);
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/flooded.png' });
 
+// Its sound: the rain, the water that drips, the steps in the water, and under it, bubbles and the stifled world.
+check('the rain is heard in the flooded crypt', await game(() => __game.sound.ambience.rain));
+check('each step in the water is heard', await game(() => window.__played.includes('wade')), (await game(() => window.__played)).join(' '));
+await page.waitForFunction(() => window.__played.includes('drip'), null, { timeout: 6000 }).catch(() => {});
+check('water drips somewhere in the crypt, now and then', await game(() => window.__played.includes('drip')));
+await game(() => { const h = __game.world.hero; Object.assign(h, { x: 256 - h.w / 2, y: 464 - h.h, vx: 0, vy: 0, onGround: true, lastFloor: 29 }); });
+await page.waitForFunction(() => window.__played.includes('bubble'), null, { timeout: 5000 }).catch(() => {});
+const under = await game(() => ({ bubble: window.__played.includes('bubble'), muffle: __game.sound.mixNow.muffle }));
+check('under the water the hero lets out bubbles, and the world is stifled', under.bubble && under.muffle !== null && under.muffle < 2000, JSON.stringify(under));
+await game(() => { const h = __game.world.hero; Object.assign(h, { x: 560, y: 432 - h.h, vx: 0, vy: 0, onGround: true, lastFloor: 27 }); });
+await page.waitForTimeout(700);
+const out = await game(() => __game.sound.mixNow.muffle);
+check('out of it, the world is heard clear again', out !== null && out > 10000, String(out));
+
 // The bell chamber: its demon, its bell, its skeletons.
 await game(() => __game.start(4));
 await page.waitForTimeout(300);
 const chamber = await game(() => ({ name: __game.world.level.settings.name, boss: !!__game.world.boss, door: __game.world.door }));
+check('no rain is heard where none falls', await game(() => !__game.sound.ambience.rain));
 check('the fifth level is the bell chamber, with its demon and no door', chamber.name === 'clocher' && chamber.boss && chamber.door === null, JSON.stringify(chamber));
 await game(() => { __game.world.invincible = true; });
 await page.waitForFunction(() => __game.world.foes.some(f => f.kind === 'skeleton'), null, { timeout: 8000 }).catch(() => {});

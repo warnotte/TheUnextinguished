@@ -14,11 +14,13 @@ import type { SoundName } from './sim/events';
 const MUSIC_VOLUME = 0.12;       // under the effects: louder, the drums of the tunes cover them
 const HALL = 0.9;                // how loud the echo of the hall is
 const WIND = 0.035;              // the air of the place, always there, very low
+const RAIN = 0.024;              // the rain where it falls into the place
+const OPEN = 22000, STIFLED = 520;   // Hz: what the ear lets through, in the air and under the water
 
 type Wave = OscillatorType;
 type Filter = 'lowpass' | 'highpass' | 'bandpass';
-/** A layer of a sound: when it starts, how long it lasts, how loud, and how much of it goes to the hall. */
-interface Layer { at?: number; dur: number; vol: number; hall?: number }
+/** A layer of a sound: when it starts, how long it lasts, how loud, how much of it goes to the hall, and where between the ears (-1 to 1). */
+interface Layer { at?: number; dur: number; vol: number; hall?: number; pan?: number }
 
 export class Sound {
   private ac: AudioContext | null = null;
@@ -33,6 +35,11 @@ export class Sound {
   private asked = false;
   private on = true;
   private hushed = false;
+  private ear: BiquadFilterNode | null = null;    // everything heard goes through it: under the water it closes
+  private place = { rain: false, drips: false };   // what the place sounds of, beside its tune
+  private rainfall: { sources: AudioScheduledSourceNode[]; level: GainNode } | null = null;
+  private dripT = 1.5;                          // seconds to the next drop that falls somewhere in the dark
+  private under = false;
   private musicLv = 7;                          // the levels of the options, 0 to 10; 7 is the mix as made
   private soundsLv = 7;
   private reader: BaseAudioContext | null = null;                     // reads the tunes before sound is allowed
@@ -42,9 +49,66 @@ export class Sound {
   get musicOn(): boolean { return this.on; }
   get musicLevel(): number { return this.musicLv; }
   get soundsLevel(): number { return this.soundsLv; }
-  /** The gains in the mix now: the music's (null while no tune plays) and the effects'. */
-  get mixNow(): { music: number | null; sounds: number } {
-    return { music: this.gain ? this.gain.gain.value : null, sounds: this.bus ? this.bus.gain.value : levelGain(this.soundsLv) };
+  /** The gains in the mix now: the music's (null while no tune plays) and the effects'; how open the ear is (Hz). */
+  get mixNow(): { music: number | null; sounds: number; muffle: number | null } {
+    return { music: this.gain ? this.gain.gain.value : null, sounds: this.bus ? this.bus.gain.value : levelGain(this.soundsLv), muffle: this.ear ? this.ear.frequency.value : null };
+  }
+
+  /** What the place sounds of now, beside its tune. */
+  get ambience(): { rain: boolean; drips: boolean } { return { ...this.place }; }
+
+  /** The place: rain falling into it, water dripping in its dark. Heard as soon as sound is allowed. */
+  setPlace(place: { rain: boolean; drips: boolean }): void {
+    this.place = { ...place };
+    this.dripT = 0.8 + Math.random();
+    if (this.ac && this.bus) this.rain(place.rain);
+  }
+
+  /** Each frame of play: the drops that fall somewhere in the dark. */
+  tick(dt: number): void {
+    if (!this.place.drips || !this.ac || this.ac.state !== 'running') return;
+    if ((this.dripT -= dt) > 0) return;
+    this.dripT = 0.7 + Math.random() * 2.2;
+    this.play('drip');
+  }
+
+  /** The hero's head under the water: the world is stifled, only the low of it comes through. */
+  setUnder(under: boolean): void {
+    if (under === this.under) return;
+    this.under = under;
+    if (this.ear && this.ac) this.ear.frequency.setTargetAtTime(under ? STIFLED : OPEN, this.ac.currentTime, 0.06);
+  }
+
+  // The rain: a hiss high and soft, swelling and falling slowly, and the patter of it on water and
+  // stone lower under it. It comes in and goes out gently.
+  private rain(on: boolean): void {
+    const ac = this.ac!;
+    if (!on) {
+      const r = this.rainfall;
+      if (!r) return;
+      this.rainfall = null;
+      r.level.gain.setTargetAtTime(0, ac.currentTime, 0.25);
+      for (const s of r.sources) { try { s.stop(ac.currentTime + 1.5); } catch { /* already stopped */ } }
+      return;
+    }
+    if (this.rainfall || !this.noise) return;
+    const level = ac.createGain();
+    level.gain.setValueAtTime(0, ac.currentTime);
+    level.gain.setTargetAtTime(1, ac.currentTime, 0.4);
+    level.connect(this.bus!);
+    const layer = (lowCut: number, highCut: number, vol: number, swell: number): AudioScheduledSourceNode[] => {
+      const src = ac.createBufferSource(), hp = ac.createBiquadFilter(), lp = ac.createBiquadFilter(), g = ac.createGain(), lfo = ac.createOscillator(), depth = ac.createGain();
+      src.buffer = this.noise; src.loop = true;
+      hp.type = 'highpass'; hp.frequency.value = lowCut;
+      lp.type = 'lowpass'; lp.frequency.value = highCut;
+      g.gain.value = vol;
+      lfo.frequency.value = swell; depth.gain.value = vol * 0.35;
+      lfo.connect(depth).connect(g.gain);
+      src.connect(hp).connect(lp).connect(g).connect(level);
+      src.start(ac.currentTime, Math.random() * 0.9); lfo.start();
+      return [src, lfo];
+    };
+    this.rainfall = { level, sources: [...layer(1400, 7000, RAIN, 0.07), ...layer(250, 900, RAIN * 0.5, 0.05)] };
   }
 
   /** The levels of the options, 0 to 10: they are laid on the mix at once. */
@@ -75,7 +139,10 @@ export class Sound {
   private build(ac: AudioContext): void {
     const squeeze = ac.createDynamicsCompressor();
     squeeze.threshold.value = -16; squeeze.ratio.value = 5; squeeze.attack.value = 0.003; squeeze.release.value = 0.18;
-    squeeze.connect(ac.destination);
+    this.ear = ac.createBiquadFilter();
+    this.ear.type = 'lowpass'; this.ear.frequency.value = this.under ? STIFLED : OPEN; this.ear.Q.value = 0.6;
+    this.ear.connect(ac.destination);
+    squeeze.connect(this.ear);
     this.bus = ac.createGain();
     this.bus.gain.value = levelGain(this.soundsLv);
     this.bus.connect(squeeze);
@@ -113,6 +180,7 @@ export class Sound {
     swell.connect(depth).connect(level.gain);
     air.connect(low).connect(level).connect(this.bus);
     air.start(); swell.start();
+    if (this.place.rain) this.rain(true);
   }
 
   /**
@@ -151,7 +219,7 @@ export class Sound {
       if (tune !== this.tune || this.gain) return;       // the level changed while the tune was being read
       this.gain = ac.createGain();
       this.gain.gain.value = this.level();
-      this.gain.connect(ac.destination);
+      this.gain.connect(this.ear ?? ac.destination);
       let at = ac.currentTime;
       if (first) {
         // The tune played once, then the loop at the end of its last bar, its tail ringing over it.
@@ -193,7 +261,8 @@ export class Sound {
     env.gain.exponentialRampToValueAtTime(Math.max(0.0002, l.vol), t + 0.004);
     env.gain.exponentialRampToValueAtTime(0.0001, t + l.dur);
     node.connect(env);
-    env.connect(this.bus!);
+    if (l.pan) { const p = ac.createStereoPanner(); p.pan.value = l.pan; env.connect(p).connect(this.bus!); }
+    else env.connect(this.bus!);
     if (l.hall && this.hall) { const send = ac.createGain(); send.gain.value = l.hall; env.connect(send).connect(this.hall); }
   }
 
@@ -410,6 +479,24 @@ export class Sound {
         this.tone('sawtooth', 70, 38, { dur: 0.6, vol: 0.35, hall: 0.5 });
         this.hiss('lowpass', 500, 160, { dur: 0.55, vol: 0.45, hall: 0.4 }, 0.6);
         this.splatter(5, 0.3, 0.18);
+        break;
+      case 'wade':
+        // A step in water: it is pushed aside, wet and low, and falls back.
+        this.hiss('bandpass', 900, 330, { dur: 0.2, vol: 0.32, hall: 0.25 }, 1.1);
+        this.hiss('bandpass', 1600, 700, { at: 0.07, dur: 0.12, vol: 0.13, hall: 0.2 }, 1.6);
+        this.tone('sine', 240, 110, { at: 0.02, dur: 0.08, vol: 0.13 });
+        break;
+      case 'drip': {
+        // A drop falling into water somewhere in the dark: a small bright plink, left or right, and the vault answers.
+        const f = 1300 + Math.random() * 1500, pan = (Math.random() - 0.5) * 1.4;
+        this.tone('sine', f, f * 0.55, { dur: 0.07, vol: 0.14, hall: 1.2, pan });
+        if (Math.random() < 0.4) this.tone('sine', f * 1.2, f * 0.7, { at: 0.11, dur: 0.05, vol: 0.06, hall: 1.2, pan });
+        break;
+      }
+      case 'bubble':
+        // Air going up from the mouth: two small rising blips, round and close.
+        this.tone('sine', 260, 640, { dur: 0.06, vol: 0.07, hall: 0.05 });
+        this.tone('sine', 330, 780, { at: 0.08, dur: 0.05, vol: 0.05, hall: 0.05 });
         break;
       case 'splash':
         // Water thrown up: a burst of noise, high and wet, and a hollow plop under it.

@@ -112,6 +112,7 @@ function run(assets: Assets, levels: Level[]): void {
     stage = new Stage(world, assets, openingWords(level.settings.title, boss ? 'boss' : world.fall ? 'fall' : ''), wonWords(i, levels.length, boss));
     stage.ash = ashen();
     sound.setMusic(level.settings.music, level.settings.intro);
+    sound.setPlace({ rain: level.settings.rain, drips: level.settings.water > 0 });
     const next = levels[i + 1]?.settings;                                                            // the next one, or the end's
     sound.preload([level.settings.music, level.settings.intro, next?.music ?? place.settings.music, next?.intro ?? ''].filter(Boolean));
     paused = false; sound.hush(false); bank = 0;
@@ -130,6 +131,8 @@ function run(assets: Assets, levels: Level[]): void {
     const where = s === 'end' ? endPlace : place, st = s === 'end' ? ending : scenery;
     st.look(...panAim(0, where.width, where.height), true);
     sound.setMusic(s === 'end' && endPlace.settings.ending ? endPlace.settings.ending : place.settings.music);
+    sound.setPlace({ rain: false, drips: false });
+    sound.setUnder(false);
     sound.preload([place.settings.music, levels[0].settings.music, endPlace.settings.ending].filter(Boolean));     // the first level's, for jump; the end's
     paused = false; sound.hush(false);
   };
@@ -230,6 +233,12 @@ function run(assets: Assets, levels: Level[]): void {
         options = new OptionsMenu(settings);
         Object.assign(c, { jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, pausePressed: false });
       }
+    }
+    if (scene === 'play' && world && !paused) {
+      // The place's own sounds: drops in the dark; under the water, the world stifled.
+      sound.tick(Math.min(MAX_FRAME, elapsed));
+      const water = world.level.settings.water;
+      sound.setUnder(water > 0 && world.hero.y > water + 2);
     }
     if (scene === 'play' && world && stage) play(world, stage, c, elapsed);
     else showScene(c, elapsed);

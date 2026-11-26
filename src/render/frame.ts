@@ -178,7 +178,7 @@ export class Stage {
   /** The name written on the board, at its place. */
   setNamed(name: string, place: number): void { this.hud.named = { name, place }; this.hud.naming = null; }
 
-  /** The sounds of the stage since the last call: the thunder. */
+  /** The sounds of the stage since the last call: the thunder, the steps in the water, the bubbles. */
   heard(): SoundName[] { const out = this.heardNow; this.heardNow = []; return out; }
 
   /** Takes in what the world reported: effects start playing, dust becomes particles. */
@@ -1006,10 +1006,16 @@ export class Stage {
       if (a.kind === 'ghost' || a.kind === 'skull' || a.dead > 0) continue;
       const feet = a.y + a.h, x = a.x + a.w / 2;
       if (feet <= water + 4 || !this.wetCols[Math.floor(x / TILE)]) { this.wading.delete(a); continue; }
-      if (a !== w.hero && a.onGround && a.y < water) {
+      if (a.onGround && a.y < water) {
+        // A step in the water: heard for the hero, and for those near him; seen for the others.
         const far = (this.wading.get(a) ?? 0) + Math.abs(a.vx) * dt;
-        if (far > 24) { this.wading.set(a, 0); this.splash(x, water, 1); } else this.wading.set(a, far);
+        if (far > 24) {
+          this.wading.set(a, 0);
+          if (a !== w.hero) this.splash(x, water, 1);
+          if (a === w.hero || Math.abs(x - (w.hero.x + w.hero.w / 2)) < 200) this.heardNow.push('wade');
+        } else this.wading.set(a, far);
       }
+      if (a === w.hero && a.y > water + 2 && Math.random() < dt * 1.4) this.heardNow.push('bubble');
       if (a === w.hero && a.y > water + 2 && Math.random() < dt * 5) {
         this.particles.push({ x: x + a.facing * 4 + (Math.random() - 0.5) * 4, y: a.y + 6, vx: (Math.random() - 0.5) * 8, vy: -30 - Math.random() * 20, life: Math.min(1.2, (a.y - water) / 40), color: '#b8dcff', g: -20 });
       }

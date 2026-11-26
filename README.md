@@ -78,6 +78,8 @@ Under the crypt lies the flooded crypt. Its vault is broken open on the storm, t
 through the breach, and the water stands half a man deep over its floor, deeper than a man in its
 two wells: everything above it is mirrored in it, trembling. The hero wades through it, slower,
 throwing it up at each step; under it he lets out bubbles; some embers lie at the bottom.
+The rain is heard where it falls in, drops plink somewhere in the dark of the vault, each step in
+the water is heard; under it the world is stifled, only its low comes through.
 
 Over the belfry, a giant shape of the demon circles in the storm: only its eyes show, until a flash
 cuts it out black against the sky. The bell chamber, at the top of the belfry, is the room of the
