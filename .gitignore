@@ -5,6 +5,3 @@ tests/e2e/out/
 # The built game is kept, so that a fresh copy plays by a double-click on index.html.
 dist/*.map
 
-# Working notes and snapshots: they stay on this machine.
-.superpowers/
-docs/superpowers/

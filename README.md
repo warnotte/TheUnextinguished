@@ -46,7 +46,8 @@ The duel:
   in a row, and not against a flying kick or a charge); one whose blow was stopped strikes a second
   time, sooner.
 - A shade at the end of its health stands dazed for three seconds: a kick, a sweep, a flying kick
-  or a charge then ends it; left alone, it comes round.
+  or a charge then ends it; left alone, it comes round. A shade thrown into a pit of spikes is ended
+  there too, and its ember is the hero's.
 
 Other foes walk, run and fly in the levels:
 
@@ -55,8 +56,9 @@ Other foes walk, run and fly in the levels:
   flies straight at him (the guard turns it away). A blow puts its fire out: the bare skull drops to
   the floor, then lights again and flies home.
 - **The hell hound** sits until the hero comes onto its floor, then runs at him, faster than he
-  runs, and leaps when it is close (the guard throws it back). A punch makes it flinch, a kick fells
-  it; it comes back later where it sat.
+  runs, and leaps when it is close (the guard throws it back). It leaps over a pit to reach him, if
+  it can clear it; at one too wide, it waits at the edge. A punch makes it flinch, a kick fells it;
+  it comes back later where it sat.
 - **The ghost** comes out of nothing close to the hero, floats a moment, raises its arms and
   shrieks (the guard stops that), then is gone, to come out again on his other side. A blow drives
   it off for longer.
@@ -120,7 +122,7 @@ in a time drawn by chance.
 The levels follow each other: the door of one leads to the next. After the last comes the end,
 which tells the run: its time, the foes snuffed out, the blood spilt, how often the hero was knocked
 out. Then back to the title. To go straight to a level, without the title, add `?level=1` to
-`?level=4` to the address of the page.
+`?level=7` to the address of the page.
 
 The title stands in front of the first level open on the sky (the belfry), climbing it slowly under
 a storm: now and then lightning flashes through the arches and the thunder follows.
@@ -137,6 +139,8 @@ npm test           # the simulation, the level reader, the registry (no browser)
 npm run check      # type check
 npm run test:e2e   # the whole game in the installed Chrome (after a build)
 ```
+
+The rules of the work on the code (what goes where, the tests, the commits) are in `AGENTS.md`.
 
 ## How it is laid out
 
@@ -178,10 +182,10 @@ object, paint a cell); nothing drives them yet.
   wall there, only the sky, and the ground is dressed in grass and earth; where the stone of the grid is
   a slab, it is a clod of earth floating), `rock` and `masonry` (the same corner and size: the stone
   of the grid there is a mound of rock with grass on top, or masonry), `hill` (from the left of its foot on the ground: `width`, `height`, its flat `top`; whoever walks goes up
-  and down it, a rise too steep is a wall), `column` (two tiles wide, from its bottom left corner on the
+  and down it, the foes too, a rise too steep is a wall), `column` (two tiles wide, from its bottom left corner on the
   ground, `height` tiles high: the stone of the grid under it is its body), `spikes` (a pit one tile
-  deep, from its top left corner, `width`: it hurts whoever comes down into it, guard or not, and
-  throws him out), `ruin-wall` (a wall left
+  deep, from its top left corner, `width`: it hurts the hero who comes down into it, guard or not,
+  and throws him out; the foes that walk die in it, and come back at their own place), `ruin-wall` (a wall left
   standing out of doors, from its bottom left corner, `width`, `height`, `door` 1 for a doorway at its
   foot, `windows` for arched openings on the sky), `railing` (iron, from its bottom left corner,
   `width`, `height`), the cemetery's `tree`,
