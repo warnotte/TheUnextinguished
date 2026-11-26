@@ -682,6 +682,7 @@
   var FIRE = [255, 170, 92];
   var CANDLE = [255, 198, 128];
   var MOON = [150, 172, 255];
+  var GLASS = [190, 205, 255];
   var lantern = (dx) => ({ dx, dy: -80, radius: 48, strength: 0.7, flicker: 0.5, color: CANDLE });
   var KINDS = {
     hero: { role: "spawn", actor: "hero" },
@@ -697,15 +698,15 @@
     bell: { role: "bell" },
     ember: { role: "ember" },
     door: { role: "door" },
-    window: { role: "decor", plane: "wall", image: "back", src: [0, 0, 160, 192], anchor: [80, 192], lights: [{ dx: 0, dy: -96, radius: 86, strength: 0.7, flicker: 0, color: MOON }], shaft: true },
+    window: { role: "decor", plane: "wall", image: "back", src: [0, 0, 160, 192], anchor: [80, 192], lights: [{ dx: 0, dy: -96, radius: 86, strength: 0.7, flicker: 0, color: MOON, cool: true }, { dx: 0, dy: -112, radius: 44, strength: 0.6, flicker: 0, color: GLASS }], shaft: true },
     altar: { role: "decor", plane: "wall", image: "back", src: [320, 0, 128, 192], anchor: [64, 192], lights: [{ dx: 0, dy: -48, radius: 58, strength: 0.75, flicker: 0.5, color: CANDLE }], shaft: false },
     gargoyle: { role: "decor", plane: "wall", image: "back", src: [464, 0, 80, 192], anchor: [40, 192], lights: [], shaft: false },
     pillar: { role: "decor", plane: "wall", image: "column", src: [0, 0, 114, 190], anchor: [57, 190], lights: [lantern(-19), lantern(36)], shaft: false },
     balustrade: { role: "decor", plane: "wall", image: "tiles", src: [192, 92, 80, 52], anchor: [40, 52], lights: [{ dx: 31, dy: -46, radius: 38, strength: 0.6, flicker: 0.5, color: CANDLE }], shaft: false },
     torch: { role: "decor", plane: "back", sheet: "torch", lights: [{ dx: 0, dy: -26, radius: 150, strength: 1, flicker: 1, color: FIRE }] },
     // An opening in the wall, on the sky: its foot on (x, y), `width` and `height` in its properties. The moon comes in.
-    arch: { role: "decor", plane: "wall", painter: "arch", lights: [{ dx: 0, dy: -40, radius: 96, strength: 0.6, flicker: 0, color: MOON }] },
-    breach: { role: "decor", plane: "wall", painter: "breach", lights: [{ dx: 0, dy: 40, radius: 120, strength: 0.55, flicker: 0, color: MOON }] },
+    arch: { role: "decor", plane: "wall", painter: "arch", lights: [{ dx: 0, dy: -40, radius: 96, strength: 0.6, flicker: 0, color: MOON, cool: true }] },
+    breach: { role: "decor", plane: "wall", painter: "breach", lights: [{ dx: 0, dy: 40, radius: 120, strength: 0.55, flicker: 0, color: MOON, cool: true }] },
     "chain-lantern": { role: "decor", plane: "wall", painter: "chain-lantern", lights: [{ dx: 0, dy: 6, radius: 62, strength: 0.8, flicker: 0.6, color: CANDLE }] }
   };
   var KIND_NAMES = new Set(Object.keys(KINDS));
@@ -2930,6 +2931,63 @@
   };
   var BLOOD_COLORS = ["#3d0508", "#6e0a10", "#a3141b", "#d1262b"];
 
+  // src/render/grade.ts
+  var KNEE = 0.72;
+  var SPREAD = 1.5;
+  var WIDE = 1;
+  var TIGHT = 0.5;
+  var EDGE = 0.3;
+  var Grade = class {
+    bright = Object.assign(document.createElement("canvas"), { width: VIEW_W / 2, height: VIEW_H / 2 });
+    wide = Object.assign(document.createElement("canvas"), { width: VIEW_W / 4, height: VIEW_H / 4 });
+    edge = Object.assign(document.createElement("canvas"), { width: VIEW_W, height: VIEW_H });
+    constructor() {
+      const k = this.edge.getContext("2d");
+      k.translate(VIEW_W / 2, VIEW_H / 2);
+      k.scale(1, VIEW_H / VIEW_W);
+      const r = Math.hypot(VIEW_W, VIEW_W) / 2, dark = k.createRadialGradient(0, 0, r * 0.45, 0, 0, r);
+      dark.addColorStop(0, "rgba(4,2,12,0)");
+      dark.addColorStop(0.55, `rgba(4,2,12,${EDGE * 0.35})`);
+      dark.addColorStop(1, `rgba(4,2,12,${EDGE})`);
+      k.fillStyle = dark;
+      k.fillRect(-r, -r, r * 2, r * 2);
+    }
+    /** The glow of what is bright, over the picture as it is. */
+    glow(g2) {
+      const b = 0.5, c = 0.5 / (0.5 - KNEE * b);
+      const k = this.bright.getContext("2d");
+      k.imageSmoothingEnabled = true;
+      k.imageSmoothingQuality = "medium";
+      k.filter = `brightness(${b}) contrast(${c.toFixed(3)})`;
+      k.drawImage(g2.canvas, 0, 0, VIEW_W, VIEW_H, 0, 0, this.bright.width, this.bright.height);
+      k.filter = "none";
+      const s = this.wide.getContext("2d");
+      s.clearRect(0, 0, this.wide.width, this.wide.height);
+      s.imageSmoothingEnabled = true;
+      s.imageSmoothingQuality = "medium";
+      s.filter = `blur(${SPREAD}px)`;
+      s.drawImage(this.bright, 0, 0, this.wide.width, this.wide.height);
+      s.filter = "none";
+      g2.save();
+      g2.setTransform(1, 0, 0, 1, 0, 0);
+      g2.imageSmoothingEnabled = true;
+      g2.globalCompositeOperation = "screen";
+      g2.globalAlpha = WIDE;
+      g2.drawImage(this.wide, 0, 0, VIEW_W, VIEW_H);
+      g2.globalAlpha = TIGHT;
+      g2.drawImage(this.bright, 0, 0, VIEW_W, VIEW_H);
+      g2.restore();
+    }
+    /** The dark at the edges of the picture. */
+    vignette(g2) {
+      g2.save();
+      g2.setTransform(1, 0, 0, 1, 0, 0);
+      g2.globalCompositeOperation = "source-over";
+      g2.drawImage(this.edge, 0, 0);
+      g2.restore();
+    }
+  };
+
   // src/render/lens.ts
   var LENS_CAP = 60;
   var FADE2 = 1.3;
@@ -2975,9 +3033,11 @@
   };
 
   // src/render/shading.ts
-  var SHADOW_DEPTH = 0.32;
   var SHADOW_DARK = 0.85;
   var ON_THE_LAMP = 10;
+  var LAMP_LOW = 28;
+  var LEAN_MOST = 1.6;
+  var RISE = 0.25;
   function reach(l, x, y) {
     const d = Math.hypot(x - l.x, y - l.y) / l.radius;
     return d >= 1 ? 0 : l.strength * (1 - d) * (1 - d);
@@ -3012,7 +3072,14 @@
     if (Math.hypot(x - l.x, y - l.y) < ON_THE_LAMP) return null;
     const k = reach(l, x, y);
     if (k <= 0) return null;
-    return { scale: 1 + SHADOW_DEPTH, alpha: Math.min(SHADOW_DARK, 0.25 + k) };
+    return { alpha: Math.min(SHADOW_DARK, 0.25 + k) };
+  }
+  function leanOf(l, x, feet) {
+    const high = Math.max(LAMP_LOW, feet - l.y), lean = Math.max(-LEAN_MOST, Math.min(LEAN_MOST, (x - l.x) / high));
+    return { lean, rise: 1 + RISE * Math.min(1, Math.abs(lean)) };
+  }
+  function flame(t, seed) {
+    return 0.5 * Math.sin(t * 9.1 + seed) + 0.3 * Math.sin(t * 15.7 + seed * 1.7) + 0.2 * Math.sin(t * 23.3 + seed * 2.3);
   }
   var FLASH_FLOOR = 70;
   var FLASH_REACH = 260;
@@ -3110,7 +3177,7 @@
       const kind = KINDS[o.kind];
       if (!kind || kind.role !== "decor") continue;
       const hang = "painter" in kind ? Number(o.props.length ?? 0) : 0;
-      for (const l of kind.lights) out.push({ x: o.x + l.dx, y: o.y + l.dy + hang, radius: l.radius, strength: l.strength, flicker: l.flicker, color: l.color });
+      for (const l of kind.lights) out.push({ x: o.x + l.dx, y: o.y + l.dy + hang, radius: l.radius, strength: l.strength, flicker: l.flicker, color: l.color, cool: l.cool });
     }
     return out;
   }
@@ -3122,6 +3189,18 @@
     }
     return out;
   }
+  function shaftReach(segments, wx, wy) {
+    return visibilityPolygon(segments, wx + 80, wy + 63, 300);
+  }
+  function clipTo(k, poly) {
+    k.beginPath();
+    for (let i = 0; i < poly.length; i += 2) {
+      if (i) k.lineTo(poly[i], poly[i + 1]);
+      else k.moveTo(poly[i], poly[i + 1]);
+    }
+    k.closePath();
+    k.clip();
+  }
   function shaftPath(k, wx, wy) {
     k.beginPath();
     k.moveTo(wx + 54, wy + 62);
@@ -3131,78 +3210,109 @@
     k.closePath();
   }
   var MARGIN = 16;
-  var SOFT = 3;
-  var WASH = 0.22;
+  var RES = 2;
+  var FALL2 = [0, 0.08, 0.18, 0.3, 0.45, 0.6, 0.75, 0.88, 1];
+  var SOFT = 1.5;
+  var WASH = 0.3;
+  var COOL_WASH = 0.18;
+  var OVER = 0.8;
   var HAZE = 0.1;
-  var DEEP = 0.5;
+  var DEEP = 0.8;
+  var FLICK = 0.09;
+  var SWAY2 = 1.6;
+  var SHEEN = 0.5;
+  var SHEEN_WET = 1;
+  function project(k, l, c) {
+    const { lean, rise } = leanOf(l, c.x, c.feet);
+    k.translate(c.x, c.feet);
+    k.transform(1, 0, -lean, rise, 0, 0);
+    k.translate(-c.x, -c.feet);
+  }
   var LightSheet = class {
     segments;
     fixed;
     beams;
+    /** What each shaft of moonlight reaches, as a polygon, in the order of shafts(). */
+    beamReach;
     still = /* @__PURE__ */ new Map();
     // polygons of lamps that do not move (embers, the door)
+    // The maps, all at a RES-th of the size of the picture (and its margin).
     map = null;
-    // what the lamps add, on black
+    // what the lamps of fire add, on black
+    cool = null;
+    // what the cool lamps add (the moon, a flash), on black
     one = null;
     // one lamp, while the shadows of the bodies are cut out of it
     lit = null;
     // the ambient light and the lamps: what multiplies the picture
+    hot = null;
+    // the lamps of fire, squared: their light close to the flame
+    air = null;
+    // all the lamps, spread wide: the light in the air
+    raw = null;
+    // the picture before the light, multiplied by the hot lamps
+    glint = null;
+    // the light caught by the top edge of the stone
     shown = [];
     // the lamps of the last frame, for sample()
+    edges;
+    // the top edge of the stone, where it catches the light
+    wet;
     ambient = [255, 255, 255];
     constructor(level) {
       this.segments = occluders(level.grid);
       this.fixed = levelLights(level).map((light) => ({ light, poly: visibilityPolygon(this.segments, light.x, light.y, light.radius * 1.07) }));
       this.beams = shafts(level);
+      this.beamReach = this.beams.map((b) => shaftReach(this.segments, b.x, b.y));
+      this.wet = level.settings.rain || level.settings.water > 0;
+      const grid = level.grid;
+      this.edges = Object.assign(document.createElement("canvas"), { width: level.width, height: level.height });
+      const e = this.edges.getContext("2d");
+      for (let row = 1; row < grid.rows; row++) for (let c = 0; c < grid.cols; c++) {
+        if (!grid.solidAt(c, row) || grid.solidAt(c, row - 1)) continue;
+        e.fillStyle = "#fff";
+        e.fillRect(c * TILE, row * TILE - 1, TILE, 1);
+        e.fillStyle = "rgba(255,255,255,0.4)";
+        e.fillRect(c * TILE, row * TILE, TILE, 1);
+      }
     }
     // The light of one lamp, inside what it can see.
     pour(k, l, poly, radius, strength) {
       k.save();
-      k.beginPath();
-      for (let i = 0; i < poly.length; i += 2) {
-        if (i) k.lineTo(poly[i], poly[i + 1]);
-        else k.moveTo(poly[i], poly[i + 1]);
-      }
-      k.closePath();
-      k.clip();
+      clipTo(k, poly);
       const [r, g2, b] = l.color, gr = k.createRadialGradient(l.x, l.y, 0, l.x, l.y, radius);
-      const stop = (at, share) => gr.addColorStop(at, `rgba(${r},${g2},${b},${(strength * share).toFixed(3)})`);
-      stop(0, 1);
-      stop(0.2, 0.86);
-      stop(0.45, 0.5);
-      stop(0.7, 0.2);
-      stop(0.88, 0.06);
-      stop(1, 0);
+      for (const d of FALL2) {
+        const w = (1 - d * d) * (1 - d * d);
+        gr.addColorStop(d, `rgba(${r},${g2},${b},${(strength * w).toFixed(3)})`);
+      }
       k.fillStyle = gr;
       k.beginPath();
       k.arc(l.x, l.y, radius, 0, Math.PI * 2);
       k.fill();
       k.restore();
     }
-    // Adds a lamp to the map. Where a body stands in its light, the shadow of the body is cut out of
-    // it first: the outline of the body, enlarged round the lamp, as on a wall behind it.
+    // Adds a lamp to its map. Where a body stands in its light, the shadow of the body is cut out of
+    // it first: the outline of the body, standing on its feet and leaning away from the lamp.
     add(l, poly, radius, strength, casters, camX, camY) {
-      const map = this.map.getContext("2d");
+      const map = (l.cool ? this.cool : this.map).getContext("2d");
       const cast = casters.filter((c) => c.own !== l && shadowOf(l, c.x, c.y));
       if (!cast.length) {
         this.pour(map, l, poly, radius, strength);
         return;
       }
       const one = this.one.getContext("2d");
-      const x = Math.floor(l.x - radius - camX + MARGIN), y = Math.floor(l.y - radius - camY + MARGIN), size = Math.ceil(radius * 2) + 2;
+      const x = Math.floor((l.x - radius - camX + MARGIN) / RES), y = Math.floor((l.y - radius - camY + MARGIN) / RES), size = Math.ceil(radius * 2 / RES) + 2;
       one.setTransform(1, 0, 0, 1, 0, 0);
       one.globalCompositeOperation = "source-over";
       one.globalAlpha = 1;
       one.clearRect(x, y, size, size);
-      one.translate(MARGIN - camX, MARGIN - camY);
+      one.setTransform(1 / RES, 0, 0, 1 / RES, (MARGIN - camX) / RES, (MARGIN - camY) / RES);
       this.pour(one, l, poly, radius, strength);
       one.globalCompositeOperation = "destination-out";
       for (const c of cast) {
         const s = shadowOf(l, c.x, c.y);
         one.save();
-        one.translate(l.x, l.y);
-        one.scale(s.scale, s.scale);
-        one.translate(-l.x, -l.y);
+        project(one, l, c);
         one.globalAlpha = s.alpha;
         c.draw(one);
         one.restore();
@@ -3218,30 +3328,37 @@
      * The bodies in `casters` throw their shadow on the wall behind them.
      */
     draw(g2, camX, camY, darkness, resting, moving, t, casters) {
-      const W = VIEW_W + MARGIN * 2, H = VIEW_H + MARGIN * 2;
-      const make = () => {
-        const c = document.createElement("canvas");
-        c.width = W;
-        c.height = H;
-        return c;
-      };
+      const W = VIEW_W + MARGIN * 2, H = VIEW_H + MARGIN * 2, w = W / RES, h = H / RES;
+      const make = () => Object.assign(document.createElement("canvas"), { width: w, height: h });
       this.map ??= make();
+      this.cool ??= make();
       this.one ??= make();
       this.lit ??= make();
-      const k = this.map.getContext("2d");
-      k.setTransform(1, 0, 0, 1, 0, 0);
-      k.globalCompositeOperation = "source-over";
-      k.fillStyle = "#000";
-      k.fillRect(0, 0, W, H);
-      k.globalCompositeOperation = "lighter";
-      k.translate(MARGIN - camX, MARGIN - camY);
+      this.hot ??= make();
+      this.air ??= make();
+      const k = this.map.getContext("2d"), cool = this.cool.getContext("2d");
+      const toMap = (m) => m.setTransform(1 / RES, 0, 0, 1 / RES, (MARGIN - camX) / RES, (MARGIN - camY) / RES);
+      for (const m of [k, cool]) {
+        m.setTransform(1, 0, 0, 1, 0, 0);
+        m.globalCompositeOperation = "source-over";
+        m.filter = "none";
+        m.fillStyle = "#000";
+        m.fillRect(0, 0, w, h);
+        m.globalCompositeOperation = "lighter";
+        toMap(m);
+      }
       const seen = (l) => l.x + l.radius > camX - MARGIN && l.x - l.radius < camX + VIEW_W + MARGIN && l.y + l.radius > camY - MARGIN && l.y - l.radius < camY + VIEW_H + MARGIN;
       this.shown = [];
       for (const { light, poly } of this.fixed) {
         if (!seen(light)) continue;
-        const breath = light.flicker * Math.sin(t * 11 + light.x) * Math.sin(t * 7.3 + light.y);
-        this.add(light, poly, light.radius * (1 + 0.06 * breath), light.strength * (1 + 0.08 * breath), casters, camX, camY);
-        this.shown.push({ light, poly });
+        let lamp = light;
+        if (light.flicker) {
+          const seed = light.x * 0.37 + light.y * 0.11, f = light.flicker, sway = SWAY2;
+          lamp = { ...light, x: light.x + f * sway * flame(t * 0.8, seed + 5), y: light.y + f * sway * 0.6 * flame(t * 1.1, seed + 9) };
+          const breath = f * flame(t, seed);
+          this.add(lamp, poly, light.radius * (1 + 0.05 * breath), light.strength * (1 + FLICK * breath), casters, camX, camY);
+        } else this.add(light, poly, light.radius, light.strength, casters, camX, camY);
+        this.shown.push({ light: lamp, poly });
       }
       for (const l of resting) {
         if (!seen(l)) continue;
@@ -3260,54 +3377,126 @@
         this.add(l, poly, l.radius, l.strength, casters, camX, camY);
         this.shown.push({ light: l, poly });
       }
-      for (const b of this.beams) {
-        const fade = k.createLinearGradient(b.x + 80, b.y + 62, b.x + 186, b.y + 300);
+      this.beams.forEach((b, i) => {
+        const fade = cool.createLinearGradient(b.x + 80, b.y + 62, b.x + 186, b.y + 300);
         fade.addColorStop(0, "rgba(150,172,255,0.42)");
         fade.addColorStop(1, "rgba(150,172,255,0)");
-        k.fillStyle = fade;
-        shaftPath(k, b.x, b.y);
-        k.fill();
-      }
+        cool.save();
+        clipTo(cool, this.beamReach[i]);
+        cool.fillStyle = fade;
+        shaftPath(cool, b.x, b.y);
+        cool.fill();
+        cool.restore();
+      });
+      const one = this.one.getContext("2d");
+      const soften = (m) => {
+        one.setTransform(1, 0, 0, 1, 0, 0);
+        one.globalCompositeOperation = "source-over";
+        one.globalAlpha = 1;
+        one.clearRect(0, 0, w, h);
+        one.drawImage(m.canvas, 0, 0);
+        m.setTransform(1, 0, 0, 1, 0, 0);
+        m.globalCompositeOperation = "source-over";
+        m.filter = `blur(${SOFT}px)`;
+        m.drawImage(this.one, 0, 0);
+        m.filter = "none";
+      };
+      soften(k);
+      soften(cool);
       this.ambient = ambientOf(darkness);
       const q = this.lit.getContext("2d");
+      q.setTransform(1, 0, 0, 1, 0, 0);
       q.globalCompositeOperation = "source-over";
+      q.globalAlpha = 1;
       q.fillStyle = `rgb(${this.ambient[0]},${this.ambient[1]},${this.ambient[2]})`;
-      q.fillRect(0, 0, W, H);
+      q.fillRect(0, 0, w, h);
       q.globalCompositeOperation = "lighter";
       q.drawImage(this.map, 0, 0);
+      q.drawImage(this.cool, 0, 0);
       q.globalCompositeOperation = "source-over";
-      q.save();
-      q.translate(MARGIN - camX, MARGIN - camY);
+      q.filter = `blur(${SOFT}px)`;
+      toMap(q);
       for (const c of casters) {
         const lamp = keyLight(this.shown.filter((s2) => s2.light !== c.own && inPolygon(s2.poly, c.x, c.y)).map((s2) => s2.light), c.x, c.y);
         const s = lamp && shadowOf(lamp, c.x, c.y);
         if (!lamp || !s) continue;
         q.save();
-        q.translate(lamp.x, lamp.y);
-        q.scale(s.scale, s.scale);
-        q.translate(-lamp.x, -lamp.y);
+        project(q, lamp, c);
         q.globalAlpha = s.alpha * DEEP;
         c.draw(q);
         q.restore();
       }
-      q.restore();
+      q.filter = "none";
+      const hk = this.hot.getContext("2d");
+      hk.globalCompositeOperation = "source-over";
+      hk.drawImage(this.map, 0, 0);
+      hk.globalCompositeOperation = "multiply";
+      hk.drawImage(this.map, 0, 0);
+      one.setTransform(1, 0, 0, 1, 0, 0);
+      one.globalCompositeOperation = "source-over";
+      one.drawImage(this.map, 0, 0);
+      one.globalCompositeOperation = "lighter";
+      one.drawImage(this.cool, 0, 0);
+      const ak = this.air.getContext("2d");
+      ak.clearRect(0, 0, w, h);
+      ak.globalCompositeOperation = "source-over";
+      ak.filter = `blur(${12 / RES}px)`;
+      ak.drawImage(this.one, 0, 0);
+      ak.filter = "none";
+      this.raw ??= Object.assign(document.createElement("canvas"), { width: VIEW_W, height: VIEW_H });
+      const r = this.raw.getContext("2d");
+      r.globalCompositeOperation = "source-over";
+      r.drawImage(g2.canvas, 0, 0);
+      r.globalCompositeOperation = "multiply";
+      r.imageSmoothingEnabled = true;
+      r.drawImage(this.hot, -MARGIN, -MARGIN, W, H);
       g2.save();
+      g2.setTransform(1, 0, 0, 1, 0, 0);
+      g2.imageSmoothingEnabled = true;
       g2.globalCompositeOperation = "multiply";
-      g2.filter = `blur(${SOFT}px)`;
-      g2.drawImage(this.lit, -MARGIN, -MARGIN);
-      g2.globalCompositeOperation = "lighter";
+      g2.drawImage(this.lit, -MARGIN, -MARGIN, W, H);
+      g2.globalCompositeOperation = "screen";
+      g2.globalAlpha = OVER;
+      g2.drawImage(this.raw, 0, 0);
       g2.globalAlpha = WASH;
-      g2.drawImage(this.map, -MARGIN, -MARGIN);
+      g2.drawImage(this.hot, -MARGIN, -MARGIN, W, H);
+      g2.globalAlpha = COOL_WASH;
+      g2.drawImage(this.cool, -MARGIN, -MARGIN, W, H);
       g2.restore();
+      const sheen = this.wet ? SHEEN_WET : SHEEN;
+      if (sheen > 0) {
+        this.glint ??= Object.assign(document.createElement("canvas"), { width: VIEW_W, height: VIEW_H });
+        const e = this.glint.getContext("2d");
+        e.globalCompositeOperation = "source-over";
+        e.globalAlpha = 1;
+        e.imageSmoothingEnabled = true;
+        e.clearRect(0, 0, VIEW_W, VIEW_H);
+        e.drawImage(this.hot, -MARGIN, -MARGIN, W, H);
+        if (this.wet) {
+          e.globalCompositeOperation = "lighter";
+          e.globalAlpha = 0.6;
+          e.drawImage(this.cool, -MARGIN, -MARGIN, W, H);
+          e.globalAlpha = 1;
+        }
+        e.globalCompositeOperation = "destination-in";
+        e.drawImage(this.edges, -camX, -camY);
+        g2.save();
+        g2.setTransform(1, 0, 0, 1, 0, 0);
+        g2.globalCompositeOperation = "screen";
+        g2.globalAlpha = sheen;
+        g2.drawImage(this.glint, 0, 0);
+        g2.restore();
+      }
     }
     /** The light that hangs in the air round the lamps, laid over the finished picture. */
     haze(g2) {
-      if (!this.map) return;
+      if (!this.air) return;
       g2.save();
+      g2.setTransform(1, 0, 0, 1, 0, 0);
+      g2.imageSmoothingEnabled = true;
       g2.globalCompositeOperation = "screen";
       g2.globalAlpha = HAZE;
-      g2.filter = "blur(12px)";
-      g2.drawImage(this.map, -MARGIN, -MARGIN);
+      g2.drawImage(this.air, -MARGIN, -MARGIN, VIEW_W + MARGIN * 2, VIEW_H + MARGIN * 2);
       g2.restore();
     }
     /** The light at a point of the level, as of the last frame: its colour, and the lamp that gives most of it (`not` left aside). */
@@ -3362,6 +3551,9 @@
     return [sx + c % 3 * TILE, sy];
   };
   var FILL = "#1b0f2b";
+  var CORNER_DARK = 0.42;
+  var CORNER_UP = 18;
+  var CORNER_DOWN = 30;
   function paintBreach(b, o) {
     const w = Number(o.props.width ?? 160), h = Number(o.props.height ?? 96);
     const half = (y, grow) => {
@@ -3478,6 +3670,21 @@
       }
     };
     decor("wall");
+    b.save();
+    b.globalCompositeOperation = "source-atop";
+    const shade = (x, y0, y1, dark0, dark1) => {
+      const fade = b.createLinearGradient(0, y0, 0, y1);
+      fade.addColorStop(0, `rgba(6,5,16,${dark0})`);
+      fade.addColorStop(1, `rgba(6,5,16,${dark1})`);
+      b.fillStyle = fade;
+      b.fillRect(x, Math.min(y0, y1), TILE, Math.abs(y1 - y0));
+    };
+    for (let row = 0; row < grid.rows; row++) for (let c = 0; c < grid.cols; c++) {
+      if (!grid.solidAt(c, row)) continue;
+      if (!grid.solidAt(c, row - 1)) shade(c * TILE, row * TILE - CORNER_UP, row * TILE, 0, CORNER_DARK);
+      if (isSlab(grid, c, row)) shade(c * TILE, row * TILE + 12, row * TILE + 12 + CORNER_DOWN, CORNER_DARK, 0);
+    }
+    b.restore();
     for (let row = 0; row < grid.rows; row++) for (let c = 0; c < grid.cols; c++) {
       if (!grid.solidAt(c, row) || isSlab(grid, c, row)) continue;
       const x = c * TILE, y = row * TILE;
@@ -3532,9 +3739,9 @@
   };
   var mod = (v, m) => (v % m + m) % m;
   var DEPTH = { stars: 0.02, moon: 0.04, clouds: 0.08, mountains: 0.12, town: 0.3, snow: 0.5 };
-  var RISE = 0.4;
+  var RISE2 = 0.4;
   function planeShift(depth, camX, rise) {
-    return [-camX * depth, rise * depth * RISE];
+    return [-camX * depth, rise * depth * RISE2];
   }
   var ridge = (u) => 26 * Math.sin(u * 0.011) + 15 * Math.sin(u * 0.029 + 1.7) + 7 * Math.sin(u * 0.067 + 0.4);
   function paintSky(k, camX, rise, t, snow) {
@@ -3956,11 +4163,11 @@
     centered(g2, "THE", 36, PALE, 3);
     const x = Math.round((VIEW_W - textWidth(word, big)) / 2);
     text(g2, word, x + 4, y + 4, "#4a0a0c", big);
-    const flame = g2.createLinearGradient(0, y, 0, y + h);
-    flame.addColorStop(0, FIRE2[0]);
-    flame.addColorStop(0.45, FIRE2[1]);
-    flame.addColorStop(1, FIRE2[3]);
-    text(g2, word, x, y, flame, big);
+    const flame2 = g2.createLinearGradient(0, y, 0, y + h);
+    flame2.addColorStop(0, FIRE2[0]);
+    flame2.addColorStop(0.45, FIRE2[1]);
+    flame2.addColorStop(1, FIRE2[3]);
+    text(g2, word, x, y, flame2, big);
   }
   function panel(g2, x, y, w, h) {
     g2.fillStyle = "rgba(10,8,20,0.78)";
@@ -4206,6 +4413,13 @@
   var MONK_ANCHOR = 40;
   var GHOUL_ANCHOR = 28;
   var SKELETON_ANCHOR = 26;
+  var ROUND = 0.6;
+  var ROUND_SPAN = 11;
+  var RIM_DEEP = 0.35;
+  var VEIL = 0.15;
+  var FOOT_DARK = 0.55;
+  var FOOT_LONG = 0.9;
+  var FOOT_LEAN = 48;
   var DEMON_GLOW = [110, 225, 255];
   var ZOOM = 1.5;
   var ZOOM_IN = 0.1;
@@ -4304,6 +4518,8 @@
     blood;
     lens = new Lens(VIEW_W, VIEW_H);
     // blood thrown at the screen
+    grade = new Grade();
+    // the glow of what is bright, the dark at the edges
     stains;
     // the blood that has landed: it stays for the whole game
     effects = [];
@@ -4575,7 +4791,9 @@
         g2.fillRect(0, 0, VIEW_W, VIEW_H);
         g2.restore();
       }
+      this.grade.glow(g2);
       this.closeIn(g2, cx, cy);
+      this.grade.vignette(g2);
       this.drawLens(g2);
       if (!this.scenery) this.hud.draw(g2, t, paused, this.won);
     }
@@ -4595,7 +4813,7 @@
       for (const m of w.embers) if (!m.taken) out.push({ x: m.x, y: m.y, radius: 54, strength: 0.75, flicker: 0, color: [255, 150, 70] });
       if (w.door && w.doorOpen) out.push({ x: w.door.x + 16, y: w.door.y + 36, radius: 140, strength: 1, flicker: 0, color: [255, 215, 140] });
       const flash = this.storm?.glow ?? 0;
-      if (flash > 0.02) for (const o of this.openings) out.push({ x: o.x, y: o.y, radius: LIGHTNING.radius, strength: LIGHTNING.strength * flash, flicker: 0, color: LIGHTNING.color });
+      if (flash > 0.02) for (const o of this.openings) out.push({ x: o.x, y: o.y, radius: LIGHTNING.radius, strength: LIGHTNING.strength * flash, flicker: 0, color: LIGHTNING.color, cool: true });
       return out;
     }
     movingLights(t) {
@@ -4608,7 +4826,7 @@
         out.push(l);
       };
       if (p.charge > 0) carry(p, { x: p.x + 7, y: p.y + 18, radius: 170, strength: 1, flicker: 0, color: [255, 160, 70] });
-      else carry(p, { x: p.x + 7, y: p.y + 18, radius: 80, strength: 0.3, flicker: 0, color: [200, 205, 255] });
+      else carry(p, { x: p.x + 7, y: p.y + 18, radius: 80, strength: 0.3, flicker: 0, color: [200, 205, 255], cool: true });
       for (const f of w.foes) {
         if (f.kind === "shade" && f.ko <= 0) carry(f, { x: f.x + 7, y: f.y + 18, radius: 78, strength: 0.7, flicker: 0, color: [90, 255, 150] });
         if (f.kind === "ghoul" && f.dead <= 0) carry(f, { x: f.x + 7, y: f.y + 8, radius: 104, strength: 0.95, flicker: 0, color: [255, 140, 60] });
@@ -4764,11 +4982,8 @@
     drawSkeleton(g2, e, t) {
       if (e.dead > 0 || e.invul > 0 && Math.floor(t * 20) % 2) return;
       const cx = e.x + e.w / 2, feet = e.y + e.h, key = this.skeletonFrame(e);
-      if (e.rise <= 0) {
-        g2.fillStyle = "rgba(0,0,0,0.3)";
-        g2.fillRect(Math.round(cx - 9), Math.round(feet), 18, 2);
-      }
-      this.picture(g2, this.litSprite(key, cx, e.y + 20, e.facing > 0, null), cx, feet, SKELETON_ANCHOR, e.facing > 0);
+      if (e.rise <= 0) this.footShadow(g2, cx, feet, 9);
+      this.picture(g2, this.litSprite(key, cx, e.y + 20, e.facing > 0, null, SKELETON_ANCHOR), cx, feet, SKELETON_ANCHOR, e.facing > 0);
     }
     // Where the demon floats above its floor: a slow sway, lower when it is spent.
     demonHover(d, t) {
@@ -4811,7 +5026,7 @@
     // A frame of a strip, its foot (footX, footY) on (x, y), mirrored when asked; lit as the place lights it, or not.
     stripFrame(g2, strip, n, x, y, mirror, lit, alpha = 1) {
       const s = STRIPS[strip], key = `${strip}/${1 + n % s.frames}`;
-      const pic = lit ? this.litSprite(key, x, y - s.footY / 2, mirror, null) : this.assets.image(key);
+      const pic = lit ? this.litSprite(key, x, y - s.footY / 2, mirror, null, s.footX) : this.assets.image(key);
       if (alpha < 1) g2.globalAlpha = alpha;
       this.picture(g2, pic, x, y + (s.h - 1 - s.footY), s.footX, mirror);
       g2.globalAlpha = 1;
@@ -4834,8 +5049,7 @@
     drawHound(g2, e, t) {
       if (e.dead > 0 || e.invul > 0 && Math.floor(t * 20) % 2) return;
       const cx = e.x + e.w / 2, feet = e.y + e.h, mirror = e.facing > 0;
-      g2.fillStyle = "rgba(0,0,0,0.3)";
-      g2.fillRect(Math.round(cx - 12), Math.round(feet), 24, 2);
+      if (e.onGround) this.footShadow(g2, cx, feet, 12);
       this.glow(g2, cx, e.y + 8, 34, "rgba(255,80,30,0.3)");
       if (e.mode === "leap" || !e.onGround) {
         const n = Math.min(5, 1 + Math.floor(e.modeT * 9)), lifted = [47, 47, 43, 32, 43, 47][n];
@@ -5257,6 +5471,23 @@
         this.sheetFrame(g2, e.sheet, Math.min(s.frames - 1, Math.floor(fx.t * s.fps)), fx.x, fx.y, fx.flip);
       } else this.sprite(g2, e.frames[Math.min(e.frames.length - 1, Math.floor(fx.t / e.frameTime))], fx.x, fx.y, e.anchorX, false);
     }
+    // The dark under a body, on the stone it stands on: soft at its ends, and pushed away from the
+    // lamp that lights the body most, longer on that side. `half` is half its width.
+    footShadow(g2, x, feet, half) {
+      const lamp = this.lights.sample(x, feet - 12).key;
+      const away = lamp ? Math.max(-1, Math.min(1, (x - lamp.x) / FOOT_LEAN)) : 0;
+      const from = x - half - Math.max(0, -away) * half * FOOT_LONG, to2 = x + half + Math.max(0, away) * half * FOOT_LONG;
+      const dark = g2.createLinearGradient(from, 0, to2, 0), mid = (x - from) / (to2 - from);
+      dark.addColorStop(0, "rgba(0,0,0,0)");
+      dark.addColorStop(mid, `rgba(0,0,0,${FOOT_DARK})`);
+      dark.addColorStop(1, "rgba(0,0,0,0)");
+      g2.fillStyle = dark;
+      const y = Math.round(feet), l = Math.round(from), r = Math.round(to2);
+      g2.fillRect(l, y, r - l, 1);
+      g2.globalAlpha = 0.5;
+      g2.fillRect(l + 2, y + 1, r - l - 4, 1);
+      g2.globalAlpha = 1;
+    }
     glow(g2, x, y, radius, color) {
       g2.save();
       g2.globalCompositeOperation = "lighter";
@@ -5319,13 +5550,12 @@
       const set = shade ? flash ? "shadeflash/" : "shade/" : flash ? "monkflash/" : "monk/";
       const dazed = a.dazed > 0;
       const cx = a.x + a.w / 2 + (dazed ? Math.round(Math.sin(t * 5) * 2) : 0), feet = a.y + a.h;
-      g2.fillStyle = "rgba(0,0,0,0.3)";
-      g2.fillRect(Math.round(cx - 9), Math.round(feet), 18, 2);
+      if (a.onGround) this.footShadow(g2, cx, feet, 9);
       if (shade) this.glow(g2, cx, a.y + 16, 36, "rgba(90,255,150,0.22)");
       if (a.charge > 0) this.glow(g2, cx, a.y + 20, 46, "rgba(255,150,50,0.55)");
       const frame = this.monkFrame(a, t);
       if (shade || flash) this.sprite(g2, set + frame, cx, feet, MONK_ANCHOR, a.facing < 0);
-      else this.picture(g2, this.litSprite(set + frame, cx, a.y + 18, a.facing < 0, this.own.get(a) ?? null), cx, feet, MONK_ANCHOR, a.facing < 0);
+      else this.picture(g2, this.litSprite(set + frame, cx, a.y + 18, a.facing < 0, this.own.get(a) ?? null, MONK_ANCHOR), cx, feet, MONK_ANCHOR, a.facing < 0);
       if (a.gore > 0 && !flash) {
         g2.globalAlpha = Math.min(1, a.gore * 1.2);
         this.sprite(g2, "gore/" + frame, cx, feet, MONK_ANCHOR, a.facing < 0);
@@ -5352,37 +5582,51 @@
         g2.fillRect(Math.round(cx - 2), Math.round(a.y - 14), 4, 8);
       }
     }
-    // A sprite as the light of its place makes it: tinted by the colour of that light, and with a
-    // bright edge, one pixel wide, on the side of the lamp that lights it most.
-    litSprite(key, x, y, mirror, own) {
+    // A sprite as the light of its place makes it: tinted by the colour of that light; brighter on
+    // the side of the lamp that lights it most and darker on the other, for a body is round; and with
+    // a bright edge, where that lamp grazes it. `anchor` is the column of the picture on its middle.
+    litSprite(key, x, y, mirror, own, anchor) {
       const pic = this.assets.image(key), [out, edge] = this.bench;
       const { color, key: lamp } = this.lights.sample(x, y, own);
       const floor = 96;
+      const tint = (c) => `rgb(${Math.round(Math.max(floor, c[0]))},${Math.round(Math.max(floor, c[1]))},${Math.round(Math.max(floor + 14, c[2]))})`;
       out.width = pic.width;
       out.height = pic.height;
       const k = out.getContext("2d");
       k.drawImage(pic, 0, 0);
       k.globalCompositeOperation = "multiply";
-      k.fillStyle = `rgb(${Math.max(floor, color[0])},${Math.max(floor, color[1])},${Math.max(floor + 14, color[2])})`;
+      let fill = tint(color);
+      if (lamp) {
+        const share = reach(lamp, x, y) * ROUND, d = Math.hypot(lamp.x - x, lamp.y - y) || 1;
+        const ux = (lamp.x - x) / d * (mirror ? -1 : 1), uy = (lamp.y - y) / d, cy = pic.height * 0.55, span = ROUND_SPAN;
+        const across = k.createLinearGradient(anchor - ux * span, cy - uy * span, anchor + ux * span, cy + uy * span);
+        across.addColorStop(0, tint(color.map((v, i) => v - lamp.color[i] * share)));
+        across.addColorStop(1, tint(color.map((v, i) => v + lamp.color[i] * share)));
+        fill = across;
+      }
+      k.fillStyle = fill;
       k.fillRect(0, 0, out.width, out.height);
       k.globalCompositeOperation = "destination-in";
       k.drawImage(pic, 0, 0);
       if (lamp) {
         const [dx, dy] = rimOffset(lamp, x, y), sx = mirror ? -dx : dx;
         if (sx || dy) {
-          edge.width = pic.width;
-          edge.height = pic.height;
-          const e = edge.getContext("2d");
-          e.drawImage(pic, 0, 0);
-          e.globalCompositeOperation = "destination-out";
-          e.drawImage(pic, -sx, -dy);
-          e.globalCompositeOperation = "source-in";
-          e.fillStyle = `rgb(${lamp.color[0]},${lamp.color[1]},${lamp.color[2]})`;
-          e.fillRect(0, 0, edge.width, edge.height);
-          const near = 1 - Math.hypot(lamp.x - x, lamp.y - y) / lamp.radius;
-          k.globalCompositeOperation = "lighter";
-          k.globalAlpha = Math.min(0.9, 0.25 + lamp.strength * near);
-          k.drawImage(edge, 0, 0);
+          const near = 1 - Math.hypot(lamp.x - x, lamp.y - y) / lamp.radius, alpha = Math.min(0.9, 0.25 + lamp.strength * near);
+          for (const [step, share] of [[1, 1], [2, RIM_DEEP]]) {
+            edge.width = pic.width;
+            edge.height = pic.height;
+            const e = edge.getContext("2d");
+            e.drawImage(pic, 0, 0);
+            e.globalCompositeOperation = "destination-out";
+            e.drawImage(pic, -sx * step, -dy * step);
+            e.globalCompositeOperation = "source-in";
+            e.fillStyle = `rgb(${lamp.color[0]},${lamp.color[1]},${lamp.color[2]})`;
+            e.fillRect(0, 0, edge.width, edge.height);
+            k.globalCompositeOperation = "lighter";
+            k.globalAlpha = alpha * share;
+            k.drawImage(edge, 0, 0);
+          }
+          k.globalAlpha = 1;
         }
       }
       return out;
@@ -5399,7 +5643,9 @@
       g2.save();
       g2.globalCompositeOperation = "lighter";
       this.beams.forEach((b, w) => {
-        const breath = 0.075 + 0.02 * Math.sin(t * 0.5 + w * 2);
+        g2.save();
+        clipTo(g2, this.lights.beamReach[w]);
+        const breath = VEIL + 0.02 * Math.sin(t * 0.5 + w * 2);
         const beam = g2.createLinearGradient(b.x + 80, b.y + 62, b.x + 186, b.y + 300);
         beam.addColorStop(0, `rgba(150,170,255,${breath})`);
         beam.addColorStop(1, "rgba(150,170,255,0)");
@@ -5413,6 +5659,7 @@
           g2.fillStyle = `rgba(205,218,255,${(0.75 * (1 - u) * twinkle).toFixed(3)})`;
           g2.fillRect(Math.round(x), Math.round(y), 1, 1);
         }
+        g2.restore();
       });
       if (level.settings.mist) {
         const banks = Math.ceil(level.width / 58);

@@ -3,14 +3,18 @@
 // stone of the grid stops it, so slabs and walls cast shadows, and so do the bodies that stand in
 // front of the wall. What a lamp can see is worked out as a polygon around it; for the fixed lamps
 // of a level that is done once, when the level loads.
+// Fire is hot: close to the flame it lights the stone past its own colour, and the air round it
+// glows. The moon and the flashes of lightning are cool: they light, and never burn. The maps are
+// drawn at half the size of the picture, softened once, and laid on it smoothly enlarged.
 
 import { KINDS } from '../level/kinds';
 import type { Level } from '../level/tiled';
 import { type Grid, TILE } from '../sim/grid';
 import { VIEW_H, VIEW_W } from './camera';
-import { ambientOf, keyLight, lightAt, type RGB, shadowOf } from './shading';
+import { ambientOf, flame, keyLight, leanOf, lightAt, type RGB, shadowOf } from './shading';
 
-export interface Light { x: number; y: number; radius: number; strength: number; flicker: number; color: RGB }
+/** A lamp. A `cool` one (the moon, a flash) lights softly; the others (fire) burn past the colour of the stone close to them. */
+export interface Light { x: number; y: number; radius: number; strength: number; flicker: number; color: RGB; cool?: boolean }
 /** A body that casts a shadow: its middle, the height of its feet, the lamp it carries itself (which casts none of it), and how to draw its outline in black. */
 export interface Caster { x: number; y: number; feet: number; own: Light | null; draw(k: CanvasRenderingContext2D): void }
 export interface Segment { x0: number; y0: number; x1: number; y1: number }
@@ -96,7 +100,7 @@ export function levelLights(level: Level): Light[] {
     const kind = KINDS[o.kind];
     if (!kind || kind.role !== 'decor') continue;
     const hang = 'painter' in kind ? Number(o.props.length ?? 0) : 0;      // a chain lantern's light hangs at the end of its chain
-    for (const l of kind.lights) out.push({ x: o.x + l.dx, y: o.y + l.dy + hang, radius: l.radius, strength: l.strength, flicker: l.flicker, color: l.color });
+    for (const l of kind.lights) out.push({ x: o.x + l.dx, y: o.y + l.dy + hang, radius: l.radius, strength: l.strength, flicker: l.flicker, color: l.color, cool: l.cool });
   }
   return out;
 }
@@ -111,67 +115,112 @@ export function shafts(level: Level): { x: number; y: number }[] {
   return out;
 }
 
+/** What the shaft of a window whose corner is (wx, wy) can reach, seen from the top of the shaft: the stone under the window stops it. */
+export function shaftReach(segments: readonly Segment[], wx: number, wy: number): number[] {
+  return visibilityPolygon(segments, wx + 80, wy + 63, 300);
+}
+
+/** Clips a context to a polygon [x0, y0, x1, y1, ...]. */
+export function clipTo(k: CanvasRenderingContext2D, poly: readonly number[]): void {
+  k.beginPath();
+  for (let i = 0; i < poly.length; i += 2) { if (i) k.lineTo(poly[i], poly[i + 1]); else k.moveTo(poly[i], poly[i + 1]); }
+  k.closePath();
+  k.clip();
+}
+
 /** The slanting shaft of moonlight under a window whose corner is (wx, wy), as a path. */
 export function shaftPath(k: CanvasRenderingContext2D, wx: number, wy: number): void {
   k.beginPath(); k.moveTo(wx + 54, wy + 62); k.lineTo(wx + 106, wy + 62); k.lineTo(wx + 236, wy + 300); k.lineTo(wx + 136, wy + 300); k.closePath();
 }
 
 const MARGIN = 16;        // px of map kept round the view, so that the blur does not fade at its edges
-const SOFT = 3;           // px of blur when the map is laid down: the penumbra of every shadow
-const WASH = 0.22;         // how much a lamp adds of its own colour to what it lights, however dark the stone
-const HAZE = 0.1;
-const DEEP = 0.5;          // how much of the ambient light the main shadow of a body takes away as well        // how much of the light hangs in the air round the lamps
+const RES = 2;            // the maps of the light are this many times smaller than the picture: they are soft anyway, and so cost less
+// How a lamp's light falls from the lamp (0) to its radius (1), sampled there: smoothly, as (1 - d²)².
+const FALL = [0, 0.08, 0.18, 0.3, 0.45, 0.6, 0.75, 0.88, 1];
+const SOFT = 1.5;         // px of blur on the maps (twice that on the picture): the penumbra of every shadow
+const WASH = 0.3;         // how much a lamp of fire adds of its own colour round it, however dark the stone: the air glows
+const COOL_WASH = 0.18;   // the same, for the cool lamps: the moon in the air round a window
+const OVER = 0.8;         // how far past its own colour a lamp of fire lights what is close to it
+const HAZE = 0.1;         // how much of the light hangs in the air round the lamps
+const DEEP = 0.8;         // how much of the ambient light the main shadow of a body takes away as well
+const FLICK = 0.09;       // how much a flame's light wavers in strength, at the most
+const SWAY = 1.6;         // px a flame sways, at the most
+// How much the top edge of the stone catches the light of a lamp near it: dry, and wet (rain, water).
+const SHEEN = 0.5, SHEEN_WET = 1;
+
+// Sets a context so that a body drawn into it falls as its shadow from a lamp: standing on its
+// feet and leaning away from the lamp.
+function project(k: CanvasRenderingContext2D, l: Light, c: Caster): void {
+  const { lean, rise } = leanOf(l, c.x, c.feet);
+  k.translate(c.x, c.feet); k.transform(1, 0, -lean, rise, 0, 0); k.translate(-c.x, -c.feet);
+}
 
 /** The map of the light of a level, drawn afresh every frame, and the picture multiplied by it. */
 export class LightSheet {
   private readonly segments: Segment[];
   private readonly fixed: { light: Light; poly: number[] }[];
   private readonly beams: { x: number; y: number }[];
+  /** What each shaft of moonlight reaches, as a polygon, in the order of shafts(). */
+  readonly beamReach: number[][];
   private readonly still = new Map<string, number[]>();     // polygons of lamps that do not move (embers, the door)
-  private map: HTMLCanvasElement | null = null;             // what the lamps add, on black
+  // The maps, all at a RES-th of the size of the picture (and its margin).
+  private map: HTMLCanvasElement | null = null;             // what the lamps of fire add, on black
+  private cool: HTMLCanvasElement | null = null;            // what the cool lamps add (the moon, a flash), on black
   private one: HTMLCanvasElement | null = null;             // one lamp, while the shadows of the bodies are cut out of it
   private lit: HTMLCanvasElement | null = null;             // the ambient light and the lamps: what multiplies the picture
+  private hot: HTMLCanvasElement | null = null;             // the lamps of fire, squared: their light close to the flame
+  private air: HTMLCanvasElement | null = null;             // all the lamps, spread wide: the light in the air
+  private raw: HTMLCanvasElement | null = null;             // the picture before the light, multiplied by the hot lamps
+  private glint: HTMLCanvasElement | null = null;           // the light caught by the top edge of the stone
   private shown: { light: Light; poly: readonly number[] }[] = [];      // the lamps of the last frame, for sample()
+  private readonly edges: HTMLCanvasElement;                // the top edge of the stone, where it catches the light
+  private readonly wet: boolean;
   private ambient: RGB = [255, 255, 255];
 
   constructor(level: Level) {
     this.segments = occluders(level.grid);
     this.fixed = levelLights(level).map(light => ({ light, poly: visibilityPolygon(this.segments, light.x, light.y, light.radius * 1.07) }));
     this.beams = shafts(level);
+    this.beamReach = this.beams.map(b => shaftReach(this.segments, b.x, b.y));
+    this.wet = level.settings.rain || level.settings.water > 0;
+    const grid = level.grid;
+    this.edges = Object.assign(document.createElement('canvas'), { width: level.width, height: level.height });
+    const e = this.edges.getContext('2d')!;
+    for (let row = 1; row < grid.rows; row++) for (let c = 0; c < grid.cols; c++) {
+      if (!grid.solidAt(c, row) || grid.solidAt(c, row - 1)) continue;
+      e.fillStyle = '#fff'; e.fillRect(c * TILE, row * TILE - 1, TILE, 1);
+      e.fillStyle = 'rgba(255,255,255,0.4)'; e.fillRect(c * TILE, row * TILE, TILE, 1);
+    }
   }
 
   // The light of one lamp, inside what it can see.
   private pour(k: CanvasRenderingContext2D, l: Light, poly: readonly number[], radius: number, strength: number): void {
     k.save();
-    k.beginPath();
-    for (let i = 0; i < poly.length; i += 2) { if (i) k.lineTo(poly[i], poly[i + 1]); else k.moveTo(poly[i], poly[i + 1]); }
-    k.closePath();
-    k.clip();
+    clipTo(k, poly);
     const [r, g, b] = l.color, gr = k.createRadialGradient(l.x, l.y, 0, l.x, l.y, radius);
-    const stop = (at: number, share: number) => gr.addColorStop(at, `rgba(${r},${g},${b},${(strength * share).toFixed(3)})`);
-    stop(0, 1); stop(0.2, 0.86); stop(0.45, 0.5); stop(0.7, 0.2); stop(0.88, 0.06); stop(1, 0);
+    for (const d of FALL) { const w = (1 - d * d) * (1 - d * d); gr.addColorStop(d, `rgba(${r},${g},${b},${(strength * w).toFixed(3)})`); }
     k.fillStyle = gr; k.beginPath(); k.arc(l.x, l.y, radius, 0, Math.PI * 2); k.fill();
     k.restore();
   }
 
-  // Adds a lamp to the map. Where a body stands in its light, the shadow of the body is cut out of
-  // it first: the outline of the body, enlarged round the lamp, as on a wall behind it.
+  // Adds a lamp to its map. Where a body stands in its light, the shadow of the body is cut out of
+  // it first: the outline of the body, standing on its feet and leaning away from the lamp.
   private add(l: Light, poly: readonly number[], radius: number, strength: number, casters: readonly Caster[], camX: number, camY: number): void {
-    const map = this.map!.getContext('2d')!;
+    const map = (l.cool ? this.cool : this.map)!.getContext('2d')!;
     const cast = casters.filter(c => c.own !== l && shadowOf(l, c.x, c.y));
     if (!cast.length) { this.pour(map, l, poly, radius, strength); return; }
     const one = this.one!.getContext('2d')!;
-    const x = Math.floor(l.x - radius - camX + MARGIN), y = Math.floor(l.y - radius - camY + MARGIN), size = Math.ceil(radius * 2) + 2;
+    const x = Math.floor((l.x - radius - camX + MARGIN) / RES), y = Math.floor((l.y - radius - camY + MARGIN) / RES), size = Math.ceil((radius * 2) / RES) + 2;
     one.setTransform(1, 0, 0, 1, 0, 0);
     one.globalCompositeOperation = 'source-over'; one.globalAlpha = 1;
     one.clearRect(x, y, size, size);
-    one.translate(MARGIN - camX, MARGIN - camY);
+    one.setTransform(1 / RES, 0, 0, 1 / RES, (MARGIN - camX) / RES, (MARGIN - camY) / RES);
     this.pour(one, l, poly, radius, strength);
     one.globalCompositeOperation = 'destination-out';
     for (const c of cast) {
       const s = shadowOf(l, c.x, c.y)!;
       one.save();
-      one.translate(l.x, l.y); one.scale(s.scale, s.scale); one.translate(-l.x, -l.y);
+      project(one, l, c);
       one.globalAlpha = s.alpha;
       c.draw(one);
       one.restore();
@@ -188,23 +237,32 @@ export class LightSheet {
    * The bodies in `casters` throw their shadow on the wall behind them.
    */
   draw(g: CanvasRenderingContext2D, camX: number, camY: number, darkness: number, resting: readonly Light[], moving: readonly Light[], t: number, casters: readonly Caster[]): void {
-    const W = VIEW_W + MARGIN * 2, H = VIEW_H + MARGIN * 2;
-    const make = (): HTMLCanvasElement => { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; };
-    this.map ??= make(); this.one ??= make(); this.lit ??= make();
-    const k = this.map.getContext('2d')!;
-    k.setTransform(1, 0, 0, 1, 0, 0);
-    k.globalCompositeOperation = 'source-over';
-    k.fillStyle = '#000'; k.fillRect(0, 0, W, H);
-    k.globalCompositeOperation = 'lighter';
-    k.translate(MARGIN - camX, MARGIN - camY);
+    const W = VIEW_W + MARGIN * 2, H = VIEW_H + MARGIN * 2, w = W / RES, h = H / RES;
+    const make = (): HTMLCanvasElement => Object.assign(document.createElement('canvas'), { width: w, height: h });
+    this.map ??= make(); this.cool ??= make(); this.one ??= make(); this.lit ??= make(); this.hot ??= make(); this.air ??= make();
+    const k = this.map.getContext('2d')!, cool = this.cool.getContext('2d')!;
+    const toMap = (m: CanvasRenderingContext2D): void => m.setTransform(1 / RES, 0, 0, 1 / RES, (MARGIN - camX) / RES, (MARGIN - camY) / RES);
+    for (const m of [k, cool]) {
+      m.setTransform(1, 0, 0, 1, 0, 0);
+      m.globalCompositeOperation = 'source-over'; m.filter = 'none';
+      m.fillStyle = '#000'; m.fillRect(0, 0, w, h);
+      m.globalCompositeOperation = 'lighter';
+      toMap(m);
+    }
     const seen = (l: Light) => l.x + l.radius > camX - MARGIN && l.x - l.radius < camX + VIEW_W + MARGIN && l.y + l.radius > camY - MARGIN && l.y - l.radius < camY + VIEW_H + MARGIN;
     this.shown = [];
     for (const { light, poly } of this.fixed) {
       if (!seen(light)) continue;
-      // Fire does not burn evenly: it breathes, in reach and in strength.
-      const breath = light.flicker * Math.sin(t * 11 + light.x) * Math.sin(t * 7.3 + light.y);
-      this.add(light, poly, light.radius * (1 + 0.06 * breath), light.strength * (1 + 0.08 * breath), casters, camX, camY);
-      this.shown.push({ light, poly });
+      // Fire does not burn evenly: it breathes, in reach and in strength, and it sways, so that the
+      // shadows it throws are never quite still.
+      let lamp = light;
+      if (light.flicker) {
+        const seed = light.x * 0.37 + light.y * 0.11, f = light.flicker, sway = SWAY;
+        lamp = { ...light, x: light.x + f * sway * flame(t * 0.8, seed + 5), y: light.y + f * sway * 0.6 * flame(t * 1.1, seed + 9) };
+        const breath = f * flame(t, seed);
+        this.add(lamp, poly, light.radius * (1 + 0.05 * breath), light.strength * (1 + FLICK * breath), casters, camX, camY);
+      } else this.add(light, poly, light.radius, light.strength, casters, camX, camY);
+      this.shown.push({ light: lamp, poly });
     }
     for (const l of resting) {
       if (!seen(l)) continue;
@@ -220,54 +278,116 @@ export class LightSheet {
       this.add(l, poly, l.radius, l.strength, casters, camX, camY);
       this.shown.push({ light: l, poly });
     }
-    for (const b of this.beams) {
-      const fade = k.createLinearGradient(b.x + 80, b.y + 62, b.x + 186, b.y + 300);
+    this.beams.forEach((b, i) => {
+      const fade = cool.createLinearGradient(b.x + 80, b.y + 62, b.x + 186, b.y + 300);
       fade.addColorStop(0, 'rgba(150,172,255,0.42)'); fade.addColorStop(1, 'rgba(150,172,255,0)');
-      k.fillStyle = fade; shaftPath(k, b.x, b.y); k.fill();
-    }
+      cool.save(); clipTo(cool, this.beamReach[i]);
+      cool.fillStyle = fade; shaftPath(cool, b.x, b.y); cool.fill();
+      cool.restore();
+    });
+
+    // Both maps softened once, in place, through the scratch map: the penumbra of every shadow.
+    const one = this.one.getContext('2d')!;
+    const soften = (m: CanvasRenderingContext2D): void => {
+      one.setTransform(1, 0, 0, 1, 0, 0); one.globalCompositeOperation = 'source-over'; one.globalAlpha = 1;
+      one.clearRect(0, 0, w, h); one.drawImage(m.canvas, 0, 0);
+      m.setTransform(1, 0, 0, 1, 0, 0); m.globalCompositeOperation = 'source-over';
+      m.filter = `blur(${SOFT}px)`; m.drawImage(this.one!, 0, 0); m.filter = 'none';
+    };
+    soften(k); soften(cool);
 
     this.ambient = ambientOf(darkness);
     const q = this.lit.getContext('2d')!;
-    q.globalCompositeOperation = 'source-over';
-    q.fillStyle = `rgb(${this.ambient[0]},${this.ambient[1]},${this.ambient[2]})`; q.fillRect(0, 0, W, H);
+    q.setTransform(1, 0, 0, 1, 0, 0);
+    q.globalCompositeOperation = 'source-over'; q.globalAlpha = 1;
+    q.fillStyle = `rgb(${this.ambient[0]},${this.ambient[1]},${this.ambient[2]})`; q.fillRect(0, 0, w, h);
     q.globalCompositeOperation = 'lighter';
     q.drawImage(this.map, 0, 0);
+    q.drawImage(this.cool, 0, 0);
     // The shadow a body casts from the lamp that lights it most is deeper: it dims the ambient light too.
     q.globalCompositeOperation = 'source-over';
-    q.save();
-    q.translate(MARGIN - camX, MARGIN - camY);
+    q.filter = `blur(${SOFT}px)`;
+    toMap(q);
     for (const c of casters) {
       const lamp = keyLight(this.shown.filter(s => s.light !== c.own && inPolygon(s.poly, c.x, c.y)).map(s => s.light), c.x, c.y);
       const s = lamp && shadowOf(lamp, c.x, c.y);
       if (!lamp || !s) continue;
       q.save();
-      q.translate(lamp.x, lamp.y); q.scale(s.scale, s.scale); q.translate(-lamp.x, -lamp.y);
+      project(q, lamp, c);
       q.globalAlpha = s.alpha * DEEP;
       c.draw(q);
       q.restore();
     }
-    q.restore();
+    q.filter = 'none';
+
+    // The lamps of fire multiplied by themselves: as strong at the flame, but falling off much
+    // faster, so that what goes past the colour of the stone stays close to the lamp.
+    const hk = this.hot.getContext('2d')!;
+    hk.globalCompositeOperation = 'source-over'; hk.drawImage(this.map, 0, 0);
+    hk.globalCompositeOperation = 'multiply'; hk.drawImage(this.map, 0, 0);
+    // All the lamps, spread wide, for the light that hangs in the air (laid on later, by haze()).
+    one.setTransform(1, 0, 0, 1, 0, 0); one.globalCompositeOperation = 'source-over';
+    one.drawImage(this.map, 0, 0); one.globalCompositeOperation = 'lighter'; one.drawImage(this.cool, 0, 0);
+    const ak = this.air.getContext('2d')!;
+    ak.clearRect(0, 0, w, h);
+    ak.globalCompositeOperation = 'source-over'; ak.filter = `blur(${12 / RES}px)`; ak.drawImage(this.one, 0, 0); ak.filter = 'none';
+
+    // Close to a lamp of fire the stone is lit past its own colour: the picture as it was,
+    // multiplied by the hot lamps, is laid on once more. It keeps the grain of the stone where a
+    // flat wash would fog it.
+    this.raw ??= Object.assign(document.createElement('canvas'), { width: VIEW_W, height: VIEW_H });
+    const r = this.raw.getContext('2d')!;
+    r.globalCompositeOperation = 'source-over';
+    r.drawImage(g.canvas, 0, 0);
+    r.globalCompositeOperation = 'multiply'; r.imageSmoothingEnabled = true;
+    r.drawImage(this.hot, -MARGIN, -MARGIN, W, H);
 
     g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.imageSmoothingEnabled = true;
     g.globalCompositeOperation = 'multiply';
-    g.filter = `blur(${SOFT}px)`;
-    g.drawImage(this.lit, -MARGIN, -MARGIN);
-    // Dark stone multiplied by light stays dark: the lamps also wash it with their colour, and it is
-    // there that the shadows of the bodies show best.
-    g.globalCompositeOperation = 'lighter';
+    g.drawImage(this.lit, -MARGIN, -MARGIN, W, H);
+    // Laid on with 'screen': what is already bright takes less of it, so the stone next to a flame
+    // keeps its grain instead of burning to white.
+    g.globalCompositeOperation = 'screen';
+    g.globalAlpha = OVER;
+    g.drawImage(this.raw, 0, 0);
+    // Dark stone multiplied by light stays dark: round a flame the air glows with its colour, and it
+    // is there that the shadows of the bodies show best.
     g.globalAlpha = WASH;
-    g.drawImage(this.map, -MARGIN, -MARGIN);
+    g.drawImage(this.hot, -MARGIN, -MARGIN, W, H);
+    g.globalAlpha = COOL_WASH;
+    g.drawImage(this.cool, -MARGIN, -MARGIN, W, H);
     g.restore();
+
+    // The edge of the stone where one walks catches the light close to a lamp; wet, it shines.
+    const sheen = this.wet ? SHEEN_WET : SHEEN;
+    if (sheen > 0) {
+      this.glint ??= Object.assign(document.createElement('canvas'), { width: VIEW_W, height: VIEW_H });
+      const e = this.glint.getContext('2d')!;
+      e.globalCompositeOperation = 'source-over'; e.globalAlpha = 1; e.imageSmoothingEnabled = true;
+      e.clearRect(0, 0, VIEW_W, VIEW_H);
+      e.drawImage(this.hot, -MARGIN, -MARGIN, W, H);
+      if (this.wet) { e.globalCompositeOperation = 'lighter'; e.globalAlpha = 0.6; e.drawImage(this.cool, -MARGIN, -MARGIN, W, H); e.globalAlpha = 1; }
+      e.globalCompositeOperation = 'destination-in';
+      e.drawImage(this.edges, -camX, -camY);
+      g.save();
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.globalCompositeOperation = 'screen'; g.globalAlpha = sheen;
+      g.drawImage(this.glint, 0, 0);
+      g.restore();
+    }
   }
 
   /** The light that hangs in the air round the lamps, laid over the finished picture. */
   haze(g: CanvasRenderingContext2D): void {
-    if (!this.map) return;
+    if (!this.air) return;
     g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.imageSmoothingEnabled = true;
     g.globalCompositeOperation = 'screen';
     g.globalAlpha = HAZE;
-    g.filter = 'blur(12px)';
-    g.drawImage(this.map, -MARGIN, -MARGIN);
+    g.drawImage(this.air, -MARGIN, -MARGIN, VIEW_W + MARGIN * 2, VIEW_H + MARGIN * 2);
     g.restore();
   }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { KINDS } from '../../src/level/kinds';
 import type { Light } from '../../src/render/lighting';
-import { ambientOf, flashSource, keyLight, lightAt, reach, rimOffset, shadowOf, SHADOW_DEPTH } from '../../src/render/shading';
+import { ambientOf, flame, flashSource, keyLight, leanOf, lightAt, reach, rimOffset, shadowOf } from '../../src/render/shading';
 
 const lamp = (x: number, y: number, radius = 100, strength = 1, color: [number, number, number] = [255, 170, 90]): Light => ({ x, y, radius, strength, flicker: 0, color });
 
@@ -56,10 +56,8 @@ describe('the key light of a point', () => {
 });
 
 describe('the shadow something casts on the wall behind it', () => {
-  it('is its picture enlarged round the lamp, so it falls away from the lamp', () => {
-    const s = shadowOf(lamp(0, 0, 200), 60, 0)!;
-    expect(s.scale).toBeCloseTo(1 + SHADOW_DEPTH);
-    expect(s.alpha).toBeGreaterThan(0.2);
+  it('is cast by a body in the light of a lamp', () => {
+    expect(shadowOf(lamp(0, 0, 200), 60, 0)!.alpha).toBeGreaterThan(0.2);
   });
   it('fades with the light and is gone outside it', () => {
     const l = lamp(0, 0, 200);
@@ -68,6 +66,40 @@ describe('the shadow something casts on the wall behind it', () => {
   });
   it('is not cast by something standing on the lamp itself', () => {
     expect(shadowOf(lamp(0, 0, 200), 3, 2)).toBeNull();
+  });
+});
+
+describe('how the shadow of a body leans away from a lamp', () => {
+  it('leans away from the lamp, to whichever side the body stands', () => {
+    expect(leanOf(lamp(0, -40), 30, 0).lean).toBeGreaterThan(0);
+    expect(leanOf(lamp(0, -40), -30, 0).lean).toBeLessThan(0);
+  });
+  it('stands upright under the lamp, and lies longer the farther aside the body is', () => {
+    expect(leanOf(lamp(0, -40), 0, 0).lean).toBe(0);
+    expect(Math.abs(leanOf(lamp(0, -40), 60, 0).lean)).toBeGreaterThan(Math.abs(leanOf(lamp(0, -40), 20, 0).lean));
+  });
+  it('lies longer under a low lamp than under a high one, but never flat', () => {
+    expect(leanOf(lamp(0, -30), 40, 0).lean).toBeGreaterThan(leanOf(lamp(0, -120), 40, 0).lean);
+    expect(Number.isFinite(leanOf(lamp(0, 10), 400, 0).lean)).toBe(true);
+    expect(leanOf(lamp(0, 10), 400, 0).lean).toBeLessThanOrEqual(1.6);
+  });
+  it('is taller as well when it lies long', () => {
+    expect(leanOf(lamp(0, -40), 80, 0).rise).toBeGreaterThan(leanOf(lamp(0, -40), 0, 0).rise);
+  });
+});
+
+describe('the wavering of a flame', () => {
+  it('stays between -1 and 1', () => {
+    for (let t = 0; t < 20; t += 0.013) { const f = flame(t, 3.7); expect(f).toBeGreaterThanOrEqual(-1); expect(f).toBeLessThanOrEqual(1); }
+  });
+  it('moves a little from one frame to the next, not by jumps', () => {
+    let most = 0;
+    for (let t = 0; t < 10; t += 1 / 60) most = Math.max(most, Math.abs(flame(t + 1 / 60, 1) - flame(t, 1)));
+    expect(most).toBeLessThan(0.4);
+    expect(most).toBeGreaterThan(0.05);
+  });
+  it('is not in step from one lamp to another', () => {
+    expect(flame(2, 1)).not.toBeCloseTo(flame(2, 40), 2);
   });
 });
 
@@ -99,5 +131,12 @@ describe('the lights of the kinds', () => {
     const [tr, , tb] = torch.lights[0].color, [wr, , wb] = window.lights[0].color;
     expect(tr).toBeGreaterThan(tb);
     expect(wb).toBeGreaterThan(wr);
+  });
+  it('the moon is cool and fire is not: only fire lights the stone past its own colour', () => {
+    const torch = KINDS.torch, window = KINDS.window, arch = KINDS.arch;
+    if (torch.role !== 'decor' || window.role !== 'decor' || arch.role !== 'decor') throw new Error('decor expected');
+    expect(torch.lights[0].cool).toBeFalsy();
+    expect(window.lights[0].cool).toBe(true);
+    expect(arch.lights.every(l => l.cool)).toBe(true);
   });
 });

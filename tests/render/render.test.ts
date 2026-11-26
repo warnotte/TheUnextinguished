@@ -63,8 +63,8 @@ describe('slabs', () => {
 
 describe('light', () => {
   it('turns the kinds of the level into lights', () => {
-    // 5 torches, 2 lanterns on each of 3 pillars, 3 chain lanterns, 2 windows, the altar, the balustrade
-    expect(levelLights(level)).toHaveLength(5 + 6 + 3 + 2 + 1 + 1);
+    // 5 torches, 2 lanterns on each of 3 pillars, 3 chain lanterns, 2 windows (the moon round each, and its glass), the altar, the balustrade
+    expect(levelLights(level)).toHaveLength(5 + 6 + 3 + 2 * 2 + 1 + 1);
   });
   it('hangs the light of a chain lantern at the end of its chain', () => {
     expect(levelLights(level)).toContainEqual(expect.objectContaining({ x: 269, y: 42, radius: 62, strength: 0.8, flicker: 0.6 }));

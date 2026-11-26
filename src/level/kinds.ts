@@ -8,11 +8,12 @@ import type { ActorKind } from '../sim/actor';
 /** Where a piece of decor is drawn: on the back wall, behind the actors, or in front of them. */
 export type Plane = 'wall' | 'back' | 'front';
 
-/** A light, placed from the anchor of the object that carries it. */
-export interface LightSpec { dx: number; dy: number; radius: number; strength: number; flicker: number; color: readonly [number, number, number] }
+/** A light, placed from the anchor of the object that carries it. A `cool` one (the moon) lights softly; fire burns past the colour of the stone close to it. */
+export interface LightSpec { dx: number; dy: number; radius: number; strength: number; flicker: number; color: readonly [number, number, number]; cool?: boolean }
 
 // The colours of the light: fire, candles, the moon.
 const FIRE = [255, 170, 92] as const, CANDLE = [255, 198, 128] as const, MOON = [150, 172, 255] as const;
+const GLASS = [190, 205, 255] as const;      // the moon in the glass of a window: it shines, as a flame does
 
 export type Kind =
   | { role: 'decor'; plane: Plane; image: string; src: readonly [number, number, number, number]; anchor: readonly [number, number]; lights: readonly LightSpec[]; shaft: boolean }
@@ -39,15 +40,15 @@ export const KINDS: Readonly<Record<string, Kind>> = {
   ember: { role: 'ember' },
   door: { role: 'door' },
 
-  window: { role: 'decor', plane: 'wall', image: 'back', src: [0, 0, 160, 192], anchor: [80, 192], lights: [{ dx: 0, dy: -96, radius: 86, strength: 0.7, flicker: 0, color: MOON }], shaft: true },
+  window: { role: 'decor', plane: 'wall', image: 'back', src: [0, 0, 160, 192], anchor: [80, 192], lights: [{ dx: 0, dy: -96, radius: 86, strength: 0.7, flicker: 0, color: MOON, cool: true }, { dx: 0, dy: -112, radius: 44, strength: 0.6, flicker: 0, color: GLASS }], shaft: true },
   altar: { role: 'decor', plane: 'wall', image: 'back', src: [320, 0, 128, 192], anchor: [64, 192], lights: [{ dx: 0, dy: -48, radius: 58, strength: 0.75, flicker: 0.5, color: CANDLE }], shaft: false },
   gargoyle: { role: 'decor', plane: 'wall', image: 'back', src: [464, 0, 80, 192], anchor: [40, 192], lights: [], shaft: false },
   pillar: { role: 'decor', plane: 'wall', image: 'column', src: [0, 0, 114, 190], anchor: [57, 190], lights: [lantern(-19), lantern(36)], shaft: false },
   balustrade: { role: 'decor', plane: 'wall', image: 'tiles', src: [192, 92, 80, 52], anchor: [40, 52], lights: [{ dx: 31, dy: -46, radius: 38, strength: 0.6, flicker: 0.5, color: CANDLE }], shaft: false },
   torch: { role: 'decor', plane: 'back', sheet: 'torch', lights: [{ dx: 0, dy: -26, radius: 150, strength: 1, flicker: 1, color: FIRE }] },
   // An opening in the wall, on the sky: its foot on (x, y), `width` and `height` in its properties. The moon comes in.
-  arch: { role: 'decor', plane: 'wall', painter: 'arch', lights: [{ dx: 0, dy: -40, radius: 96, strength: 0.6, flicker: 0, color: MOON }] },
-  breach: { role: 'decor', plane: 'wall', painter: 'breach', lights: [{ dx: 0, dy: 40, radius: 120, strength: 0.55, flicker: 0, color: MOON }] },
+  arch: { role: 'decor', plane: 'wall', painter: 'arch', lights: [{ dx: 0, dy: -40, radius: 96, strength: 0.6, flicker: 0, color: MOON, cool: true }] },
+  breach: { role: 'decor', plane: 'wall', painter: 'breach', lights: [{ dx: 0, dy: 40, radius: 120, strength: 0.55, flicker: 0, color: MOON, cool: true }] },
   'chain-lantern': { role: 'decor', plane: 'wall', painter: 'chain-lantern', lights: [{ dx: 0, dy: 6, radius: 62, strength: 0.8, flicker: 0.6, color: CANDLE }] },
 };
 
