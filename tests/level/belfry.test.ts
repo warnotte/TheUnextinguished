@@ -50,10 +50,10 @@ describe('the belfry', () => {
     }
   });
 
-  it('is played fourth, after the flooded crypt and before the bell chamber, with its tune', () => {
+  it('is played fifth, after the flooded crypt and before the bell chamber, with its tune', () => {
     const page = readFileSync('index.html', 'utf8');
     const order = [...page.matchAll(/levels\/(\w+)\.js/g)].map(m => m[1]);
-    expect(order).toEqual(['salle3', 'crypte', 'inondee', 'beffroi', 'clocher', 'effondrement', 'cimetiere']);
+    expect(order).toEqual(['salle3', 'crypte', 'fournaise', 'inondee', 'beffroi', 'clocher', 'effondrement', 'cimetiere']);
     expect(page).toContain('assets/music/poursuite.js');
   });
 

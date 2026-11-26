@@ -108,8 +108,8 @@ function run(assets: Assets, levels: Level[]): void {
     world.invincible = cheat;
     levelCheated = cheat; runCheated ||= cheat;
     result = null; naming = null;
-    const boss = !!world.boss;
-    stage = new Stage(world, assets, openingWords(level.settings.title, boss ? 'boss' : world.fall ? 'fall' : ''), wonWords(i, levels.length, boss));
+    const boss = !!world.boss, beast = !!world.beast;
+    stage = new Stage(world, assets, openingWords(level.settings.title, boss ? 'boss' : beast ? 'beast' : world.fall ? 'fall' : ''), wonWords(i, levels.length, boss || beast, beast ? 'BEAST SLAIN' : 'DEMON SLAIN'));
     stage.ash = ashen();
     sound.setMusic(level.settings.music, level.settings.intro);
     sound.setPlace({ rain: level.settings.rain, drips: level.settings.water > 0 });

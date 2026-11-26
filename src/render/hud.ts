@@ -5,6 +5,7 @@ import { type Actor, MAX_HP } from '../sim/actor';
 import { boardWords, clockText, type LevelResult, type Words } from '../campaign';
 import type { Initials } from '../initials';
 import { drawName } from './title';
+import { BEAST } from '../sim/beast';
 import { DEMON } from '../sim/demon';
 import type { World } from '../sim/world';
 import { VIEW_H, VIEW_W } from './camera';
@@ -34,6 +35,8 @@ export class Hud {
   private rival(): Actor | null {
     const p = this.world.hero, boss = this.world.boss;
     if (boss && boss.phase !== 'gone' && boss.phase !== 'dying') return boss.body;
+    const beast = this.world.beast;
+    if (beast) return beast.mode === 'wait' || beast.mode === 'gone' ? null : beast;
     let best: Actor | null = null, bestD = Infinity;
     for (const f of this.world.foes) {
       if (f.kind !== 'shade' || f.ko > 0) continue;
@@ -102,16 +105,17 @@ export class Hud {
     if (w.invincible) text(g, 'INVINCIBLE', MARGIN + textWidth('MONK') + 12, BAR_Y + BAR_H + 5, '#ffe27a');
     const foe = this.foe;
     if (foe) {
-      const demon = foe.kind === 'demon', dazed = demon ? w.boss?.phase === 'dazed' : foe.dazed > 0, x = VIEW_W - MARGIN - BAR_W;
-      this.bar(g, x, foe.hp, this.foeLag, true, demon ? '#6fdcff' : '#6dff9a', t, dazed, demon ? DEMON.hp : MAX_HP);
-      const label = dazed ? 'DAZED' : demon ? 'DEMON' : 'SHADE';
+      const demon = foe.kind === 'demon', beast = foe.kind === 'beast', dazed = demon ? w.boss?.phase === 'dazed' : foe.dazed > 0, x = VIEW_W - MARGIN - BAR_W;
+      this.bar(g, x, foe.hp, this.foeLag, true, demon ? '#6fdcff' : beast ? '#ff8a3a' : '#6dff9a', t, dazed, demon ? DEMON.hp : beast ? BEAST.hp : MAX_HP);
+      const label = dazed ? 'DAZED' : demon ? 'DEMON' : beast ? 'BEAST' : 'SHADE';
       text(g, label, VIEW_W - MARGIN - textWidth(label), BAR_Y + BAR_H + 5, dazed && Math.floor(t * 6) % 2 ? '#ff5a3a' : '#e2d8f0');
     }
 
     const got = w.carried;
     // What the door asks for, then what he carries over it (embers won from the foes, for the charge).
     const need = w.embers.length, over = got > need ? `  +${got - need}` : '';
-    if (need) centered(g, `EMBERS ${Math.min(got, need)}/${need}${over}`, VIEW_H - 20, w.doorOpen ? '#ffe27a' : '#e2d8f0');
+    if (w.beast) centered(g, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? '#ffe27a' : '#e2d8f0');      // for the charge: no door here
+    else if (need) centered(g, `EMBERS ${Math.min(got, need)}/${need}${over}`, VIEW_H - 20, w.doorOpen ? '#ffe27a' : '#e2d8f0');
     else if (w.boss) centered(g, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? '#ffe27a' : '#e2d8f0');
     const clock = clockText(w.clock);
     text(g, clock, VIEW_W - MARGIN - textWidth(clock), VIEW_H - 20, '#e2d8f0');

@@ -8,15 +8,16 @@ export function afterWin(index: number, count: number): number | 'end' {
   return index + 1 < count ? index + 1 : 'end';
 }
 
-/** What the panel says when level `index` is won; `boss` for the room of a demon. */
-export function wonWords(index: number, count: number, boss = false): Words {
-  const title = boss ? 'DEMON SLAIN' : 'ROOM CLEARED';
+/** What the panel says when level `index` is won; `boss` for the room of a demon or a beast, `slain` what is said of it. */
+export function wonWords(index: number, count: number, boss = false, slain = 'DEMON SLAIN'): Words {
+  const title = boss ? slain : 'ROOM CLEARED';
   if (index + 1 < count) return { title, lines: ['PRESS JUMP FOR THE NEXT ROOM'] };
   return { title, lines: ['PRESS JUMP TO GO ON'] };
 }
 
-/** What is written over a level when it starts: `boss` for the room of a demon, `fall` for a tower coming down. */
-export function openingWords(title: string, kind: '' | 'boss' | 'fall' = ''): string[] {
+/** What is written over a level when it starts: `boss` for the room of a demon, `beast` for the furnace, `fall` for a tower coming down. */
+export function openingWords(title: string, kind: '' | 'boss' | 'beast' | 'fall' = ''): string[] {
+  if (kind === 'beast') return [title, 'SLAY THE BEAST', 'GUARD AGAINST ITS FIRE BALLS', 'FLEE ITS PILLARS OF FIRE'];
   if (kind === 'fall') return [title, 'THE TOWER FALLS', 'RUN DOWN TO THE DOOR'];
   if (kind === 'boss') return [title, 'SLAY THE DEMON', 'ITS SKELETONS CARRY EMBERS', 'ONLY A FLAMING CHARGE ENDS IT'];
   return [title, 'COLLECT THE EMBERS', 'THEN REACH THE DOOR'];

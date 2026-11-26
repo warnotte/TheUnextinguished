@@ -24,6 +24,8 @@ describe('the run of the levels', () => {
     expect(openingWords('THE FALL', 'fall')).toEqual(['THE FALL', 'THE TOWER FALLS', 'RUN DOWN TO THE DOOR']);
     expect(openingWords('THE BELL CHAMBER', 'boss')).toEqual(['THE BELL CHAMBER', 'SLAY THE DEMON', 'ITS SKELETONS CARRY EMBERS', 'ONLY A FLAMING CHARGE ENDS IT']);
     expect(wonWords(3, 4, true)).toEqual({ title: 'DEMON SLAIN', lines: ['PRESS JUMP TO GO ON'] });
+    expect(openingWords('THE FURNACE', 'beast')).toEqual(['THE FURNACE', 'SLAY THE BEAST', 'GUARD AGAINST ITS FIRE BALLS', 'FLEE ITS PILLARS OF FIRE']);
+    expect(wonWords(2, 8, true, 'BEAST SLAIN')).toEqual({ title: 'BEAST SLAIN', lines: ['PRESS JUMP FOR THE NEXT ROOM'] });
   });
 
   it('starts at the level the address asks for, counted from 1, and on the title otherwise', () => {

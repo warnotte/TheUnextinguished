@@ -11,6 +11,7 @@ import { type Fall, makeFall, stepFall } from './fall';
 import { BELL, DEMON, type Arena, type Demon, demonTouchable, makeDemon, SKELETON, stepDemon, stepSkeleton } from './demon';
 import type { Emit, GameEvent } from './events';
 import { type Grid, TILE } from './grid';
+import { BEAST, type BeastFire, beastGuards, beastThere, makeBeastFire, stepBeast, strikeBeast } from './beast';
 import { DROWNED, drownedHurts, drownedThere, stepDrowned, strikeDrowned } from './drowned';
 import { stepGhoul } from './ghoul';
 import { control, type Controls, move } from './movement';
@@ -85,9 +86,12 @@ export class World {
   shake = 0;
   slow = 0;                        // while above zero, the page lets time pass slowly
   slain = 0;                       // foes ended: ghouls struck down, shades finished
+  /** The beast of the furnace, when the level has one. */
+  get beast(): Actor | null { return this.foes.find(f => f.kind === 'beast') ?? null; }
   spilt = 0;                       // blood thrown, his and theirs, in the units of the blood events
   invincible = false;              // the cheat: no blow harms the hero
   boss: Demon | null = null;       // the demon of the bell chamber, when the level has one
+  readonly beastFire: BeastFire = makeBeastFire();     // the balls and the pillars of fire of the beast of the furnace
   fall: Fall | null = null;        // the tower coming down, when the level falls
   readonly graves: { x: number; y: number }[] = [];
   readonly hazards: { x: number; y: number; w: number; h: number }[] = [];     // pits of spikes
@@ -137,10 +141,11 @@ export class World {
           // A moment of grace when the level starts: the shade holds its blow, the ghoul does not burn.
           if (kind.actor === 'shade' || kind.actor === 'skull') actor.cool = START_GRACE;
           else if (kind.actor === 'ghoul') actor.invul = START_GRACE;
-          actor.mode = kind.actor === 'skull' ? 'hover' : kind.actor === 'hound' ? 'sit' : kind.actor === 'ghost' ? 'away' : kind.actor === 'crow' ? 'perch' : kind.actor === 'hand' ? 'buried' : kind.actor === 'reaper' ? 'stone' : kind.actor === 'drowned' ? 'sunk' : '';
+          actor.mode = kind.actor === 'skull' ? 'hover' : kind.actor === 'hound' ? 'sit' : kind.actor === 'ghost' ? 'away' : kind.actor === 'crow' ? 'perch' : kind.actor === 'hand' ? 'buried' : kind.actor === 'reaper' ? 'stone' : kind.actor === 'drowned' ? 'sunk' : kind.actor === 'beast' ? 'wait' : '';
           if (kind.actor === 'reaper') actor.hp = REAPER.hp;
           if (kind.actor === 'hand') actor.hp = HAND.hp;
           if (kind.actor === 'drowned') actor.hp = DROWNED.hp;
+          if (kind.actor === 'beast') actor.hp = BEAST.hp;
           if (kind.actor === 'hound') actor.hp = 2;
           if (kind.actor === 'ghost') actor.cool = GHOST.away[0];
           this.foes.push(actor);
@@ -376,6 +381,7 @@ export class World {
     if (f.kind === 'hand') return false;                     // only the struggle of the one it holds breaks it
     if (f.kind === 'reaper') return reaperThere(f);
     if (f.kind === 'drowned') return drownedThere(f);
+    if (f.kind === 'beast') return beastThere(f);
     if (f.kind === 'demon') return !!this.boss && demonTouchable(this.boss);
     return true;
   }
@@ -397,6 +403,23 @@ export class World {
       this.emit({ type: 'effect', kind: heavy ? 'crit-hit' : 'hit-spark', x: x - dir * 6, y: e.y + 24, flip: dir < 0 });
       this.emit({ type: 'debris', x, y: e.y + 20, count: fell ? 24 : 4 });
       if (fell) { this.slain++; this.emit({ type: 'sound', name: 'crash' }); } else this.emit({ type: 'sound', name: 'block' });
+      return;
+    }
+    if (e.kind === 'beast' && beastGuards(e)) {
+      // Ready, it parries: sparks, and no harm.
+      this.hitStop = 0.04;
+      this.emit({ type: 'effect', kind: 'hit-spark', x: x - dir * 10, y: e.y + 22, flip: dir < 0 });
+      this.emit({ type: 'sound', name: 'block' });
+      return;
+    }
+    if (e.kind === 'beast') {
+      // Blows do not throw it; sparks of its fire fly off it. Its end: it burns away.
+      const end = strikeBeast(e, blow.damage);
+      this.hitStop = heavy ? 0.08 : 0.05; this.shake = Math.max(this.shake, heavy ? 0.18 : 0.1);
+      this.emit({ type: 'effect', kind: heavy ? 'crit-hit' : 'hit-spark', x: x - dir * 6, y: e.y + 24, flip: dir < 0 });
+      this.emit({ type: 'flame', x, y: e.y + 26, dir: -dir as 1 | -1 });
+      this.emit({ type: 'sound', name: end ? 'roar' : 'hit' });
+      if (end) { this.slain++; this.shake = 0.5; this.slow = SLOW; }
       return;
     }
     if (e.kind === 'drowned') {
@@ -493,6 +516,7 @@ export class World {
     if (e.kind === 'ghost') { stepGhost(e, this.arena, STEP); return; }
     if (e.kind === 'crow') { stepCrow(e, this.arena, STEP); return; }
     if (e.kind === 'hand') { this.stepHand(e); return; }
+    if (e.kind === 'beast') { stepBeast(e, this.arena, this.beastFire, STEP); return; }
     if (e.kind === 'drowned') {
       stepDrowned(e, this.arena, this.level.settings.water, STEP);
       if (playing && drownedHurts(e) && p.invul <= 0 && overlap(e, p)) this.hurtHero(centreX(p) >= centreX(e) ? 1 : -1, DROWNED.hurt);
@@ -563,6 +587,9 @@ export class World {
       if (this.doorChime < 0) this.emit({ type: 'sound', name: 'door' });
     }
     const reached = this.door ? overlap(this.door, p) && p.onGround : this.embers.length > 0;
+    // The room of the beast is won by its end alone: its embers are for the charge.
+    const beast = this.beast;
+    if (beast) { if (beast.mode === 'gone') { this.state = 'won'; this.emit({ type: 'sound', name: 'win' }); } return; }
     if (!this.boss && this.doorOpen && reached) { this.state = 'won'; this.emit({ type: 'sound', name: 'win' }); }
   }
 

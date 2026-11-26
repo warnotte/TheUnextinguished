@@ -74,7 +74,20 @@ Other foes walk, run and fly in the levels:
   shrieks (the guard stops that), then is gone, to come out again on his other side. A blow drives
   it off for longer.
 
-Under the crypt lies the flooded crypt. Its vault is broken open on the storm, the rain falls in
+Under the crypt burns the furnace, a room of its own where the beast of fire waits, and nothing
+else: no door, a gallery on each side, two slabs to jump up through, a few embers for the charge.
+The beast wakes as the hero comes in, and roars. It throws balls of fire at him (the guard stops
+them), claws him if he stands against it, and now and then sinks into its own fire: then nothing
+touches it, and pillars of fire rise from the floor where he stands, one after the other, a glow on
+the stone warning of each a moment before; it reforms where the last one rose. A hero who stays
+against it, or in it, is clawed, and after two claws its fire bursts out all round it: the guard
+does not stop that, he must step back. It is hurt while it draws breath, while it recovers, as it
+reforms, and just after a claw or a burst; at other times it parries: the blow strikes sparks off
+it and does no harm. Blows do not throw it. Past half its
+health it is quicker, throws three balls at a time and raises one pillar more. At the end of its
+health it burns down into a pillar of fire that dies away, and the room is won.
+
+Under the furnace lies the flooded crypt. Its vault is broken open on the storm, the rain falls in
 through the breach, and the water stands half a man deep over its floor, deeper than a man in its
 two wells: everything above it is mirrored in it, trembling. The hero wades through it, slower,
 throwing it up at each step; under it he lets out bubbles; some embers lie at the bottom.
@@ -138,7 +151,7 @@ in a time drawn by chance.
 The levels follow each other: the door of one leads to the next. After the last comes the end,
 which tells the run: its time, the foes snuffed out, the blood spilt, how often the hero was knocked
 out. Then back to the title. To go straight to a level, without the title, add `?level=1` to
-`?level=7` to the address of the page.
+`?level=8` to the address of the page.
 
 The title stands in front of the first level open on the sky (the belfry), climbing it slowly under
 a storm: now and then lightning flashes through the arches and the thunder follows.
@@ -190,7 +203,7 @@ object, paint a cell); nothing drives them yet.
   level, with `width` and `height`; the roof above it must be open in the grid for the rain to fall), `bell` (the great bell, hung by its top), `ember`, `door`,
   `grave` (where the bell raises a skeleton; in a level without a `bell`, it opens when the hero comes near, once),
   `crow` (it waits on its perch, its point under its feet, rises with a cry when the hero comes near and dives once at him),
-  `reaper-guard` (the reaper of stone: the door opens only once it is dust), `drowned` (a body under the water, its point on the floor it lies on: it rises when the hero wades near, and two blows send it back under for a while), `hand` (a hand of the dead under the ground, its point where it comes up: it holds the hero who steps on it until
+  `reaper-guard` (the reaper of stone: the door opens only once it is dust), `beast` (the beast of the furnace: it waits on its floor until the hero comes in), `drowned` (a body under the water, its point on the floor it lies on: it rises when the hero wades near, and two blows send it back under for a while), `hand` (a hand of the dead under the ground, its point where it comes up: it holds the hero who steps on it until
   three blows break it, or squeezes and lets go), `flock` (crows perched about the point, `count` of them, that fly off
   when the hero comes near or the thunder rolls), `ledge` (ground two tiles thick held up on ruined columns, from its
   top left corner, `width`; the stone of the grid there is its body),
@@ -213,10 +226,12 @@ object, paint a cell); nothing drives them yet.
   `intro` (a tune played once before `music`), `sky` (the night shows through the arches, in planes that slide at different speeds:
   `src/render/sky.ts`), `snow` and `storm` (now and then lightning lights the place through its openings, each body throws a long shadow on the wall, and the thunder follows), `omen` (the giant shape of the demon in the sky), `collapse` (px a second: the level comes down from the top), `water` (the height of its surface, in px from the top: the air under it is water) `rain` (it falls wherever the roof of the grid is open, down to the stone or the water) `skyline` (`cemetery`: the cemetery's own sky, its red moon, its rocks, its far graves, as its pack lays them out), `restless` (seconds: now and then one of the dead comes up out of the ground near the hero, a few at a time), `tremor` (seconds: the ground shakes and stones fall as the level begins) `fliers` (`crows`: crows fly over the level instead of bats; `bats` says how many) and `ending` (on the last level: the
   tune of the end, which is then seen over that level, at dawn when it is out of doors).
-- The third level, the flooded crypt, is written by `node tools/make-inondee.mjs`; the fourth, the
-  belfry, by `node tools/make-beffroi.mjs`; the fifth, the bell chamber, by `node tools/make-clocher.mjs`;
-  the sixth, the fall, by `node tools/make-effondrement.mjs` from the belfry's map; the seventh, the
-  cemetery, by `node tools/make-cimetiere.mjs`.
+- The third level, the furnace, is written by `node tools/make-fournaise.mjs`; the fourth, the
+  flooded crypt, by `node tools/make-inondee.mjs`; the fifth, the belfry, by `node tools/make-beffroi.mjs`;
+  the sixth, the bell chamber, by `node tools/make-clocher.mjs`; the seventh, the fall, by
+  `node tools/make-effondrement.mjs` from the belfry's map; the eighth, the cemetery, by
+  `node tools/make-cimetiere.mjs`.
+- A level with a `beast` is won when the beast is ended; its embers are only for the charge.
 - A level with a `demon` is won when the demon is ended, not by a door.
 - `node tools/add-creatures.mjs` puts the skull, the hounds and the ghosts into the nave and the crypt.
 - The levels are played in the order `index.html` loads them.
@@ -251,7 +266,7 @@ level. Behaviour that is new goes into `src/sim/`, never into a level.
 ## Credits
 
 - Sprites and tiles: "Gothicvania Church", the skeletons and the scenery of "Gothicvania Cemetery" and the demon of
-  the "Gothicvania Patreon's Collection" (with the fire skull, the hell hound and the ghost), all by
+  the "Gothicvania Patreon's Collection" (with the fire skull, the hell hound, the ghost and the hell beast), all by
   Luis Zuno (ansimuz), public domain (CC0; their
   licences are in `assets/gothicvania-*/public-license.txt`). The files ending in `-cut.png` are the
   same pictures with their flat backdrop made transparent.

@@ -5,6 +5,7 @@ import { EFFECTS, effectDuration, KINDS, SHEETS, STRIPS } from '../level/kinds';
 import { GHOST, SKULL } from '../sim/creatures';
 import { DEMON, type Demon, SKELETON } from '../sim/demon';
 import { DROWNED } from '../sim/drowned';
+import { BEAST } from '../sim/beast';
 import { REAPER } from '../sim/reaper';
 import type { Fall } from '../sim/fall';
 import type { Actor } from '../sim/actor';
@@ -356,6 +357,7 @@ export class Stage {
       for (const f of w.foes) if (f.kind === 'ghost') this.drawGhost(g, f, t);
       for (const f of w.foes) if (f.kind === 'skull') this.drawSkull(g, f, t);
       for (const f of w.foes) if (f.kind === 'reaper') this.drawReaper(g, f, t);
+      for (const f of w.foes) if (f.kind === 'beast') this.drawBeast(g, f, t);
       this.drawScythe(g, t);
       for (const f of w.foes) if (f.kind === 'crow') this.drawCrow(g, f, t);
       this.drawFlocks(g, t);
@@ -364,6 +366,7 @@ export class Stage {
       for (const f of w.foes) if (f.kind === 'shade') this.drawMonk(g, f, t);
       this.drawMonk(g, w.hero, t);
       for (const f of w.foes) if (f.kind === 'hand') this.drawHand(g, f, t);           // in front of the feet it holds
+      if (w.beast) this.drawBeastFire(g, t);                                             // its fire, in front of all
     }
     for (const fx of this.effects) this.drawEffect(g, fx);
     this.drawRings(g);
@@ -435,6 +438,16 @@ export class Stage {
     for (const f of w.foes) {
       if (f.kind === 'shade' && f.ko <= 0) carry(f, { x: f.x + 7, y: f.y + 18, radius: 78, strength: 0.7, flicker: 0, color: [90, 255, 150] });
       if (f.kind === 'ghoul' && f.dead <= 0) carry(f, { x: f.x + 7, y: f.y + 8, radius: 104, strength: 0.95, flicker: 0, color: [255, 140, 60] });
+    }
+    const beast = w.beast;
+    if (beast && beast.mode !== 'gone') {
+      const burning = beast.mode === 'pillars' || beast.mode === 'burn' || beast.mode === 'dying';
+      carry(beast, { x: beast.x + beast.w / 2, y: beast.y + 20, radius: burning ? 190 : 120, strength: burning ? 1.3 : 0.85, flicker: 0.6, color: [255, 120, 50] });
+      for (const b of w.beastFire.balls) out.push({ x: b.x, y: b.y, radius: 64, strength: 0.95, flicker: 0.4, color: [255, 140, 60] });
+      for (const p of w.beastFire.pillars) {
+        if (p.t < BEAST.pillar.warn) out.push({ x: p.x, y: p.y - 6, radius: 56, strength: 0.25 + 0.6 * p.t / BEAST.pillar.warn, flicker: 0.8, color: [255, 110, 40] });
+        else out.push({ x: p.x, y: p.y - 70, radius: 170, strength: 1.4, flicker: 0.5, color: [255, 130, 50] });
+      }
     }
     const d = w.boss;
     if (d && d.phase !== 'gone' && d.phase !== 'rise' && d.phase !== 'mark') {
@@ -608,6 +621,75 @@ export class Stage {
     if (alpha < 1) g.globalAlpha = alpha;
     this.picture(g, pic, x, y + (s.h - 1 - s.footY), s.footX, mirror);
     g.globalAlpha = 1;
+  }
+
+  // The beast of the furnace: its frames by what it does; white for the instant a blow lands; sinking
+  // into its fire and rising out of it again; a pillar of fire at its own place while its pillars rise;
+  // at its end, burning down into a pillar that dies away.
+  private drawBeast(g: CanvasRenderingContext2D, e: Actor, t: number): void {
+    if (e.mode === 'gone') return;
+    const x = e.x + e.w / 2, feet = e.y + e.h, mirror = e.facing > 0;          // the pictures face left
+    const frame = (strip: string, n: number, alpha = 1): void => {
+      const s = STRIPS[strip];
+      if (e.invul > 0) this.sprite(g, `flash-${strip}/${1 + (n % s.frames)}`, x, feet + (s.h - 1 - s.footY), s.footX, mirror);
+      else this.stripFrame(g, strip, n, x, feet, mirror, strip !== 'beast/burn', alpha);
+    };
+    const p = (span: number): number => Math.min(0.999, e.modeT / span);
+    switch (e.mode) {
+      case 'breath': { const u = p(BEAST.breath); frame('beast/breath', u < 0.25 ? 0 : u < 0.5 ? 1 : e.modeT < BEAST.throwAt ? 2 : 3); return; }
+      case 'recover': if (e.modeT < 0.3) { frame('beast/breath', 3); return; } break;
+      case 'claw': frame('beast/breath', e.modeT < BEAST.claw.windup ? 0 : 3); return;
+      case 'flare': {
+        const f = BEAST.flare;
+        if (e.modeT < f.windup) {
+          // Gathering: it crouches into its fire, which grows round it, flickering.
+          const u = e.modeT / f.windup;
+          this.glow(g, x, feet - 24, 30 + 40 * u, `rgba(255,120,40,${(0.2 + 0.5 * u).toFixed(2)})`);
+          frame('beast/burn', 1 + Math.floor(t * 12) % 2);
+          return;
+        }
+        if (!e.struck || e.modeT < f.windup + 0.05) {
+          for (let i = 0; i < 40; i++) { const r = Math.random() * Math.PI * 2, v = 140 + Math.random() * 160; this.particles.push({ x, y: feet - 26, vx: Math.cos(r) * v, vy: Math.sin(r) * v * 0.6 - 40, life: 0.25 + Math.random() * 0.3, color: FIRE[Math.floor(Math.random() * FIRE.length)], g: -60 }); }
+        }
+        if (e.modeT < f.windup + 0.25) this.glow(g, x, feet - 26, f.reach + 20, 'rgba(255,150,60,0.6)');
+        frame('beast/breath', 3);
+        return;
+      }
+      case 'burn': frame('beast/burn', Math.floor(p(BEAST.burn) * 4)); return;
+      case 'pillars': frame('beast/burn', 4 + Math.floor(t * 14) % 2); return;
+      case 'reform': frame('beast/burn', 3 - Math.floor(p(BEAST.reform) * 4)); return;
+      case 'dying': {
+        const u = p(BEAST.dying);
+        if (Math.random() < 0.7) this.particles.push({ x: x + (Math.random() - 0.5) * 40, y: feet - Math.random() * 60, vx: (Math.random() - 0.5) * 60, vy: -60 - Math.random() * 120, life: 0.4 + Math.random() * 0.6, color: FIRE[Math.floor(Math.random() * FIRE.length)], g: -60 });
+        if (u < 0.5) frame('beast/burn', Math.floor(u * 8));
+        else frame('beast/burn', 4 + Math.floor(t * 14) % 2, 1 - (u - 0.5) * 2);
+        return;
+      }
+    }
+    frame('beast/idle', Math.floor(t * 8));
+  }
+
+  // The fire of the beast: its balls, burning as they fly; a glow on the stone where a pillar is about
+  // to rise, brighter and throwing sparks as the moment comes; the pillar, dying down at its end.
+  private drawBeastFire(g: CanvasRenderingContext2D, t: number): void {
+    const fire = this.world.beastFire, pl = BEAST.pillar;
+    for (const b of fire.balls) {
+      this.glow(g, b.x, b.y, 22, 'rgba(255,140,50,0.5)');
+      this.stripFrame(g, 'beast/ball', Math.floor(t * 12), b.x, b.y, b.vx > 0, false);
+      if (Math.random() < 0.5) this.particles.push({ x: b.x - Math.sign(b.vx) * 8, y: b.y + (Math.random() - 0.5) * 6, vx: -b.vx * 0.15, vy: -20 - Math.random() * 30, life: 0.2 + Math.random() * 0.2, color: FIRE[1 + Math.floor(Math.random() * 2)], g: -40 });
+    }
+    for (const p of fire.pillars) {
+      if (p.t < pl.warn) {
+        const u = p.t / pl.warn, pulse = 0.5 + 0.5 * Math.sin(t * 30);
+        this.glow(g, p.x, p.y - 4, 18 + 14 * u, `rgba(255,${Math.round(90 + 60 * pulse)},40,${(0.25 + 0.5 * u).toFixed(2)})`);
+        g.fillStyle = u > 0.6 && Math.floor(t * 16) % 2 ? '#ffe27a' : '#ff6a2a';
+        g.fillRect(Math.round(p.x - 10 - 4 * u), p.y - 2, Math.round(20 + 8 * u), 2);
+        if (Math.random() < 0.25 + u * 0.6) this.particles.push({ x: p.x + (Math.random() - 0.5) * 22, y: p.y - 2, vx: (Math.random() - 0.5) * 20, vy: -40 - Math.random() * 90 * u, life: 0.2 + Math.random() * 0.3, color: FIRE[Math.floor(Math.random() * FIRE.length)], g: -30 });
+        continue;
+      }
+      const left = pl.warn + pl.rise - p.t;
+      this.stripFrame(g, 'beast/burn', 4 + Math.floor(t * 14) % 2, p.x, p.y, Math.floor(p.t * 7) % 2 === 0, false, Math.min(1, left / 0.2));
+    }
   }
 
   // The fire skull: its fire, flaring before it flies; out, the bare skull, rolling to rest.

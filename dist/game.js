@@ -430,13 +430,13 @@
       }
     }
     /** A note that slides from one pitch to another; `wobble` makes it tremble (cycles a second). */
-    tone(wave, from, to4, l, wobble = 0) {
+    tone(wave, from, to5, l, wobble = 0) {
       const ac = this.ac;
       if (!ac || ac.state !== "running" || !this.bus) return;
       const t = ac.currentTime + (l.at ?? 0), o = ac.createOscillator();
       o.type = wave;
       o.frequency.setValueAtTime(from, t);
-      o.frequency.exponentialRampToValueAtTime(Math.max(20, to4), t + l.dur);
+      o.frequency.exponentialRampToValueAtTime(Math.max(20, to5), t + l.dur);
       if (wobble) {
         const lfo = ac.createOscillator(), depth = ac.createGain();
         lfo.frequency.value = wobble;
@@ -450,7 +450,7 @@
       o.stop(t + l.dur + 0.05);
     }
     /** Noise through a filter that sweeps from one frequency to another: a hiss, a crack, a squelch. */
-    hiss(kind, from, to4, l, q = 0.9) {
+    hiss(kind, from, to5, l, q = 0.9) {
       const ac = this.ac;
       if (!ac || ac.state !== "running" || !this.bus || !this.noise) return;
       const t = ac.currentTime + (l.at ?? 0), src = ac.createBufferSource(), f = ac.createBiquadFilter();
@@ -459,7 +459,7 @@
       f.type = kind;
       f.Q.value = q;
       f.frequency.setValueAtTime(from, t);
-      f.frequency.exponentialRampToValueAtTime(Math.max(30, to4), t + l.dur);
+      f.frequency.exponentialRampToValueAtTime(Math.max(30, to5), t + l.dur);
       src.connect(f);
       this.shape(f, l, t);
       src.start(t, Math.random() * 0.8);
@@ -689,12 +689,13 @@
   function afterWin(index, count) {
     return index + 1 < count ? index + 1 : "end";
   }
-  function wonWords(index, count, boss = false) {
-    const title = boss ? "DEMON SLAIN" : "ROOM CLEARED";
+  function wonWords(index, count, boss = false, slain = "DEMON SLAIN") {
+    const title = boss ? slain : "ROOM CLEARED";
     if (index + 1 < count) return { title, lines: ["PRESS JUMP FOR THE NEXT ROOM"] };
     return { title, lines: ["PRESS JUMP TO GO ON"] };
   }
   function openingWords(title, kind = "") {
+    if (kind === "beast") return [title, "SLAY THE BEAST", "GUARD AGAINST ITS FIRE BALLS", "FLEE ITS PILLARS OF FIRE"];
     if (kind === "fall") return [title, "THE TOWER FALLS", "RUN DOWN TO THE DOOR"];
     if (kind === "boss") return [title, "SLAY THE DEMON", "ITS SKELETONS CARRY EMBERS", "ONLY A FLAMING CHARGE ENDS IT"];
     return [title, "COLLECT THE EMBERS", "THEN REACH THE DOOR"];
@@ -963,6 +964,7 @@
     crow: { role: "spawn", actor: "crow" },
     hand: { role: "spawn", actor: "hand" },
     drowned: { role: "spawn", actor: "drowned" },
+    beast: { role: "spawn", actor: "beast" },
     "reaper-guard": { role: "spawn", actor: "reaper" },
     // the reaper of stone who keeps the gate: the door opens only once it is dust              // under the ground: its point is where it comes up              // perched: its point is under its feet            // comes out near a hero within its haunt, either side of its point
     grave: { role: "grave" },
@@ -1059,7 +1061,7 @@
     "crouch-kick4",
     "crouch-kick5"
   ];
-  var range = (from, to4) => Array.from({ length: to4 - from + 1 }, (_, i) => from + i);
+  var range = (from, to5) => Array.from({ length: to5 - from + 1 }, (_, i) => from + i);
   var IMAGES = {
     tiles: CHURCH + "environment/tileset.png",
     tilesCut: CHURCH + "environment/tileset-cut.png",
@@ -1077,6 +1079,11 @@
   var STRIPS = {
     "demon/idle": { file: "gothicvania-patreon/demon/demon-idle.png", w: 160, h: 144, frames: 6, footX: 61, footY: 126 },
     "demon/attack": { file: "gothicvania-patreon/demon/demon-attack.png", w: 240, h: 192, frames: 11, footX: 135, footY: 166 },
+    // The beast of the furnace: (footX, footY) is between its feet; burning, it sinks into its fire and becomes a pillar of it.
+    "beast/idle": { file: "gothicvania-patreon/beast/beast-idle.png", w: 55, h: 67, frames: 6, footX: 27, footY: 66 },
+    "beast/breath": { file: "gothicvania-patreon/beast/beast-breath.png", w: 64, h: 64, frames: 4, footX: 32, footY: 63 },
+    "beast/burn": { file: "gothicvania-patreon/beast/beast-burn.png", w: 74, h: 160, frames: 6, footX: 37, footY: 159 },
+    "beast/ball": { file: "gothicvania-patreon/beast/fire-ball.png", w: 19, h: 16, frames: 3, footX: 9, footY: 8 },
     // The fire skull, at half the size of the pack's (made with ffmpeg, its edges kept sharp): (footX, footY)
     // is the middle of the skull, which flies; the bare skull lies on its bottom.
     "skull/fire": { file: "gothicvania-patreon/skull/fire-skull-half.png", w: 48, h: 56, frames: 8, footX: 22, footY: 33 },
@@ -1328,7 +1335,7 @@
   // src/sim/actor.ts
   var ACTOR_W = 14;
   var ACTOR_H = 40;
-  var SIZE = { skeleton: [16, 44], demon: [48, 92], skull: [18, 18], hound: [30, 18], ghost: [20, 40], crow: [14, 10], hand: [12, 22], reaper: [30, 62] };
+  var SIZE = { skeleton: [16, 44], demon: [48, 92], skull: [18, 18], hound: [30, 18], ghost: [20, 40], crow: [14, 10], hand: [12, 22], reaper: [30, 62], beast: [30, 60] };
   var MAX_HP = 6;
   function makeActor(kind, centreX2, feetY2) {
     const [w, h] = SIZE[kind] ?? [ACTOR_W, ACTOR_H];
@@ -2365,6 +2372,195 @@
     if (speed) e.animT += dt;
   }
 
+  // src/sim/beast.ts
+  var BEAST = {
+    hp: 24,
+    wake: 300,
+    // px: a hero this near wakes it
+    rest: 1,
+    restEnraged: 0.6,
+    // seconds between two attacks
+    breath: 0.75,
+    throwAt: 0.5,
+    // seconds: it rears and draws breath; the fire leaves at this moment of it
+    recover: 0.8,
+    // seconds after a throw, open to blows
+    ball: { speed: 170, life: 4, w: 14, h: 10, fan: 0.22, hurt: 1 },
+    // fan: radians between the balls of a three
+    claw: { near: 46, windup: 0.4, strike: 0.15, reach: 40, recover: 0.55, hurt: 1 },
+    flare: { windup: 0.45, reach: 58, recover: 0.6, hurt: 1 },
+    // its fire bursting out all round it
+    burn: 0.5,
+    // seconds to sink into its fire
+    pillar: { warn: 0.75, rise: 0.6, half: 14, high: 150, every: 0.55, count: 3, countEnraged: 4, hurt: 1 },
+    reform: 0.6,
+    dying: 1.6,
+    enraged: 0.5,
+    // of its health: past this, its fury
+    untouchable: ["wait", "burn", "pillars", "dying", "gone"]
+  };
+  function makeBeastFire() {
+    return { balls: [], pillars: [] };
+  }
+  function to3(e, mode) {
+    e.mode = mode;
+    e.modeT = 0;
+    e.struck = false;
+  }
+  var enraged = (e) => e.hp <= BEAST.hp * BEAST.enraged;
+  function beastThere(e) {
+    return !BEAST.untouchable.includes(e.mode) && (e.mode !== "reform" || e.modeT > BEAST.reform * 0.4);
+  }
+  function beastGuards(e) {
+    return e.mode === "rest" || e.mode === "claw" && e.modeT < BEAST.claw.windup + BEAST.claw.strike || e.mode === "flare" && e.modeT < BEAST.flare.windup;
+  }
+  function strikeBeast(e, damage) {
+    e.hp = Math.max(0, e.hp - damage);
+    e.invul = 0.12;
+    if (e.hp > 0) return false;
+    to3(e, "dying");
+    return true;
+  }
+  function stepBeast(e, a, fire, dt) {
+    e.modeT += dt;
+    e.invul = Math.max(0, e.invul - dt);
+    e.vx = 0;
+    e.vy = 0;
+    e.y = e.spawnY - e.h;
+    const hero = a.hero, dx = centreX(hero) - centreX(e), floor = feetY(e);
+    stepFire(e, a, fire, dt);
+    const face = () => {
+      if (Math.abs(dx) > 4) e.facing = dx > 0 ? 1 : -1;
+    };
+    switch (e.mode) {
+      case "wait":
+        if (a.playing && Math.abs(dx) < BEAST.wake && Math.abs(feetY(hero) - floor) < 220) {
+          face();
+          to3(e, "rest");
+          a.emit({ type: "sound", name: "roar" });
+          a.shake(0.4);
+        }
+        return;
+      case "rest":
+        face();
+        if (!a.playing || e.modeT < (enraged(e) ? BEAST.restEnraged : BEAST.rest)) return;
+        if (Math.abs(dx) < BEAST.claw.near && Math.abs(feetY(hero) - floor) < 30) {
+          if (e.chain >= 2) {
+            e.chain = 0;
+            to3(e, "flare");
+          } else {
+            e.chain++;
+            to3(e, "claw");
+          }
+          return;
+        }
+        e.chain = 0;
+        {
+          const plan = enraged(e) ? ["breath", "burn"] : ["breath", "breath", "burn"];
+          to3(e, plan[e.look++ % plan.length]);
+        }
+        return;
+      case "breath":
+        if (!e.struck && e.modeT >= BEAST.throwAt) {
+          e.struck = true;
+          const mx = centreX(e) + e.facing * 20, my = e.y + 22;
+          const aim = Math.atan2(hero.y + hero.h / 2 - my, centreX(hero) - mx);
+          const angles = enraged(e) ? [aim - BEAST.ball.fan, aim, aim + BEAST.ball.fan] : [aim];
+          for (const r of angles) fire.balls.push({ x: mx, y: my, vx: Math.cos(r) * BEAST.ball.speed, vy: Math.sin(r) * BEAST.ball.speed, life: BEAST.ball.life, gone: false });
+          a.emit({ type: "sound", name: "breath" });
+        }
+        if (e.modeT >= BEAST.breath) to3(e, "recover");
+        return;
+      case "recover":
+        if (e.modeT >= BEAST.recover) to3(e, "rest");
+        return;
+      case "claw": {
+        const c = BEAST.claw;
+        if (!e.struck && e.modeT >= c.windup) {
+          e.struck = true;
+          const left = e.facing > 0 ? e.x : e.x - c.reach, right = e.facing > 0 ? e.x + e.w + c.reach : e.x + e.w;
+          const box = { x: left, y: e.y + 10, w: right - left, h: e.h - 20 };
+          if (hero.x < box.x + box.w && hero.x + hero.w > box.x && hero.y < box.y + box.h && hero.y + hero.h > box.y) a.hurt(Math.abs(dx) < 2 ? e.facing : dx > 0 ? 1 : -1, c.hurt, false);
+          a.emit({ type: "sound", name: "swing" });
+        }
+        if (e.modeT >= c.windup + c.strike + c.recover) to3(e, "rest");
+        return;
+      }
+      case "flare": {
+        const f = BEAST.flare;
+        if (!e.struck && e.modeT >= f.windup) {
+          e.struck = true;
+          a.emit({ type: "sound", name: "flare" });
+          a.shake(0.3);
+          if (Math.abs(dx) < f.reach && feetY(hero) > e.y && hero.y < floor) a.hurt(Math.abs(dx) < 2 ? e.facing : dx > 0 ? 1 : -1, f.hurt, true);
+        }
+        if (e.modeT >= f.windup + f.recover) to3(e, "rest");
+        return;
+      }
+      case "burn":
+        if (e.modeT >= BEAST.burn) {
+          to3(e, "pillars");
+          e.chain = enraged(e) ? BEAST.pillar.countEnraged : BEAST.pillar.count;
+          e.motionT = 0;
+          a.emit({ type: "sound", name: "flare" });
+        }
+        return;
+      case "pillars": {
+        const p = BEAST.pillar;
+        e.motionT -= dt;
+        if (e.chain > 0 && e.motionT <= 0) {
+          fire.pillars.push({ x: centreX(hero), y: floor, t: 0, rose: false, hit: false });
+          e.chain--;
+          e.motionT = p.every;
+        }
+        if (e.chain <= 0 && fire.pillars.length === 0) {
+          const last = e.cool, inside = Math.max(TILE * 2 + e.w, Math.min(a.width - TILE * 2 - e.w, last));
+          e.x = inside - e.w / 2;
+          to3(e, "reform");
+        }
+        if (fire.pillars.length) e.cool = fire.pillars[fire.pillars.length - 1].x;
+        return;
+      }
+      case "reform":
+        face();
+        if (e.modeT >= BEAST.reform) to3(e, "rest");
+        return;
+      case "dying":
+        fire.balls.length = 0;
+        fire.pillars.length = 0;
+        if (e.modeT >= BEAST.dying) to3(e, "gone");
+        return;
+    }
+  }
+  function stepFire(e, a, fire, dt) {
+    const hero = a.hero, b = BEAST.ball, p = BEAST.pillar;
+    for (const ball of fire.balls) {
+      ball.x += ball.vx * dt;
+      ball.y += ball.vy * dt;
+      ball.life -= dt;
+      if (ball.life <= 0 || a.grid.solidAt(Math.floor(ball.x / TILE), Math.floor(ball.y / TILE))) {
+        ball.gone = true;
+        continue;
+      }
+      const touch = hero.x < ball.x + b.w / 2 && hero.x + hero.w > ball.x - b.w / 2 && hero.y < ball.y + b.h / 2 && hero.y + hero.h > ball.y - b.h / 2;
+      if (touch && a.playing && a.hurt(ball.vx >= 0 ? 1 : -1, b.hurt, false)) ball.gone = true;
+    }
+    fire.balls = fire.balls.filter((ball) => !ball.gone);
+    for (const pillar of fire.pillars) {
+      pillar.t += dt;
+      if (pillar.t < p.warn) continue;
+      if (!pillar.rose) {
+        pillar.rose = true;
+        a.emit({ type: "sound", name: "flare" });
+        a.shake(0.15);
+      }
+      const feet = feetY(hero), under = Math.abs(centreX(hero) - pillar.x) < p.half && feet > pillar.y - p.high && feet <= pillar.y + 4;
+      if (!pillar.hit && under && a.playing && a.hurt(centreX(hero) >= pillar.x ? 1 : -1, p.hurt, true)) pillar.hit = true;
+    }
+    fire.pillars = fire.pillars.filter((pillar) => pillar.t < p.warn + p.rise);
+    void e;
+  }
+
   // src/sim/drowned.ts
   var DROWNED = {
     hp: 2,
@@ -2385,7 +2581,7 @@
     rest: 6
     // seconds it lies under before it can rise again
   };
-  function to3(e, mode) {
+  function to4(e, mode) {
     e.mode = mode;
     e.modeT = 0;
   }
@@ -2404,7 +2600,7 @@
         e.vx = 0;
         if (e.modeT < e.cool || !a.playing) return;
         if (Math.abs(dx) < DROWNED.wake && Math.abs(feetY(hero) - feetY(e)) < DROWNED.high) {
-          to3(e, "rise");
+          to4(e, "rise");
           e.facing = dx >= 0 ? 1 : -1;
           a.emit({ type: "splash", x: centreX(e), y: water, size: 2 });
           a.emit({ type: "sound", name: "gurgle" });
@@ -2412,7 +2608,7 @@
         return;
       case "rise":
         e.vx = 0;
-        if (e.modeT >= DROWNED.rise) to3(e, "walk");
+        if (e.modeT >= DROWNED.rise) to4(e, "walk");
         return;
       case "sink":
         e.vx = 0;
@@ -2422,7 +2618,7 @@
           e.vy = 0;
           e.hp = DROWNED.hp;
           e.cool = DROWNED.rest;
-          to3(e, "sunk");
+          to4(e, "sunk");
         }
         return;
       case "walk": {
@@ -2435,7 +2631,7 @@
       }
       case "stagger":
         e.vx *= Math.exp(-6 * dt);
-        if (e.modeT >= DROWNED.stagger) to3(e, "walk");
+        if (e.modeT >= DROWNED.stagger) to4(e, "walk");
         break;
     }
     e.vy = Math.min(TUNING.maxFall, e.vy + TUNING.gravity * dt);
@@ -2444,11 +2640,11 @@
   function strikeDrowned(e, dir, damage) {
     e.hp = Math.max(0, e.hp - damage);
     if (e.hp <= 0) {
-      to3(e, "sink");
+      to4(e, "sink");
       e.vx = 0;
       return true;
     }
-    to3(e, "stagger");
+    to4(e, "stagger");
     e.vx = dir * DROWNED.push;
     e.invul = 0.2;
     return false;
@@ -2631,10 +2827,11 @@
           } else {
             if (kind.actor === "shade" || kind.actor === "skull") actor.cool = START_GRACE;
             else if (kind.actor === "ghoul") actor.invul = START_GRACE;
-            actor.mode = kind.actor === "skull" ? "hover" : kind.actor === "hound" ? "sit" : kind.actor === "ghost" ? "away" : kind.actor === "crow" ? "perch" : kind.actor === "hand" ? "buried" : kind.actor === "reaper" ? "stone" : kind.actor === "drowned" ? "sunk" : "";
+            actor.mode = kind.actor === "skull" ? "hover" : kind.actor === "hound" ? "sit" : kind.actor === "ghost" ? "away" : kind.actor === "crow" ? "perch" : kind.actor === "hand" ? "buried" : kind.actor === "reaper" ? "stone" : kind.actor === "drowned" ? "sunk" : kind.actor === "beast" ? "wait" : "";
             if (kind.actor === "reaper") actor.hp = REAPER.hp;
             if (kind.actor === "hand") actor.hp = HAND.hp;
             if (kind.actor === "drowned") actor.hp = DROWNED.hp;
+            if (kind.actor === "beast") actor.hp = BEAST.hp;
             if (kind.actor === "hound") actor.hp = 2;
             if (kind.actor === "ghost") actor.cool = GHOST.away[0];
             this.foes.push(actor);
@@ -2679,12 +2876,18 @@
     // while above zero, the page lets time pass slowly
     slain = 0;
     // foes ended: ghouls struck down, shades finished
+    /** The beast of the furnace, when the level has one. */
+    get beast() {
+      return this.foes.find((f) => f.kind === "beast") ?? null;
+    }
     spilt = 0;
     // blood thrown, his and theirs, in the units of the blood events
     invincible = false;
     // the cheat: no blow harms the hero
     boss = null;
     // the demon of the bell chamber, when the level has one
+    beastFire = makeBeastFire();
+    // the balls and the pillars of fire of the beast of the furnace
     fall = null;
     // the tower coming down, when the level falls
     graves = [];
@@ -2983,6 +3186,7 @@
       if (f.kind === "hand") return false;
       if (f.kind === "reaper") return reaperThere(f);
       if (f.kind === "drowned") return drownedThere(f);
+      if (f.kind === "beast") return beastThere(f);
       if (f.kind === "demon") return !!this.boss && demonTouchable(this.boss);
       return true;
     }
@@ -3012,6 +3216,26 @@
           this.slain++;
           this.emit({ type: "sound", name: "crash" });
         } else this.emit({ type: "sound", name: "block" });
+        return;
+      }
+      if (e.kind === "beast" && beastGuards(e)) {
+        this.hitStop = 0.04;
+        this.emit({ type: "effect", kind: "hit-spark", x: x - dir * 10, y: e.y + 22, flip: dir < 0 });
+        this.emit({ type: "sound", name: "block" });
+        return;
+      }
+      if (e.kind === "beast") {
+        const end = strikeBeast(e, blow.damage);
+        this.hitStop = heavy ? 0.08 : 0.05;
+        this.shake = Math.max(this.shake, heavy ? 0.18 : 0.1);
+        this.emit({ type: "effect", kind: heavy ? "crit-hit" : "hit-spark", x: x - dir * 6, y: e.y + 24, flip: dir < 0 });
+        this.emit({ type: "flame", x, y: e.y + 26, dir: -dir });
+        this.emit({ type: "sound", name: end ? "roar" : "hit" });
+        if (end) {
+          this.slain++;
+          this.shake = 0.5;
+          this.slow = SLOW;
+        }
         return;
       }
       if (e.kind === "drowned") {
@@ -3154,6 +3378,10 @@
         this.stepHand(e);
         return;
       }
+      if (e.kind === "beast") {
+        stepBeast(e, this.arena, this.beastFire, STEP);
+        return;
+      }
       if (e.kind === "drowned") {
         stepDrowned(e, this.arena, this.level.settings.water, STEP);
         if (playing && drownedHurts(e) && p.invul <= 0 && overlap3(e, p)) this.hurtHero(centreX(p) >= centreX(e) ? 1 : -1, DROWNED.hurt);
@@ -3251,6 +3479,14 @@
         if (this.doorChime < 0) this.emit({ type: "sound", name: "door" });
       }
       const reached = this.door ? overlap3(this.door, p) && p.onGround : this.embers.length > 0;
+      const beast = this.beast;
+      if (beast) {
+        if (beast.mode === "gone") {
+          this.state = "won";
+          this.emit({ type: "sound", name: "win" });
+        }
+        return;
+      }
       if (!this.boss && this.doorOpen && reached) {
         this.state = "won";
         this.emit({ type: "sound", name: "win" });
@@ -3320,7 +3556,7 @@
     // A hand of the dead: under the ground until the hero's feet come onto it; then it holds him by the
     // ankle until he breaks it, or until it squeezes and lets go; then it sinks back and rests a while.
     stepHand(e) {
-      const p = this.hero, to4 = (mode) => {
+      const p = this.hero, to5 = (mode) => {
         e.mode = mode;
         e.modeT = 0;
       };
@@ -3332,7 +3568,7 @@
         const feet = p.y + p.h;
         if (this.state !== "play" || e.cool > 0 || this.heldBy || !p.onGround || p.climbing) return;
         if (Math.abs(feet - e.spawnY) > 6 || Math.abs(centreX(p) - e.spawnX) > HAND.reach) return;
-        to4("grab");
+        to5("grab");
         this.heldBy = e;
         p.vx = 0;
         e.facing = centreX(p) >= e.spawnX ? 1 : -1;
@@ -3342,17 +3578,17 @@
       }
       if (e.mode === "grab") {
         if (this.heldBy !== e) {
-          to4("sink");
+          to5("sink");
           return;
         }
         if (e.modeT < HAND.hold) return;
         this.heldBy = null;
         this.hurtHero(centreX(p) >= e.spawnX ? 1 : -1, HAND.squeeze, true);
-        to4("sink");
+        to5("sink");
         return;
       }
       if (e.mode === "sink" && e.modeT >= HAND.sink) {
-        to4("buried");
+        to5("buried");
         e.cool = HAND.rest;
         e.hp = HAND.hp;
       }
@@ -5619,6 +5855,8 @@
     rival() {
       const p = this.world.hero, boss = this.world.boss;
       if (boss && boss.phase !== "gone" && boss.phase !== "dying") return boss.body;
+      const beast = this.world.beast;
+      if (beast) return beast.mode === "wait" || beast.mode === "gone" ? null : beast;
       let best = null, bestD = Infinity;
       for (const f of this.world.foes) {
         if (f.kind !== "shade" || f.ko > 0) continue;
@@ -5712,14 +5950,15 @@
       if (w.invincible) text(g2, "INVINCIBLE", MARGIN2 + textWidth("MONK") + 12, BAR_Y + BAR_H + 5, "#ffe27a");
       const foe = this.foe;
       if (foe) {
-        const demon = foe.kind === "demon", dazed = demon ? w.boss?.phase === "dazed" : foe.dazed > 0, x = VIEW_W - MARGIN2 - BAR_W;
-        this.bar(g2, x, foe.hp, this.foeLag, true, demon ? "#6fdcff" : "#6dff9a", t, dazed, demon ? DEMON.hp : MAX_HP);
-        const label = dazed ? "DAZED" : demon ? "DEMON" : "SHADE";
+        const demon = foe.kind === "demon", beast = foe.kind === "beast", dazed = demon ? w.boss?.phase === "dazed" : foe.dazed > 0, x = VIEW_W - MARGIN2 - BAR_W;
+        this.bar(g2, x, foe.hp, this.foeLag, true, demon ? "#6fdcff" : beast ? "#ff8a3a" : "#6dff9a", t, dazed, demon ? DEMON.hp : beast ? BEAST.hp : MAX_HP);
+        const label = dazed ? "DAZED" : demon ? "DEMON" : beast ? "BEAST" : "SHADE";
         text(g2, label, VIEW_W - MARGIN2 - textWidth(label), BAR_Y + BAR_H + 5, dazed && Math.floor(t * 6) % 2 ? "#ff5a3a" : "#e2d8f0");
       }
       const got = w.carried;
       const need = w.embers.length, over = got > need ? `  +${got - need}` : "";
-      if (need) centered(g2, `EMBERS ${Math.min(got, need)}/${need}${over}`, VIEW_H - 20, w.doorOpen ? "#ffe27a" : "#e2d8f0");
+      if (w.beast) centered(g2, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? "#ffe27a" : "#e2d8f0");
+      else if (need) centered(g2, `EMBERS ${Math.min(got, need)}/${need}${over}`, VIEW_H - 20, w.doorOpen ? "#ffe27a" : "#e2d8f0");
       else if (w.boss) centered(g2, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? "#ffe27a" : "#e2d8f0");
       const clock = clockText(w.clock);
       text(g2, clock, VIEW_W - MARGIN2 - textWidth(clock), VIEW_H - 20, "#e2d8f0");
@@ -6145,6 +6384,7 @@
         for (const f of w.foes) if (f.kind === "ghost") this.drawGhost(g2, f, t);
         for (const f of w.foes) if (f.kind === "skull") this.drawSkull(g2, f, t);
         for (const f of w.foes) if (f.kind === "reaper") this.drawReaper(g2, f, t);
+        for (const f of w.foes) if (f.kind === "beast") this.drawBeast(g2, f, t);
         this.drawScythe(g2, t);
         for (const f of w.foes) if (f.kind === "crow") this.drawCrow(g2, f, t);
         this.drawFlocks(g2, t);
@@ -6153,6 +6393,7 @@
         for (const f of w.foes) if (f.kind === "shade") this.drawMonk(g2, f, t);
         this.drawMonk(g2, w.hero, t);
         for (const f of w.foes) if (f.kind === "hand") this.drawHand(g2, f, t);
+        if (w.beast) this.drawBeastFire(g2, t);
       }
       for (const fx of this.effects) this.drawEffect(g2, fx);
       this.drawRings(g2);
@@ -6227,6 +6468,16 @@
       for (const f of w.foes) {
         if (f.kind === "shade" && f.ko <= 0) carry(f, { x: f.x + 7, y: f.y + 18, radius: 78, strength: 0.7, flicker: 0, color: [90, 255, 150] });
         if (f.kind === "ghoul" && f.dead <= 0) carry(f, { x: f.x + 7, y: f.y + 8, radius: 104, strength: 0.95, flicker: 0, color: [255, 140, 60] });
+      }
+      const beast = w.beast;
+      if (beast && beast.mode !== "gone") {
+        const burning = beast.mode === "pillars" || beast.mode === "burn" || beast.mode === "dying";
+        carry(beast, { x: beast.x + beast.w / 2, y: beast.y + 20, radius: burning ? 190 : 120, strength: burning ? 1.3 : 0.85, flicker: 0.6, color: [255, 120, 50] });
+        for (const b of w.beastFire.balls) out.push({ x: b.x, y: b.y, radius: 64, strength: 0.95, flicker: 0.4, color: [255, 140, 60] });
+        for (const p2 of w.beastFire.pillars) {
+          if (p2.t < BEAST.pillar.warn) out.push({ x: p2.x, y: p2.y - 6, radius: 56, strength: 0.25 + 0.6 * p2.t / BEAST.pillar.warn, flicker: 0.8, color: [255, 110, 40] });
+          else out.push({ x: p2.x, y: p2.y - 70, radius: 170, strength: 1.4, flicker: 0.5, color: [255, 130, 50] });
+        }
       }
       const d = w.boss;
       if (d && d.phase !== "gone" && d.phase !== "rise" && d.phase !== "mark") {
@@ -6427,6 +6678,92 @@
       if (alpha < 1) g2.globalAlpha = alpha;
       this.picture(g2, pic, x, y + (s.h - 1 - s.footY), s.footX, mirror);
       g2.globalAlpha = 1;
+    }
+    // The beast of the furnace: its frames by what it does; white for the instant a blow lands; sinking
+    // into its fire and rising out of it again; a pillar of fire at its own place while its pillars rise;
+    // at its end, burning down into a pillar that dies away.
+    drawBeast(g2, e, t) {
+      if (e.mode === "gone") return;
+      const x = e.x + e.w / 2, feet = e.y + e.h, mirror = e.facing > 0;
+      const frame = (strip, n, alpha = 1) => {
+        const s = STRIPS[strip];
+        if (e.invul > 0) this.sprite(g2, `flash-${strip}/${1 + n % s.frames}`, x, feet + (s.h - 1 - s.footY), s.footX, mirror);
+        else this.stripFrame(g2, strip, n, x, feet, mirror, strip !== "beast/burn", alpha);
+      };
+      const p = (span) => Math.min(0.999, e.modeT / span);
+      switch (e.mode) {
+        case "breath": {
+          const u = p(BEAST.breath);
+          frame("beast/breath", u < 0.25 ? 0 : u < 0.5 ? 1 : e.modeT < BEAST.throwAt ? 2 : 3);
+          return;
+        }
+        case "recover":
+          if (e.modeT < 0.3) {
+            frame("beast/breath", 3);
+            return;
+          }
+          break;
+        case "claw":
+          frame("beast/breath", e.modeT < BEAST.claw.windup ? 0 : 3);
+          return;
+        case "flare": {
+          const f = BEAST.flare;
+          if (e.modeT < f.windup) {
+            const u = e.modeT / f.windup;
+            this.glow(g2, x, feet - 24, 30 + 40 * u, `rgba(255,120,40,${(0.2 + 0.5 * u).toFixed(2)})`);
+            frame("beast/burn", 1 + Math.floor(t * 12) % 2);
+            return;
+          }
+          if (!e.struck || e.modeT < f.windup + 0.05) {
+            for (let i = 0; i < 40; i++) {
+              const r = Math.random() * Math.PI * 2, v = 140 + Math.random() * 160;
+              this.particles.push({ x, y: feet - 26, vx: Math.cos(r) * v, vy: Math.sin(r) * v * 0.6 - 40, life: 0.25 + Math.random() * 0.3, color: FIRE3[Math.floor(Math.random() * FIRE3.length)], g: -60 });
+            }
+          }
+          if (e.modeT < f.windup + 0.25) this.glow(g2, x, feet - 26, f.reach + 20, "rgba(255,150,60,0.6)");
+          frame("beast/breath", 3);
+          return;
+        }
+        case "burn":
+          frame("beast/burn", Math.floor(p(BEAST.burn) * 4));
+          return;
+        case "pillars":
+          frame("beast/burn", 4 + Math.floor(t * 14) % 2);
+          return;
+        case "reform":
+          frame("beast/burn", 3 - Math.floor(p(BEAST.reform) * 4));
+          return;
+        case "dying": {
+          const u = p(BEAST.dying);
+          if (Math.random() < 0.7) this.particles.push({ x: x + (Math.random() - 0.5) * 40, y: feet - Math.random() * 60, vx: (Math.random() - 0.5) * 60, vy: -60 - Math.random() * 120, life: 0.4 + Math.random() * 0.6, color: FIRE3[Math.floor(Math.random() * FIRE3.length)], g: -60 });
+          if (u < 0.5) frame("beast/burn", Math.floor(u * 8));
+          else frame("beast/burn", 4 + Math.floor(t * 14) % 2, 1 - (u - 0.5) * 2);
+          return;
+        }
+      }
+      frame("beast/idle", Math.floor(t * 8));
+    }
+    // The fire of the beast: its balls, burning as they fly; a glow on the stone where a pillar is about
+    // to rise, brighter and throwing sparks as the moment comes; the pillar, dying down at its end.
+    drawBeastFire(g2, t) {
+      const fire = this.world.beastFire, pl = BEAST.pillar;
+      for (const b of fire.balls) {
+        this.glow(g2, b.x, b.y, 22, "rgba(255,140,50,0.5)");
+        this.stripFrame(g2, "beast/ball", Math.floor(t * 12), b.x, b.y, b.vx > 0, false);
+        if (Math.random() < 0.5) this.particles.push({ x: b.x - Math.sign(b.vx) * 8, y: b.y + (Math.random() - 0.5) * 6, vx: -b.vx * 0.15, vy: -20 - Math.random() * 30, life: 0.2 + Math.random() * 0.2, color: FIRE3[1 + Math.floor(Math.random() * 2)], g: -40 });
+      }
+      for (const p of fire.pillars) {
+        if (p.t < pl.warn) {
+          const u = p.t / pl.warn, pulse = 0.5 + 0.5 * Math.sin(t * 30);
+          this.glow(g2, p.x, p.y - 4, 18 + 14 * u, `rgba(255,${Math.round(90 + 60 * pulse)},40,${(0.25 + 0.5 * u).toFixed(2)})`);
+          g2.fillStyle = u > 0.6 && Math.floor(t * 16) % 2 ? "#ffe27a" : "#ff6a2a";
+          g2.fillRect(Math.round(p.x - 10 - 4 * u), p.y - 2, Math.round(20 + 8 * u), 2);
+          if (Math.random() < 0.25 + u * 0.6) this.particles.push({ x: p.x + (Math.random() - 0.5) * 22, y: p.y - 2, vx: (Math.random() - 0.5) * 20, vy: -40 - Math.random() * 90 * u, life: 0.2 + Math.random() * 0.3, color: FIRE3[Math.floor(Math.random() * FIRE3.length)], g: -30 });
+          continue;
+        }
+        const left = pl.warn + pl.rise - p.t;
+        this.stripFrame(g2, "beast/burn", 4 + Math.floor(t * 14) % 2, p.x, p.y, Math.floor(p.t * 7) % 2 === 0, false, Math.min(1, left / 0.2));
+      }
     }
     // The fire skull: its fire, flaring before it flies; out, the bare skull, rolling to rest.
     drawSkull(g2, e, t) {
@@ -7248,13 +7585,13 @@
     footShadow(g2, x, feet, half) {
       const lamp = this.lights.sample(x, feet - 12).key;
       const away = lamp ? Math.max(-1, Math.min(1, (x - lamp.x) / FOOT_LEAN)) : 0;
-      const from = x - half - Math.max(0, -away) * half * FOOT_LONG, to4 = x + half + Math.max(0, away) * half * FOOT_LONG;
-      const dark = g2.createLinearGradient(from, 0, to4, 0), mid = (x - from) / (to4 - from);
+      const from = x - half - Math.max(0, -away) * half * FOOT_LONG, to5 = x + half + Math.max(0, away) * half * FOOT_LONG;
+      const dark = g2.createLinearGradient(from, 0, to5, 0), mid = (x - from) / (to5 - from);
       dark.addColorStop(0, "rgba(0,0,0,0)");
       dark.addColorStop(mid, `rgba(0,0,0,${FOOT_DARK})`);
       dark.addColorStop(1, "rgba(0,0,0,0)");
       g2.fillStyle = dark;
-      const y = Math.round(feet), l = Math.round(from), r = Math.round(to4);
+      const y = Math.round(feet), l = Math.round(from), r = Math.round(to5);
       g2.fillRect(l, y, r - l, 1);
       g2.globalAlpha = 0.5;
       g2.fillRect(l + 2, y + 1, r - l - 4, 1);
@@ -7536,8 +7873,8 @@
       runCheated ||= cheat;
       result = null;
       naming = null;
-      const boss = !!world.boss;
-      stage = new Stage(world, assets, openingWords(level.settings.title, boss ? "boss" : world.fall ? "fall" : ""), wonWords(i, levels.length, boss));
+      const boss = !!world.boss, beast = !!world.beast;
+      stage = new Stage(world, assets, openingWords(level.settings.title, boss ? "boss" : beast ? "beast" : world.fall ? "fall" : ""), wonWords(i, levels.length, boss || beast, beast ? "BEAST SLAIN" : "DEMON SLAIN"));
       stage.ash = ashen();
       sound.setMusic(level.settings.music, level.settings.intro);
       sound.setPlace({ rain: level.settings.rain, drips: level.settings.water > 0 });

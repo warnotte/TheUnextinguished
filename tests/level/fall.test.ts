@@ -38,7 +38,7 @@ describe('the fall of the belfry', () => {
   it('is played after the bell chamber, before the cemetery, with its tune', () => {
     const page = readFileSync('index.html', 'utf8');
     const order = [...page.matchAll(/levels\/(\w+)\.js/g)].map(m => m[1]);
-    expect(order).toEqual(['salle3', 'crypte', 'inondee', 'beffroi', 'clocher', 'effondrement', 'cimetiere']);
+    expect(order).toEqual(['salle3', 'crypte', 'fournaise', 'inondee', 'beffroi', 'clocher', 'effondrement', 'cimetiere']);
     expect(page).toContain('assets/music/collapse.js');
   });
 });

@@ -41,6 +41,7 @@ export const KINDS: Readonly<Record<string, Kind>> = {
   crow: { role: 'spawn', actor: 'crow' },
   hand: { role: 'spawn', actor: 'hand' },
   drowned: { role: 'spawn', actor: 'drowned' },
+  beast: { role: 'spawn', actor: 'beast' },
   'reaper-guard': { role: 'spawn', actor: 'reaper' },  // the reaper of stone who keeps the gate: the door opens only once it is dust              // under the ground: its point is where it comes up              // perched: its point is under its feet            // comes out near a hero within its haunt, either side of its point
   grave: { role: 'grave' },
   bell: { role: 'bell' },
@@ -131,6 +132,11 @@ export interface Strip { file: string; w: number; h: number; frames: number; foo
 export const STRIPS: Readonly<Record<string, Strip>> = {
   'demon/idle': { file: 'gothicvania-patreon/demon/demon-idle.png', w: 160, h: 144, frames: 6, footX: 61, footY: 126 },
   'demon/attack': { file: 'gothicvania-patreon/demon/demon-attack.png', w: 240, h: 192, frames: 11, footX: 135, footY: 166 },
+  // The beast of the furnace: (footX, footY) is between its feet; burning, it sinks into its fire and becomes a pillar of it.
+  'beast/idle': { file: 'gothicvania-patreon/beast/beast-idle.png', w: 55, h: 67, frames: 6, footX: 27, footY: 66 },
+  'beast/breath': { file: 'gothicvania-patreon/beast/beast-breath.png', w: 64, h: 64, frames: 4, footX: 32, footY: 63 },
+  'beast/burn': { file: 'gothicvania-patreon/beast/beast-burn.png', w: 74, h: 160, frames: 6, footX: 37, footY: 159 },
+  'beast/ball': { file: 'gothicvania-patreon/beast/fire-ball.png', w: 19, h: 16, frames: 3, footX: 9, footY: 8 },
   // The fire skull, at half the size of the pack's (made with ffmpeg, its edges kept sharp): (footX, footY)
   // is the middle of the skull, which flies; the bare skull lies on its bottom.
   'skull/fire': { file: 'gothicvania-patreon/skull/fire-skull-half.png', w: 48, h: 56, frames: 8, footX: 22, footY: 33 },
