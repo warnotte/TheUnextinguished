@@ -155,7 +155,7 @@ await page.waitForTimeout(600);
 // Out of the fallen belfry, the cemetery: out of doors under its own sky; the dead come up out of the ground.
 const cemetery = await game(() => ({ name: __game.world.level.settings.name, skyline: __game.world.level.settings.skyline }));
 check('out of the fallen belfry, the cemetery, under its own sky', cemetery.name === 'cimetiere' && cemetery.skyline === 'cemetery', JSON.stringify(cemetery));
-await game(() => { const w = __game.world, h = w.hero; w.invincible = true; Object.assign(h, { x: 1000, y: 320 - h.h, vx: 0, vy: 0, onGround: true, climbing: false, lastFloor: 20 }); });
+await game(() => { const w = __game.world, h = w.hero; w.invincible = true; Object.assign(h, { x: 1180, y: 320 - h.h, vx: 0, vy: 0, onGround: true, climbing: false, lastFloor: 20 }); });      // on firm ground, clear of the pits
 await page.waitForFunction(() => __game.world.foes.some(f => f.kind === 'skeleton' && f.dead <= 0), null, { timeout: 6000 }).catch(() => {});
 check('the dead come up out of the ground as the hero goes', await game(() => __game.world.foes.some(f => f.kind === 'skeleton' && f.dead <= 0)));
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/cemetery.png' });

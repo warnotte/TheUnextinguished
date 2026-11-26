@@ -8,9 +8,10 @@ import { VIEW_H, VIEW_W } from './camera';
 
 const KNEE = 0.72;          // what is darker than this (on each of red, green, blue) does not glow
 const SPREAD = 1.5;         // px of blur on the quarter-size copy (four times that on the picture)
-const WIDE = 1;             // how much of the wide glow is laid back
+const WIDE = 0.85;          // how much of the wide glow is laid back
+const WARM = -18;           // degrees the wide glow is turned towards red: the pale yellow of a flame, spread on violet stone, would turn khaki
 const TIGHT = 0.5;          // how much of the tight one, from the half-size copy: the hot heart of a flame
-const EDGE = 0.3;           // how dark the corners of the picture are made
+const EDGE = 0.2;           // how dark the corners of the picture are made
 
 export class Grade {
   private readonly bright = Object.assign(document.createElement('canvas'), { width: VIEW_W / 2, height: VIEW_H / 2 });
@@ -38,7 +39,7 @@ export class Grade {
     const s = this.wide.getContext('2d')!;
     s.clearRect(0, 0, this.wide.width, this.wide.height);
     s.imageSmoothingEnabled = true; s.imageSmoothingQuality = 'medium';
-    s.filter = `blur(${SPREAD}px)`;
+    s.filter = `blur(${SPREAD}px) hue-rotate(${WARM}deg)`;
     s.drawImage(this.bright, 0, 0, this.wide.width, this.wide.height);
     s.filter = 'none';
     // Laid on with 'screen', so that what is already white does not burn.

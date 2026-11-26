@@ -34,14 +34,18 @@ export function thinkShade(e: Actor, hero: Actor, grid: Grid, playing: boolean):
   }
   if (!e.onGround) { out.x = e.airDir; return out; }
 
-  const ef = e.lastFloor, pf = hero.lastFloor;
+  const ef = e.lastFloor, pf = hero.lastFloor, feet = e.y + e.h;
+  // On foot, over the hills too, it can reach him: then they share a floor, whatever their rows say.
+  const same = pf === ef || (hero.onGround && Math.abs(pcx - ecx) < 700 && grid.walkable(ecx, feet, pcx, hero.y + hero.h));
   let target = pcx;
   let via: Ladder | null = null;
-  if (pf !== ef) {
+  if (!same) {
     let best = Infinity;
     for (const l of grid.ladders) {
-      // Going up, a ladder whose foot stands on this floor; going down, one whose top is level with it.
+      // Going up, a ladder whose foot stands on this floor; going down, one whose top is level with it;
+      // and one it can walk to from where it is, not a ladder of some other place at the same height.
       if (pf < ef ? l.rowBottom + 1 !== ef : l.rowTop !== ef) continue;
+      if (grid.groundAt(ecx) !== null && !grid.walkable(ecx, feet, l.x, (pf < ef ? l.rowBottom + 1 : l.rowTop) * TILE)) continue;
       const cost = Math.abs(ecx - l.x) + Math.abs(l.x - pcx) * 0.6;
       if (cost < best) { best = cost; via = l; }
     }
@@ -53,7 +57,7 @@ export function thinkShade(e: Actor, hero: Actor, grid: Grid, playing: boolean):
     out.up = e.climbDir < 0; out.down = e.climbDir > 0;
     return out;
   }
-  if (!via && pf === ef && Math.abs(d) < STRIKE_RANGE && Math.abs(hero.y - e.y) < STRIKE_HEIGHT && e.cool <= 0 && hero.invul <= 0) {
+  if (!via && same && Math.abs(d) < STRIKE_RANGE && Math.abs(hero.y - e.y) < STRIKE_HEIGHT && e.cool <= 0 && hero.invul <= 0) {
     if (d !== 0) e.facing = d > 0 ? 1 : -1;
     e.windup = SHADE_WINDUP; e.vx = 0; e.chain = 0;
     return out;
@@ -63,7 +67,7 @@ export function thinkShade(e: Actor, hero: Actor, grid: Grid, playing: boolean):
   if (out.x) {
     e.facing = out.x;
     const ahead = Math.floor((ecx + out.x * LOOK_AHEAD) / TILE);
-    if (!grid.floorAt(ahead, ef)) {
+    if (grid.groundUnder(ecx + out.x * LOOK_AHEAD, feet) === null) {
       let lands = false;
       for (let k = 1; k <= JUMPABLE; k++) if (grid.floorAt(ahead + out.x * k, ef)) { lands = true; break; }
       if (lands && (target - (ahead * TILE + TILE / 2)) * out.x > 0 && pf <= ef) out.jumpPressed = true;

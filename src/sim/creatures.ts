@@ -4,7 +4,7 @@
 
 import { type Actor, centreX, feetY } from './actor';
 import type { Arena } from './demon';
-import { TILE } from './grid';
+import { type Grid, TILE } from './grid';
 import { move, TUNING } from './movement';
 
 export const SKULL = {
@@ -175,7 +175,8 @@ export function stepHound(e: Actor, a: Arena, dt: number): void {
     return;
   }
   e.modeT += dt; e.invul = Math.max(0, e.invul - dt); e.stun = Math.max(0, e.stun - dt);
-  const dx = centreX(hero) - centreX(e), sameFloor = hero.lastFloor === e.lastFloor;
+  const dx = centreX(hero) - centreX(e);
+  const sameFloor = hero.lastFloor === e.lastFloor || (hero.onGround && Math.abs(dx) < HOUND.sight * 2 && a.grid.walkable(centreX(e), feetY(e), centreX(hero), feetY(hero)));
   if (e.stun > 0) e.vx *= Math.exp(-5 * dt);
   else switch (e.mode) {
     case 'sit':
@@ -184,9 +185,12 @@ export function stepHound(e: Actor, a: Arena, dt: number): void {
       break;
     case 'run': {
       if (Math.abs(dx) > 2) e.facing = dx > 0 ? 1 : -1;
-      const ahead = !e.onGround || a.grid.floorAt(Math.floor((centreX(e) + e.facing * 14) / TILE), e.lastFloor);
+      const ahead = !e.onGround || a.grid.groundUnder(centreX(e) + e.facing * 14, feetY(e)) !== null;
       e.vx = ahead ? e.facing * HOUND.run : 0;
-      if (a.playing && e.onGround && sameFloor && Math.abs(dx) < HOUND.leapRange) {
+      const bite = sameFloor && Math.abs(dx) < HOUND.leapRange;
+      // At the edge of a gap, the hero beyond it and about level with it: over it, if it can clear it.
+      const over = !ahead && dx * e.facing > 0 && Math.abs(feetY(hero) - feetY(e)) < 48 && leapClears(e, a.grid);
+      if (a.playing && e.onGround && (bite || over)) {
         e.vx = e.facing * HOUND.leapVx; e.vy = -HOUND.leapVy; e.onGround = false;
         to(e, 'leap');
         a.emit({ type: 'sound', name: 'bark' });
@@ -212,6 +216,21 @@ export function stepHound(e: Actor, a: Arena, dt: number): void {
       if (outcome === 'blocked') { e.vx = -e.facing * 220; e.vy = -160; e.onGround = false; }
     }
   }
+}
+
+/**
+ * Whether a leap from where the hound stands, the way it faces, comes down on ground beyond the gap
+ * before it: ground about level with its feet, wide enough to land on, no wall in between.
+ */
+function leapClears(e: Actor, grid: Grid): boolean {
+  const x0 = centreX(e), y = feetY(e);
+  const reach = HOUND.leapVx * 2 * HOUND.leapVy / TUNING.gravity - e.w / 2;      // its feet come down this far off
+  for (let d = 8; d <= reach; d += 4) {
+    const x = x0 + e.facing * d;
+    if (grid.solidAt(Math.floor(x / TILE), Math.round(y / TILE) - 1)) return false;          // a wall
+    if (grid.groundUnder(x, y) !== null && grid.groundUnder(x + e.facing * e.w / 2, y) !== null && d > 12) return true;
+  }
+  return false;
 }
 
 /** A blow: a light one makes it flinch, enough of them and it falls. True when it falls. */

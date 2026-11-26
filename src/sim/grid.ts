@@ -35,6 +35,33 @@ export class Grid {
     return Number.isNaN(y) ? null : y;
   }
 
+  /**
+   * The ground under a walker at x whose feet are at y: the top of a hill there if it is near those feet,
+   * otherwise a floor of the grid level with them; null over a gap.
+   */
+  groundUnder(x: number, y: number): number | null {
+    const hill = this.groundAt(x);
+    if (hill !== null && Math.abs(hill - y) <= 20) return hill;
+    const row = Math.round(y / TILE);
+    return this.floorAt(Math.floor(x / TILE), row) ? row * TILE : null;
+  }
+
+  /**
+   * Whether a walker can go on foot from x0 (its feet at y0) to x1 (feet at y1): ground all the way, no
+   * gap, no step too high or too deep, no wall. A hill joins its top to the ground at its foot.
+   */
+  walkable(x0: number, y0: number, x1: number, y1: number): boolean {
+    const dir = x1 >= x0 ? 1 : -1;
+    let y = y0;
+    for (let x = x0; (x1 - x) * dir > 0; x += dir * 4) {
+      const g = this.groundUnder(x, y);
+      if (g === null || Math.abs(g - y) > 8) return false;
+      if (this.groundAt(x) === null && this.solidAt(Math.floor(x / TILE), Math.round(g / TILE) - 1)) return false;     // a wall
+      y = g;
+    }
+    return Math.abs(y - y1) <= 12;
+  }
+
   /** Something to stand on at this cell: stone, a platform, or the top of a ladder. */
   floorAt(c: number, r: number): boolean { return this.solidAt(c, r) || this.platformAt(c, r) || this.ladderTopAt(c, r); }
 

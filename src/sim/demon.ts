@@ -233,6 +233,9 @@ function land(d: Demon, a: Arena): void {
 
 // ---- the skeletons ----------------------------------------------------------------------------------
 
+/** How far a walking foe looks for a way on foot to the hero, over hills. */
+const REACH_ON_FOOT = 700;
+
 /** A skeleton: it comes out of the ground, then walks to the hero on its floor, or paces it. */
 export function stepSkeleton(e: Actor, hero: Actor, grid: Grid, dt: number, playing: boolean, emit: Emit): void {
   if (e.dead > 0) return;
@@ -241,9 +244,9 @@ export function stepSkeleton(e: Actor, hero: Actor, grid: Grid, dt: number, play
   let speed = 0;
   if (playing) {
     const middle = centreX(e), d = centreX(hero) - middle;
-    const chasing = hero.lastFloor === e.lastFloor;
+    const chasing = hero.lastFloor === e.lastFloor || (hero.onGround && Math.abs(d) < REACH_ON_FOOT && grid.walkable(middle, feetY(e), centreX(hero), feetY(hero)));
     if (chasing && Math.abs(d) > 2) e.facing = d > 0 ? 1 : -1;
-    const ahead = !e.onGround || grid.floorAt(Math.floor((middle + e.facing * 8) / TILE), e.lastFloor);
+    const ahead = !e.onGround || grid.groundUnder(middle + e.facing * 8, feetY(e)) !== null;
     if (chasing) speed = ahead && Math.abs(d) > 2 ? SKELETON.speed : 0;
     else {
       if (e.blocked || !ahead) e.facing = e.facing > 0 ? -1 : 1;

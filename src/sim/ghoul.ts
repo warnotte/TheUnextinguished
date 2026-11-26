@@ -27,9 +27,10 @@ export function stepGhoul(e: Actor, hero: Actor, grid: Grid, dt: number, playing
   let speed = 0;
   if (playing) {
     const middle = e.x + e.w / 2;
-    const chasing = hero.onGround && hero.lastFloor === e.lastFloor;
-    if (chasing) { const d = hero.x + hero.w / 2 - middle; if (d !== 0) e.facing = d > 0 ? 1 : -1; }
-    const floorAhead = !e.onGround || grid.floorAt(Math.floor((middle + e.facing * LOOK_AHEAD) / TILE), e.lastFloor);
+    const hx = hero.x + hero.w / 2, feet = e.y + e.h;
+    const chasing = hero.onGround && (hero.lastFloor === e.lastFloor || (Math.abs(hx - middle) < 700 && grid.walkable(middle, feet, hx, hero.y + hero.h)));
+    if (chasing) { const d = hx - middle; if (d !== 0) e.facing = d > 0 ? 1 : -1; }
+    const floorAhead = !e.onGround || grid.groundUnder(middle + e.facing * LOOK_AHEAD, feet) !== null;
     if (chasing) speed = floorAhead ? GHOUL_SPEED : 0;           // it waits at the edge rather than leave its floor
     else {
       if (e.blocked || !floorAhead) e.facing = e.facing > 0 ? -1 : 1;

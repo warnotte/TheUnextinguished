@@ -3,10 +3,10 @@
 
 import { KINDS } from '../level/kinds';
 import type { Level } from '../level/tiled';
-import { type Actor, centreX, makeActor, MAX_HP } from './actor';
+import { type Actor, centreX, feetY, makeActor, MAX_HP } from './actor';
 import { terrainOf } from './terrain';
 import { REAPER, reaperThere, type Scythe, stepReaper, strikeReaper } from './reaper';
-import { ghostThere, GHOST, stepCrow, stepGhost, stepHound, stepSkull, strikeCrow, strikeGhost, strikeHound, strikeSkull } from './creatures';
+import { ghostThere, GHOST, HOUND, stepCrow, stepGhost, stepHound, stepSkull, strikeCrow, strikeGhost, strikeHound, strikeSkull } from './creatures';
 import { type Fall, makeFall, stepFall } from './fall';
 import { BELL, DEMON, type Arena, type Demon, demonTouchable, makeDemon, SKELETON, stepDemon, stepSkeleton } from './demon';
 import type { Emit, GameEvent } from './events';
@@ -68,6 +68,9 @@ const WATER = { pace: 0.62, deep: 4, step: 22, fall: 160 } as const;
 const KNOCK = { near: { vx: 110, vy: 120, stun: 0.6 }, far: { vx: 350, vy: 300, stun: 1.0 } } as const;
 
 const overlap = (a: Box, b: Box): boolean => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+/** The foes that walk, and so can end up in a pit of spikes. */
+const IMPALED = new Set(['shade', 'hound', 'skeleton', 'ghoul']);
 
 export class World {
   readonly grid: Grid;
@@ -499,7 +502,10 @@ export class World {
     }
     if (e.ko > 0) {
       e.ko -= STEP;
-      if (e.ko <= 0) {                         // it gathers itself again where it fell
+      if (e.ko <= 0) {                         // it gathers itself again where it fell; off the spikes, at its own place
+        if (this.hazards.some(z => this.onSpikes(e, z))) {
+          Object.assign(e, { x: e.spawnX - e.w / 2, y: e.spawnY - e.h, vx: 0, vy: 0, onGround: true, lastFloor: Math.round(e.spawnY / TILE) });
+        }
         e.hp = MAX_HP; e.invul = 0.9; e.cool = 0.9; e.gore = 0;
         this.emit({ type: 'effect', kind: 'poof-green', x: e.x + e.w / 2, y: e.y + e.h, flip: false });
       }
@@ -652,12 +658,42 @@ export class World {
 
   // Spikes: whoever comes down into their pit is hurt, whatever his guard, and thrown up out of it.
   private stepHazards(): void {
-    const p = this.hero, feet = p.y + p.h;
+    const p = this.hero;
     for (const z of this.hazards) {
-      if (p.x + p.w <= z.x || p.x >= z.x + z.w || feet <= z.y + 2 || p.y >= z.y + z.h) continue;
+      if (!this.onSpikes(p, z)) continue;
       if (p.invul <= 0) this.hurtHero(p.x + p.w / 2 < z.x + z.w / 2 ? -1 : 1, 1, true);
       p.vy = -430; p.onGround = false; p.climbing = false;
     }
+    // The foes that walk have no leap to get out of a pit: the spikes end them there.
+    for (const e of this.foes) {
+      if (!IMPALED.has(e.kind) || e.dead > 0 || e.ko > 0 || (e.kind === 'skeleton' && e.rise > 0)) continue;
+      const z = this.hazards.find(z => this.onSpikes(e, z));
+      if (z) this.impale(e, e.vx ? (e.vx > 0 ? 1 : -1) : e.facing);
+    }
+  }
+
+  private onSpikes(a: Actor, z: { x: number; y: number; w: number; h: number }): boolean {
+    return a.x + a.w > z.x && a.x < z.x + z.w && a.y + a.h > z.y + 2 && a.y < z.y + z.h;
+  }
+
+  private impale(e: Actor, dir: 1 | -1): void {
+    const x = centreX(e), y = feetY(e);
+    if (e.kind === 'skeleton') { this.breakSkeleton(e); return; }
+    this.hitStop = 0.08; this.shake = Math.max(this.shake, 0.25);
+    this.bleed(e, dir, BLOOD.finish, FINISH_CHUNKS);
+    this.bleed(e, dir > 0 ? -1 : 1, BLOOD.back, 0);
+    this.emit({ type: 'effect', kind: 'death', x, y, flip: false });
+    this.emit({ type: 'sound', name: 'ko' });
+    this.slain++;
+    e.vx = 0; e.stun = 0; e.windup = 0; e.strike = 0; e.recover = 0; e.bleed = 0; e.climbing = false;
+    if (e.kind === 'shade') {
+      // Ended, as by a finishing blow, and its flame is the hero's: he sent it there.
+      e.dazed = 0; e.ko = 3.5; e.gore = 1;
+      this.spare++;
+      this.emit({ type: 'effect', kind: 'collect-burst', x, y: e.y + 12 + EMBER_BURST_DROP, flip: false });
+      this.emit({ type: 'sound', name: 'ember' });
+    } else if (e.kind === 'hound') { e.hp = 0; e.dead = HOUND.back; }
+    else e.dead = 6;                                             // a ghoul
   }
 
   // The ground still shakes as the level begins: stones fall about the place the hero started from.

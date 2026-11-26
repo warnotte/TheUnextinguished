@@ -701,8 +701,8 @@
   };
 
   // src/level/kinds.ts
-  var FIRE = [255, 170, 92];
-  var CANDLE = [255, 198, 128];
+  var FIRE = [255, 138, 80];
+  var CANDLE = [255, 165, 105];
   var MOON = [150, 172, 255];
   var GLASS = [190, 205, 255];
   var lantern = (dx) => ({ dx, dy: -80, radius: 48, strength: 0.7, flicker: 0.5, color: CANDLE });
@@ -726,7 +726,7 @@
     candle: { role: "heal" },
     ember: { role: "ember" },
     door: { role: "door" },
-    window: { role: "decor", plane: "wall", image: "back", src: [0, 0, 160, 192], anchor: [80, 192], lights: [{ dx: 0, dy: -96, radius: 86, strength: 0.7, flicker: 0, color: MOON, cool: true }, { dx: 0, dy: -112, radius: 44, strength: 0.6, flicker: 0, color: GLASS }], shaft: true },
+    window: { role: "decor", plane: "wall", image: "back", src: [0, 0, 160, 192], anchor: [80, 192], lights: [{ dx: 0, dy: -96, radius: 86, strength: 0.7, flicker: 0, color: MOON, cool: true }, { dx: 0, dy: -112, radius: 28, strength: 0.9, flicker: 0, color: GLASS }], shaft: true },
     altar: { role: "decor", plane: "wall", image: "back", src: [320, 0, 128, 192], anchor: [64, 192], lights: [{ dx: 0, dy: -48, radius: 58, strength: 0.75, flicker: 0.5, color: CANDLE }], shaft: false },
     gargoyle: { role: "decor", plane: "wall", image: "back", src: [464, 0, 80, 192], anchor: [40, 192], lights: [], shaft: false },
     pillar: { role: "decor", plane: "wall", image: "column", src: [0, 0, 114, 190], anchor: [57, 190], lights: [lantern(-19), lantern(36)], shaft: false },
@@ -914,6 +914,31 @@
       if (i < 0 || i >= this.terrain.length) return null;
       const y = this.terrain[i];
       return Number.isNaN(y) ? null : y;
+    }
+    /**
+     * The ground under a walker at x whose feet are at y: the top of a hill there if it is near those feet,
+     * otherwise a floor of the grid level with them; null over a gap.
+     */
+    groundUnder(x, y) {
+      const hill = this.groundAt(x);
+      if (hill !== null && Math.abs(hill - y) <= 20) return hill;
+      const row = Math.round(y / TILE);
+      return this.floorAt(Math.floor(x / TILE), row) ? row * TILE : null;
+    }
+    /**
+     * Whether a walker can go on foot from x0 (its feet at y0) to x1 (feet at y1): ground all the way, no
+     * gap, no step too high or too deep, no wall. A hill joins its top to the ground at its foot.
+     */
+    walkable(x0, y0, x1, y1) {
+      const dir = x1 >= x0 ? 1 : -1;
+      let y = y0;
+      for (let x = x0; (x1 - x) * dir > 0; x += dir * 4) {
+        const g2 = this.groundUnder(x, y);
+        if (g2 === null || Math.abs(g2 - y) > 8) return false;
+        if (this.groundAt(x) === null && this.solidAt(Math.floor(x / TILE), Math.round(g2 / TILE) - 1)) return false;
+        y = g2;
+      }
+      return Math.abs(y - y1) <= 12;
     }
     /** Something to stand on at this cell: stone, a platform, or the top of a ladder. */
     floorAt(c, r) {
@@ -1663,7 +1688,8 @@
     e.modeT += dt;
     e.invul = Math.max(0, e.invul - dt);
     e.stun = Math.max(0, e.stun - dt);
-    const dx = centreX(hero) - centreX(e), sameFloor = hero.lastFloor === e.lastFloor;
+    const dx = centreX(hero) - centreX(e);
+    const sameFloor = hero.lastFloor === e.lastFloor || hero.onGround && Math.abs(dx) < HOUND.sight * 2 && a.grid.walkable(centreX(e), feetY(e), centreX(hero), feetY(hero));
     if (e.stun > 0) e.vx *= Math.exp(-5 * dt);
     else switch (e.mode) {
       case "sit":
@@ -1675,9 +1701,11 @@
         break;
       case "run": {
         if (Math.abs(dx) > 2) e.facing = dx > 0 ? 1 : -1;
-        const ahead = !e.onGround || a.grid.floorAt(Math.floor((centreX(e) + e.facing * 14) / TILE), e.lastFloor);
+        const ahead = !e.onGround || a.grid.groundUnder(centreX(e) + e.facing * 14, feetY(e)) !== null;
         e.vx = ahead ? e.facing * HOUND.run : 0;
-        if (a.playing && e.onGround && sameFloor && Math.abs(dx) < HOUND.leapRange) {
+        const bite = sameFloor && Math.abs(dx) < HOUND.leapRange;
+        const over = !ahead && dx * e.facing > 0 && Math.abs(feetY(hero) - feetY(e)) < 48 && leapClears(e, a.grid);
+        if (a.playing && e.onGround && (bite || over)) {
           e.vx = e.facing * HOUND.leapVx;
           e.vy = -HOUND.leapVy;
           e.onGround = false;
@@ -1708,6 +1736,16 @@
         }
       }
     }
+  }
+  function leapClears(e, grid) {
+    const x0 = centreX(e), y = feetY(e);
+    const reach2 = HOUND.leapVx * 2 * HOUND.leapVy / TUNING.gravity - e.w / 2;
+    for (let d = 8; d <= reach2; d += 4) {
+      const x = x0 + e.facing * d;
+      if (grid.solidAt(Math.floor(x / TILE), Math.round(y / TILE) - 1)) return false;
+      if (grid.groundUnder(x, y) !== null && grid.groundUnder(x + e.facing * e.w / 2, y) !== null && d > 12) return true;
+    }
+    return false;
   }
   function strikeHound(e, dir, damage) {
     e.hp = Math.max(0, e.hp - damage);
@@ -2055,6 +2093,7 @@
     if (d.enraged) for (const dir of [-1, 1]) d.waves.push({ x: d.markX + dir * 20, y: d.landY, dir, t: 0, hit: false });
     settle(d);
   }
+  var REACH_ON_FOOT = 700;
   function stepSkeleton(e, hero, grid, dt, playing, emit) {
     if (e.dead > 0) return;
     e.invul = Math.max(0, e.invul - dt);
@@ -2065,9 +2104,9 @@
     let speed = 0;
     if (playing) {
       const middle = centreX(e), d = centreX(hero) - middle;
-      const chasing = hero.lastFloor === e.lastFloor;
+      const chasing = hero.lastFloor === e.lastFloor || hero.onGround && Math.abs(d) < REACH_ON_FOOT && grid.walkable(middle, feetY(e), centreX(hero), feetY(hero));
       if (chasing && Math.abs(d) > 2) e.facing = d > 0 ? 1 : -1;
-      const ahead = !e.onGround || grid.floorAt(Math.floor((middle + e.facing * 8) / TILE), e.lastFloor);
+      const ahead = !e.onGround || grid.groundUnder(middle + e.facing * 8, feetY(e)) !== null;
       if (chasing) speed = ahead && Math.abs(d) > 2 ? SKELETON.speed : 0;
       else {
         if (e.blocked || !ahead) e.facing = e.facing > 0 ? -1 : 1;
@@ -2101,12 +2140,13 @@
     let speed = 0;
     if (playing) {
       const middle = e.x + e.w / 2;
-      const chasing = hero.onGround && hero.lastFloor === e.lastFloor;
+      const hx = hero.x + hero.w / 2, feet = e.y + e.h;
+      const chasing = hero.onGround && (hero.lastFloor === e.lastFloor || Math.abs(hx - middle) < 700 && grid.walkable(middle, feet, hx, hero.y + hero.h));
       if (chasing) {
-        const d = hero.x + hero.w / 2 - middle;
+        const d = hx - middle;
         if (d !== 0) e.facing = d > 0 ? 1 : -1;
       }
-      const floorAhead = !e.onGround || grid.floorAt(Math.floor((middle + e.facing * LOOK_AHEAD) / TILE), e.lastFloor);
+      const floorAhead = !e.onGround || grid.groundUnder(middle + e.facing * LOOK_AHEAD, feet) !== null;
       if (chasing) speed = floorAhead ? GHOUL_SPEED : 0;
       else {
         if (e.blocked || !floorAhead) e.facing = e.facing > 0 ? -1 : 1;
@@ -2139,9 +2179,9 @@
     const out = { ...NO_CONTROLS, jump: true };
     const ecx = e.x + e.w / 2, pcx = hero.x + hero.w / 2;
     if (e.climbing) {
-      const goal = hero.lastFloor * TILE, feet = e.y + e.h;
-      if (e.climbDir < 0 && goal > feet + 24) e.climbDir = 1;
-      else if (e.climbDir > 0 && goal < feet - 24) e.climbDir = -1;
+      const goal = hero.lastFloor * TILE, feet2 = e.y + e.h;
+      if (e.climbDir < 0 && goal > feet2 + 24) e.climbDir = 1;
+      else if (e.climbDir > 0 && goal < feet2 - 24) e.climbDir = -1;
       out.up = e.climbDir < 0;
       out.down = e.climbDir > 0;
       return out;
@@ -2150,13 +2190,15 @@
       out.x = e.airDir;
       return out;
     }
-    const ef = e.lastFloor, pf = hero.lastFloor;
+    const ef = e.lastFloor, pf = hero.lastFloor, feet = e.y + e.h;
+    const same = pf === ef || hero.onGround && Math.abs(pcx - ecx) < 700 && grid.walkable(ecx, feet, pcx, hero.y + hero.h);
     let target = pcx;
     let via = null;
-    if (pf !== ef) {
+    if (!same) {
       let best = Infinity;
       for (const l of grid.ladders) {
         if (pf < ef ? l.rowBottom + 1 !== ef : l.rowTop !== ef) continue;
+        if (grid.groundAt(ecx) !== null && !grid.walkable(ecx, feet, l.x, (pf < ef ? l.rowBottom + 1 : l.rowTop) * TILE)) continue;
         const cost = Math.abs(ecx - l.x) + Math.abs(l.x - pcx) * 0.6;
         if (cost < best) {
           best = cost;
@@ -2172,7 +2214,7 @@
       out.down = e.climbDir > 0;
       return out;
     }
-    if (!via && pf === ef && Math.abs(d) < STRIKE_RANGE && Math.abs(hero.y - e.y) < STRIKE_HEIGHT && e.cool <= 0 && hero.invul <= 0) {
+    if (!via && same && Math.abs(d) < STRIKE_RANGE && Math.abs(hero.y - e.y) < STRIKE_HEIGHT && e.cool <= 0 && hero.invul <= 0) {
       if (d !== 0) e.facing = d > 0 ? 1 : -1;
       e.windup = SHADE_WINDUP;
       e.vx = 0;
@@ -2184,7 +2226,7 @@
     if (out.x) {
       e.facing = out.x;
       const ahead = Math.floor((ecx + out.x * LOOK_AHEAD2) / TILE);
-      if (!grid.floorAt(ahead, ef)) {
+      if (grid.groundUnder(ecx + out.x * LOOK_AHEAD2, feet) === null) {
         let lands = false;
         for (let k = 1; k <= JUMPABLE; k++) if (grid.floorAt(ahead + out.x * k, ef)) {
           lands = true;
@@ -2233,6 +2275,7 @@
   var WATER = { pace: 0.62, deep: 4, step: 22, fall: 160 };
   var KNOCK = { near: { vx: 110, vy: 120, stun: 0.6 }, far: { vx: 350, vy: 300, stun: 1 } };
   var overlap3 = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  var IMPALED = /* @__PURE__ */ new Set(["shade", "hound", "skeleton", "ghoul"]);
   var World = class {
     constructor(level) {
       this.level = level;
@@ -2800,6 +2843,9 @@
       if (e.ko > 0) {
         e.ko -= STEP;
         if (e.ko <= 0) {
+          if (this.hazards.some((z) => this.onSpikes(e, z))) {
+            Object.assign(e, { x: e.spawnX - e.w / 2, y: e.spawnY - e.h, vx: 0, vy: 0, onGround: true, lastFloor: Math.round(e.spawnY / TILE) });
+          }
           e.hp = MAX_HP;
           e.invul = 0.9;
           e.cool = 0.9;
@@ -2992,14 +3038,54 @@
     }
     // Spikes: whoever comes down into their pit is hurt, whatever his guard, and thrown up out of it.
     stepHazards() {
-      const p = this.hero, feet = p.y + p.h;
+      const p = this.hero;
       for (const z of this.hazards) {
-        if (p.x + p.w <= z.x || p.x >= z.x + z.w || feet <= z.y + 2 || p.y >= z.y + z.h) continue;
+        if (!this.onSpikes(p, z)) continue;
         if (p.invul <= 0) this.hurtHero(p.x + p.w / 2 < z.x + z.w / 2 ? -1 : 1, 1, true);
         p.vy = -430;
         p.onGround = false;
         p.climbing = false;
       }
+      for (const e of this.foes) {
+        if (!IMPALED.has(e.kind) || e.dead > 0 || e.ko > 0 || e.kind === "skeleton" && e.rise > 0) continue;
+        const z = this.hazards.find((z2) => this.onSpikes(e, z2));
+        if (z) this.impale(e, e.vx ? e.vx > 0 ? 1 : -1 : e.facing);
+      }
+    }
+    onSpikes(a, z) {
+      return a.x + a.w > z.x && a.x < z.x + z.w && a.y + a.h > z.y + 2 && a.y < z.y + z.h;
+    }
+    impale(e, dir) {
+      const x = centreX(e), y = feetY(e);
+      if (e.kind === "skeleton") {
+        this.breakSkeleton(e);
+        return;
+      }
+      this.hitStop = 0.08;
+      this.shake = Math.max(this.shake, 0.25);
+      this.bleed(e, dir, BLOOD.finish, FINISH_CHUNKS);
+      this.bleed(e, dir > 0 ? -1 : 1, BLOOD.back, 0);
+      this.emit({ type: "effect", kind: "death", x, y, flip: false });
+      this.emit({ type: "sound", name: "ko" });
+      this.slain++;
+      e.vx = 0;
+      e.stun = 0;
+      e.windup = 0;
+      e.strike = 0;
+      e.recover = 0;
+      e.bleed = 0;
+      e.climbing = false;
+      if (e.kind === "shade") {
+        e.dazed = 0;
+        e.ko = 3.5;
+        e.gore = 1;
+        this.spare++;
+        this.emit({ type: "effect", kind: "collect-burst", x, y: e.y + 12 + EMBER_BURST_DROP, flip: false });
+        this.emit({ type: "sound", name: "ember" });
+      } else if (e.kind === "hound") {
+        e.hp = 0;
+        e.dead = HOUND.back;
+      } else e.dead = 6;
     }
     // The ground still shakes as the level begins: stones fall about the place the hero started from.
     stepTremor() {
@@ -3534,9 +3620,10 @@
   // src/render/grade.ts
   var KNEE = 0.72;
   var SPREAD = 1.5;
-  var WIDE = 1;
+  var WIDE = 0.85;
+  var WARM = -18;
   var TIGHT = 0.5;
-  var EDGE = 0.3;
+  var EDGE = 0.2;
   var Grade = class {
     bright = Object.assign(document.createElement("canvas"), { width: VIEW_W / 2, height: VIEW_H / 2 });
     wide = Object.assign(document.createElement("canvas"), { width: VIEW_W / 4, height: VIEW_H / 4 });
@@ -3565,7 +3652,7 @@
       s.clearRect(0, 0, this.wide.width, this.wide.height);
       s.imageSmoothingEnabled = true;
       s.imageSmoothingQuality = "medium";
-      s.filter = `blur(${SPREAD}px)`;
+      s.filter = `blur(${SPREAD}px) hue-rotate(${WARM}deg)`;
       s.drawImage(this.bright, 0, 0, this.wide.width, this.wide.height);
       s.filter = "none";
       g2.save();
@@ -4199,7 +4286,7 @@
   var FALL2 = [0, 0.08, 0.18, 0.3, 0.45, 0.6, 0.75, 0.88, 1];
   var SOFT = 1.5;
   var WASH = 0.3;
-  var COOL_WASH = 0.18;
+  var COOL_WASH = 0.04;
   var OVER = 0.8;
   var HAZE = 0.1;
   var DEEP = 0.8;
