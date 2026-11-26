@@ -12,6 +12,7 @@ mod collapse;
 mod dawn;
 mod dirge;
 mod flood;
+mod furnace;
 mod graves;
 mod crypte;
 mod demon;
@@ -47,6 +48,7 @@ fn tunes() -> Vec<Tune> {
         Tune { name: flood::NAME, about: flood::ABOUT, time: flood::time(), sections: flood::SECTIONS, mix: flood::mix, once: false },
         Tune { name: dawn::NAME, about: dawn::ABOUT, time: dawn::time(), sections: dawn::SECTIONS, mix: dawn::mix, once: false },
         Tune { name: dirge::NAME, about: dirge::ABOUT, time: dirge::time(), sections: dirge::SECTIONS, mix: dirge::mix, once: true },
+        Tune { name: furnace::NAME, about: furnace::ABOUT, time: furnace::time(), sections: furnace::SECTIONS, mix: furnace::mix, once: false },
         Tune { name: graves::NAME, about: graves::ABOUT, time: graves::time(), sections: graves::SECTIONS, mix: graves::mix, once: false },
     ]
 }

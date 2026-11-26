@@ -275,7 +275,7 @@ level. Behaviour that is new goes into `src/sim/`, never into a level.
 - Music: ours, played on the emulated sound chips of NoobSynth (FM operators and drum machines for
   the nave; NES and SNES oscillators, a pipe organ and an FM bell for the crypt; the NES chip, an
   808 kick and an FM bell for the bell chamber and the entrance of the demon; two SIDs of the
-  Commodore 64, emulated by reSID, for the flooded crypt, the cemetery and the fall) by the program in
+  Commodore 64, emulated by reSID, for the furnace, the flooded crypt, the cemetery and the fall) by the program in
   `tools/music` (see its README to render them again). The belfry plays `assets/music/poursuite.*`,
   an earlier tune on the AY-3-8910, made by `essais/ay-essai`.
 - Sound effects: made on the spot by `src/audio.ts`, no samples.

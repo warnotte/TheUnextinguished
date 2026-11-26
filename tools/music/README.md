@@ -7,13 +7,14 @@ NoobSynth3's `dsp-core` (taken by path, read only: `E:/CODEX/NoobSynth3/crates/d
 |---|---|---|
 | `nef` | 1, the Nave | FM (`FmMatrix` lead, stabs, pad, pluck; `FmOperator` bass), TR-909 drums |
 | `crypte` | 2, the Crypt | `NesOsc` pulses, triangle and noise, `SnesOsc` strings and bass, `PipeOrgan`, an `FmMatrix` bell, `Kick808` and `Tom909` |
-| `dirge` | 7, played once as the Cemetery begins | two SIDs: a drone on the tritone, a music box out of tune creeping down by half tones, chords diminished; the wind, a far bell |
-| `graves` | 7, the Cemetery, after `dirge` | two SIDs, faster: a bass round the tritone, the Dies irae (the old chant, free of rights); dull blows, a clock, the bell |
+| `furnace` | 3, the Furnace | two SIDs: C in the Phrygian dominant mode, 150 beats a minute; a bass pumping in octaves through the filter, the chords run through, the theme; drums, an anvil as in a forge; in the middle, half time, the theme in long notes over the anvil |
+| `dirge` | 8, played once as the Cemetery begins | two SIDs: a drone on the tritone, a music box out of tune creeping down by half tones, chords diminished; the wind, a far bell |
+| `graves` | 8, the Cemetery, after `dirge` | two SIDs, faster: a bass round the tritone, the Dies irae (the old chant, free of rights); dull blows, a clock, the bell |
 | `dawn` | the end, over the cemetery at dawn | two SIDs: the music box of `dirge` climbing at last, in D major; a warm pad, a far bell |
-| `flood` | 3, the Flooded Crypt | two SIDs of the Commodore 64: a drone through the filter, drops of water, a lament; the rain, a heart, the chords |
-| `demon` | 5, the Bell Chamber | `NesOsc` pulses, triangle and noise, a `Kick808`, an `FmMatrix` bell |
-| `arrival` | 5, played once as the demon comes in | the same, its tail kept to ring over the start of `demon` |
-| `collapse` | 6, the Fall | two SIDs of the Commodore 64 (`resid-rs`, the reSID dsp-core plays .sid files with), driven by `src/sid.rs` as the players of its day did, fifty times a second |
+| `flood` | 4, the Flooded Crypt | two SIDs of the Commodore 64: a drone through the filter, drops of water, a lament; the rain, a heart, the chords |
+| `demon` | 6, the Bell Chamber | `NesOsc` pulses, triangle and noise, a `Kick808`, an `FmMatrix` bell |
+| `arrival` | 6, played once as the demon comes in | the same, its tail kept to ring over the start of `demon` |
+| `collapse` | 7, the Fall | two SIDs of the Commodore 64 (`resid-rs`, the reSID dsp-core plays .sid files with), driven by `src/sid.rs` as the players of its day did, fifty times a second |
 
 Echo and reverb are dsp-core's `Delay`, `Reverb` and `Chorus`.
 
@@ -35,6 +36,7 @@ ffmpeg -y -i <tmp dir>/flood.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music
 ffmpeg -y -i <tmp dir>/dawn.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/dawn.ogg
 ffmpeg -y -i <tmp dir>/dirge.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/dirge.ogg
 ffmpeg -y -i <tmp dir>/graves.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/graves.ogg
+ffmpeg -y -i <tmp dir>/furnace.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/furnace.ogg
 cd tools/music
 cargo run --release -- pack ../../assets/music
 ```

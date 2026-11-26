@@ -35,7 +35,7 @@ const map = {
   type: 'map', version: '1.10', tiledversion: '1.11.0', orientation: 'orthogonal', renderorder: 'right-down', width: W, height: H, tilewidth: 16, tileheight: 16, infinite: false, compressionlevel: -1,
   properties: [
     { name: 'bats', type: 'int', value: 0 }, { name: 'darkness', type: 'float', value: 0.66 }, { name: 'mist', type: 'bool', value: true },
-    { name: 'music', type: 'string', value: 'demon' }, { name: 'title', type: 'string', value: 'THE FURNACE' },
+    { name: 'music', type: 'string', value: 'furnace' }, { name: 'title', type: 'string', value: 'THE FURNACE' },
   ],
   tilesets: [{ firstgid: 1, name: 'collision', image: '../assets/engine/collision.png', imagewidth: 48, imageheight: 16, tilewidth: 16, tileheight: 16, tilecount: 3, columns: 3, margin: 0, spacing: 0 }],
   layers: [{ id: 1, name: 'collision', type: 'tilelayer', width: W, height: H, x: 0, y: 0, opacity: 1, visible: true, data: cells }, group(2, 'decor', decor), group(3, 'items', items), group(4, 'actors', actors)],
