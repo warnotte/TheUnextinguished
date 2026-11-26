@@ -12,10 +12,11 @@ import { TILE } from '../sim/grid';
 import type { World } from '../sim/world';
 import type { Assets } from './assets';
 import { Blood, BLOOD_COLORS } from './blood';
+import { Grade } from './grade';
 import { Lens } from './lens';
 import { Camera, VIEW_H, VIEW_W } from './camera';
-import { type Caster, type Light, LightSheet, shaftPath, shafts } from './lighting';
-import { flashSource, rimOffset } from './shading';
+import { type Caster, clipTo, type Light, LightSheet, shaftPath, shafts } from './lighting';
+import { flashSource, reach, rimOffset } from './shading';
 import { groundLine, rainLine, paintBackdrop } from './scene';
 import { paintCemetery, paintSky, paintSnow } from './sky';
 import { drawBolt, Storm } from './storm';
@@ -32,6 +33,14 @@ interface Loop { sheet: string; x: number; y: number; phase: number; front: bool
 const PUNCH_T = 0.36, KICK_T = 0.42, SWEEP_T = 0.42, SHADE_STRIKE_T = 0.16;
 const FIRE = ['#fff3c4', '#ffc93c', '#ff8a2a', '#e0401c'];
 const MONK_ANCHOR = 40, GHOUL_ANCHOR = 28, SKELETON_ANCHOR = 26;
+// A body is round: the side towards its key lamp takes this much more of that lamp, the far side as much
+// less, from one side of the body to the other (px either side of its middle).
+const ROUND = 0.6, ROUND_SPAN = 11;
+const RIM_DEEP = 0.35;          // the edge that faces the key lamp is lit one pixel deep, and this much of it two
+const VEIL = 0.15;              // how thick the moonlight hangs in the shaft under a window
+// The dark under the feet: how dark under the body, and how much longer away from the lamp, which
+// pushes it all the way when it is this far aside (px).
+const FOOT_DARK = 0.55, FOOT_LONG = 0.9, FOOT_LEAN = 48;
 const DEMON_GLOW: [number, number, number] = [110, 225, 255];        // the blue fire of its skull and of its breath
 // The picture closes in on a finishing blow: how far, and when (seconds: in, held until, back out by).
 const ZOOM = 1.5, ZOOM_IN = 0.1, ZOOM_HOLD = 0.42, ZOOM_OUT = 0.7;
@@ -54,6 +63,7 @@ export class Stage {
   private readonly loops: Loop[] = [];
   private readonly blood: Blood;
   private readonly lens = new Lens(VIEW_W, VIEW_H);     // blood thrown at the screen
+  private readonly grade = new Grade();                 // the glow of what is bright, the dark at the edges
   private readonly stains: HTMLCanvasElement;          // the blood that has landed: it stays for the whole game
   private effects: Playing[] = [];
   private particles: Particle[] = [];
@@ -364,7 +374,9 @@ export class Stage {
       g.fillStyle = `rgba(120,130,205,${LIGHTNING.everywhere * this.storm.glow})`; g.fillRect(0, 0, VIEW_W, VIEW_H);
       g.restore();
     }
+    this.grade.glow(g);
     this.closeIn(g, cx, cy);
+    this.grade.vignette(g);
     this.drawLens(g);
     if (this.collisions) this.drawCollisions(g, cx, cy);
     if (!this.scenery) this.hud.draw(g, t, paused, this.won);
@@ -389,7 +401,7 @@ export class Stage {
     for (const c of w.candles) if (c.lit) out.push({ x: c.x, y: c.y - 14, radius: 46, strength: 0.7, flicker: 0, color: [255, 200, 120] });
     if (w.door && w.doorOpen) out.push({ x: w.door.x + 16, y: w.door.y + 36, radius: 140, strength: 1, flicker: 0, color: [255, 215, 140] });
     const flash = this.storm?.glow ?? 0;
-    if (flash > 0.02) for (const o of this.openings) out.push({ x: o.x, y: o.y, radius: LIGHTNING.radius, strength: LIGHTNING.strength * flash, flicker: 0, color: LIGHTNING.color });
+    if (flash > 0.02) for (const o of this.openings) out.push({ x: o.x, y: o.y, radius: LIGHTNING.radius, strength: LIGHTNING.strength * flash, flicker: 0, color: LIGHTNING.color, cool: true });
     return out;
   }
 
@@ -401,7 +413,7 @@ export class Stage {
     const carry = (a: Actor, l: Light): void => { this.own.set(a, l); out.push(l); };
     // The hero is never quite in the dark: a pale light goes with him.
     if (p.charge > 0) carry(p, { x: p.x + 7, y: p.y + 18, radius: 170, strength: 1, flicker: 0, color: [255, 160, 70] });
-    else carry(p, { x: p.x + 7, y: p.y + 18, radius: 80, strength: 0.3, flicker: 0, color: [200, 205, 255] });
+    else carry(p, { x: p.x + 7, y: p.y + 18, radius: 80, strength: 0.3, flicker: 0, color: [200, 205, 255], cool: true });
     for (const f of w.foes) {
       if (f.kind === 'shade' && f.ko <= 0) carry(f, { x: f.x + 7, y: f.y + 18, radius: 78, strength: 0.7, flicker: 0, color: [90, 255, 150] });
       if (f.kind === 'ghoul' && f.dead <= 0) carry(f, { x: f.x + 7, y: f.y + 8, radius: 104, strength: 0.95, flicker: 0, color: [255, 140, 60] });
@@ -529,8 +541,8 @@ export class Stage {
   private drawSkeleton(g: CanvasRenderingContext2D, e: Actor, t: number): void {
     if (e.dead > 0 || (e.invul > 0 && Math.floor(t * 20) % 2)) return;
     const cx = e.x + e.w / 2, feet = e.y + e.h, key = this.skeletonFrame(e);
-    if (e.rise <= 0) { g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(Math.round(cx - 9), Math.round(feet), 18, 2); }
-    this.picture(g, this.litSprite(key, cx, e.y + 20, e.facing > 0, null), cx, feet, SKELETON_ANCHOR, e.facing > 0);     // the pictures face left
+    if (e.rise <= 0) this.footShadow(g, cx, feet, 9);
+    this.picture(g, this.litSprite(key, cx, e.y + 20, e.facing > 0, null, SKELETON_ANCHOR), cx, feet, SKELETON_ANCHOR, e.facing > 0);     // the pictures face left
   }
 
   // Where the demon floats above its floor: a slow sway, lower when it is spent.
@@ -574,7 +586,7 @@ export class Stage {
   // A frame of a strip, its foot (footX, footY) on (x, y), mirrored when asked; lit as the place lights it, or not.
   private stripFrame(g: CanvasRenderingContext2D, strip: string, n: number, x: number, y: number, mirror: boolean, lit: boolean, alpha = 1): void {
     const s = STRIPS[strip], key = `${strip}/${1 + (n % s.frames)}`;
-    const pic = lit ? this.litSprite(key, x, y - s.footY / 2, mirror, null) : (this.assets.image(key) as HTMLCanvasElement);
+    const pic = lit ? this.litSprite(key, x, y - s.footY / 2, mirror, null, s.footX) : (this.assets.image(key) as HTMLCanvasElement);
     if (alpha < 1) g.globalAlpha = alpha;
     this.picture(g, pic, x, y + (s.h - 1 - s.footY), s.footX, mirror);
     g.globalAlpha = 1;
@@ -599,7 +611,7 @@ export class Stage {
   private drawHound(g: CanvasRenderingContext2D, e: Actor, t: number): void {
     if (e.dead > 0 || (e.invul > 0 && Math.floor(t * 20) % 2)) return;
     const cx = e.x + e.w / 2, feet = e.y + e.h, mirror = e.facing > 0;
-    g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(Math.round(cx - 12), Math.round(feet), 24, 2);
+    if (e.onGround) this.footShadow(g, cx, feet, 12);
     this.glow(g, cx, e.y + 8, 34, 'rgba(255,80,30,0.3)');              // the embers under its hide
     if (e.mode === 'leap' || !e.onGround) {
       // The leap: its frames from the spring to the landing, the body lifted by the jump itself.
@@ -1188,6 +1200,20 @@ export class Stage {
     else this.sprite(g, e.frames[Math.min(e.frames.length - 1, Math.floor(fx.t / e.frameTime))], fx.x, fx.y, e.anchorX, false);
   }
 
+  // The dark under a body, on the stone it stands on: soft at its ends, and pushed away from the
+  // lamp that lights the body most, longer on that side. `half` is half its width.
+  private footShadow(g: CanvasRenderingContext2D, x: number, feet: number, half: number): void {
+    const lamp = this.lights.sample(x, feet - 12).key;
+    const away = lamp ? Math.max(-1, Math.min(1, (x - lamp.x) / FOOT_LEAN)) : 0;
+    const from = x - half - Math.max(0, -away) * half * FOOT_LONG, to = x + half + Math.max(0, away) * half * FOOT_LONG;
+    const dark = g.createLinearGradient(from, 0, to, 0), mid = (x - from) / (to - from);
+    dark.addColorStop(0, 'rgba(0,0,0,0)'); dark.addColorStop(mid, `rgba(0,0,0,${FOOT_DARK})`); dark.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = dark;
+    const y = Math.round(feet), l = Math.round(from), r = Math.round(to);
+    g.fillRect(l, y, r - l, 1);
+    g.globalAlpha = 0.5; g.fillRect(l + 2, y + 1, r - l - 4, 1); g.globalAlpha = 1;
+  }
+
   private glow(g: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string): void {
     g.save(); g.globalCompositeOperation = 'lighter';
     const gr = g.createRadialGradient(x, y, 0, x, y, radius);
@@ -1247,12 +1273,12 @@ export class Stage {
     const set = shade ? (flash ? 'shadeflash/' : 'shade/') : (flash ? 'monkflash/' : 'monk/');
     const dazed = a.dazed > 0;
     const cx = a.x + a.w / 2 + (dazed ? Math.round(Math.sin(t * 5) * 2) : 0), feet = a.y + a.h;
-    g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(Math.round(cx - 9), Math.round(feet), 18, 2);
+    if (a.onGround) this.footShadow(g, cx, feet, 9);
     if (shade) this.glow(g, cx, a.y + 16, 36, 'rgba(90,255,150,0.22)');
     if (a.charge > 0) this.glow(g, cx, a.y + 20, 46, 'rgba(255,150,50,0.55)');
     const frame = this.monkFrame(a, t);
     if (shade || flash) this.sprite(g, set + frame, cx, feet, MONK_ANCHOR, a.facing < 0);
-    else this.picture(g, this.litSprite(set + frame, cx, a.y + 18, a.facing < 0, this.own.get(a) ?? null), cx, feet, MONK_ANCHOR, a.facing < 0);
+    else this.picture(g, this.litSprite(set + frame, cx, a.y + 18, a.facing < 0, this.own.get(a) ?? null, MONK_ANCHOR), cx, feet, MONK_ANCHOR, a.facing < 0);
     if (a.gore > 0 && !flash) { g.globalAlpha = Math.min(1, a.gore * 1.2); this.sprite(g, 'gore/' + frame, cx, feet, MONK_ANCHOR, a.facing < 0); g.globalAlpha = 1; }
     if (guarding) {
       // The guard: a pale arc in front, brighter for a moment when it has just stopped a blow.
@@ -1267,35 +1293,51 @@ export class Stage {
     if (shade && a.windup > 0 && Math.floor(t * 24) % 2) { g.fillStyle = '#ffffff'; g.fillRect(Math.round(cx - 2), Math.round(a.y - 14), 4, 8); }
   }
 
-  // A sprite as the light of its place makes it: tinted by the colour of that light, and with a
-  // bright edge, one pixel wide, on the side of the lamp that lights it most.
-  private litSprite(key: string, x: number, y: number, mirror: boolean, own: Light | null): HTMLCanvasElement {
+  // A sprite as the light of its place makes it: tinted by the colour of that light; brighter on
+  // the side of the lamp that lights it most and darker on the other, for a body is round; and with
+  // a bright edge, where that lamp grazes it. `anchor` is the column of the picture on its middle.
+  private litSprite(key: string, x: number, y: number, mirror: boolean, own: Light | null, anchor: number): HTMLCanvasElement {
     const pic = this.assets.image(key) as HTMLImageElement, [out, edge] = this.bench;
     const { color, key: lamp } = this.lights.sample(x, y, own);
     const floor = 96;                                  // he is never darker than this: he must be seen
+    const tint = (c: readonly number[]): string => `rgb(${Math.round(Math.max(floor, c[0]))},${Math.round(Math.max(floor, c[1]))},${Math.round(Math.max(floor + 14, c[2]))})`;
     out.width = pic.width; out.height = pic.height;
     const k = out.getContext('2d')!;
     k.drawImage(pic, 0, 0);
     k.globalCompositeOperation = 'multiply';
-    k.fillStyle = `rgb(${Math.max(floor, color[0])},${Math.max(floor, color[1])},${Math.max(floor + 14, color[2])})`;
+    let fill: string | CanvasGradient = tint(color);
+    if (lamp) {
+      // The light of the key lamp, more on the side it comes from, less on the far side.
+      const share = reach(lamp, x, y) * ROUND, d = Math.hypot(lamp.x - x, lamp.y - y) || 1;
+      const ux = ((lamp.x - x) / d) * (mirror ? -1 : 1), uy = (lamp.y - y) / d, cy = pic.height * 0.55, span = ROUND_SPAN;
+      const across = k.createLinearGradient(anchor - ux * span, cy - uy * span, anchor + ux * span, cy + uy * span);
+      across.addColorStop(0, tint(color.map((v, i) => v - lamp.color[i] * share)));
+      across.addColorStop(1, tint(color.map((v, i) => v + lamp.color[i] * share)));
+      fill = across;
+    }
+    k.fillStyle = fill;
     k.fillRect(0, 0, out.width, out.height);
     k.globalCompositeOperation = 'destination-in';
     k.drawImage(pic, 0, 0);
     if (lamp) {
       const [dx, dy] = rimOffset(lamp, x, y), sx = mirror ? -dx : dx;      // the picture is turned over when he faces left
       if (sx || dy) {
-        edge.width = pic.width; edge.height = pic.height;
-        const e = edge.getContext('2d')!;
-        e.drawImage(pic, 0, 0);
-        e.globalCompositeOperation = 'destination-out';
-        e.drawImage(pic, -sx, -dy);                     // what is left: the pixels with nothing between them and the lamp
-        e.globalCompositeOperation = 'source-in';
-        e.fillStyle = `rgb(${lamp.color[0]},${lamp.color[1]},${lamp.color[2]})`;
-        e.fillRect(0, 0, edge.width, edge.height);
-        const near = 1 - Math.hypot(lamp.x - x, lamp.y - y) / lamp.radius;
-        k.globalCompositeOperation = 'lighter';
-        k.globalAlpha = Math.min(0.9, 0.25 + lamp.strength * near);
-        k.drawImage(edge, 0, 0);
+        const near = 1 - Math.hypot(lamp.x - x, lamp.y - y) / lamp.radius, alpha = Math.min(0.9, 0.25 + lamp.strength * near);
+        // The edge that faces the lamp, one pixel deep and, fainter, two.
+        for (const [step, share] of [[1, 1], [2, RIM_DEEP]]) {
+          edge.width = pic.width; edge.height = pic.height;
+          const e = edge.getContext('2d')!;
+          e.drawImage(pic, 0, 0);
+          e.globalCompositeOperation = 'destination-out';
+          e.drawImage(pic, -sx * step, -dy * step);          // what is left: the pixels with nothing between them and the lamp
+          e.globalCompositeOperation = 'source-in';
+          e.fillStyle = `rgb(${lamp.color[0]},${lamp.color[1]},${lamp.color[2]})`;
+          e.fillRect(0, 0, edge.width, edge.height);
+          k.globalCompositeOperation = 'lighter';
+          k.globalAlpha = alpha * share;
+          k.drawImage(edge, 0, 0);
+        }
+        k.globalAlpha = 1;
       }
     }
     return out;
@@ -1313,7 +1355,8 @@ export class Stage {
     const level = this.world.level;
     g.save(); g.globalCompositeOperation = 'lighter';
     this.beams.forEach((b, w) => {
-      const breath = 0.075 + 0.02 * Math.sin(t * 0.5 + w * 2);
+      g.save(); clipTo(g, this.lights.beamReach[w]);         // the stone under the window stops the shaft
+      const breath = VEIL + 0.02 * Math.sin(t * 0.5 + w * 2);
       const beam = g.createLinearGradient(b.x + 80, b.y + 62, b.x + 186, b.y + 300);
       beam.addColorStop(0, `rgba(150,170,255,${breath})`); beam.addColorStop(1, 'rgba(150,170,255,0)');
       g.fillStyle = beam; shaftPath(g, b.x, b.y); g.fill();
@@ -1324,6 +1367,7 @@ export class Stage {
         g.fillStyle = `rgba(205,218,255,${(0.75 * (1 - u) * twinkle).toFixed(3)})`;
         g.fillRect(Math.round(x), Math.round(y), 1, 1);
       }
+      g.restore();
     });
     if (level.settings.mist) {
       const banks = Math.ceil(level.width / 58);

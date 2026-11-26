@@ -5,10 +5,11 @@ import type { Light } from './lighting';
 
 export type RGB = readonly [number, number, number];
 
-/** How far behind a body the wall is, as a share of its distance to the lamp: its shadow is that much larger. */
-export const SHADOW_DEPTH = 0.32;
 const SHADOW_DARK = 0.85;      // how dark a shadow is right next to a strong lamp
 const ON_THE_LAMP = 10;        // px: closer than this, a body hides the lamp rather than casting a shadow
+const LAMP_LOW = 28;           // px: a lamp is taken as at least this high above the feet
+const LEAN_MOST = 1.6;         // the most a shadow leans: px sideways per px up
+const RISE = 0.25;             // a shadow lying long is that much taller as well
 
 /** The strength of a light at a point: all of it at the lamp, none at its radius, falling off smoothly. */
 export function reach(l: Light, x: number, y: number): number {
@@ -47,14 +48,32 @@ export function keyLight(lights: readonly Light[], x: number, y: number): Light 
 }
 
 /**
- * The shadow a body centred on (x, y) casts on the wall behind it, for one lamp: its picture
- * enlarged by `scale` round the lamp, as dark as `alpha`. Null when the lamp does not reach it.
+ * The shadow a body centred on (x, y) casts on the wall behind it, for one lamp: as dark as
+ * `alpha` (how it leans is leanOf). Null when the lamp does not reach it.
  */
-export function shadowOf(l: Light, x: number, y: number): { scale: number; alpha: number } | null {
+export function shadowOf(l: Light, x: number, y: number): { alpha: number } | null {
   if (Math.hypot(x - l.x, y - l.y) < ON_THE_LAMP) return null;
   const k = reach(l, x, y);
   if (k <= 0) return null;
-  return { scale: 1 + SHADOW_DEPTH, alpha: Math.min(SHADOW_DARK, 0.25 + k) };
+  return { alpha: Math.min(SHADOW_DARK, 0.25 + k) };
+}
+
+/**
+ * How the shadow of a body standing with its feet at (x, feet) leans away from a lamp: by `lean`
+ * px sideways for every px up, and `rise` times as tall. The higher the lamp above the feet, the
+ * more upright the shadow; the farther aside, the longer it lies.
+ */
+export function leanOf(l: Light, x: number, feet: number): { lean: number; rise: number } {
+  const high = Math.max(LAMP_LOW, feet - l.y), lean = Math.max(-LEAN_MOST, Math.min(LEAN_MOST, (x - l.x) / high));
+  return { lean, rise: 1 + RISE * Math.min(1, Math.abs(lean)) };
+}
+
+/**
+ * How a flame wavers at time t: unevenly, between -1 and 1, and not in step with any other
+ * (`seed` tells them apart). Three waves that never meet again, so it never looks like a pulse.
+ */
+export function flame(t: number, seed: number): number {
+  return 0.5 * Math.sin(t * 9.1 + seed) + 0.3 * Math.sin(t * 15.7 + seed * 1.7) + 0.2 * Math.sin(t * 23.3 + seed * 2.3);
 }
 
 const FLASH_FLOOR = 70;          // px: an opening this much higher or lower than a body is on another floor

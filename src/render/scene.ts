@@ -70,6 +70,8 @@ export function rainLine(grid: Grid, water: number): (number | null)[] {
 const FLOORS = [[64, 167], [128, 167], [0, 168]] as const;
 const floorPiece = (c: number): [number, number] => { const [sx, sy] = FLOORS[Math.floor(c / 3) % 3]; return [sx + (c % 3) * TILE, sy]; };
 const FILL = '#1b0f2b';          // the dark the tileset puts under its floors
+// The dark in the corners where the wall meets the stone: how dark, and how far up from a floor and down from a slab (px).
+const CORNER_DARK = 0.42, CORNER_UP = 18, CORNER_DOWN = 30;
 
 // A wall left standing out of doors: courses of brick, ragged at its top and its sides, darker at its
 // foot; a doorway with fire behind it, arched openings on the sky. Its point is its bottom left corner.
@@ -312,6 +314,23 @@ export function paintBackdrop(level: Level, assets: Assets): HTMLCanvasElement {
     if (under > y + 32) r(x, y + 32, 1, under - y - 32, '#000022');
     b.drawImage(earth, 64 + (x % 64), 48, 1, 48, x, y - TILE, 1, 48);
   }
+
+  // The corners where the wall meets the stone keep less of the light: a soft dark on the wall above
+  // every floor, and under every slab, between the points of its rock. Only on the wall, not in the
+  // openings on the sky, nor out of doors.
+  b.save();
+  b.globalCompositeOperation = 'source-atop';
+  const shade = (x: number, y0: number, y1: number, dark0: number, dark1: number): void => {
+    const fade = b.createLinearGradient(0, y0, 0, y1);
+    fade.addColorStop(0, `rgba(6,5,16,${dark0})`); fade.addColorStop(1, `rgba(6,5,16,${dark1})`);
+    b.fillStyle = fade; b.fillRect(x, Math.min(y0, y1), TILE, Math.abs(y1 - y0));
+  };
+  for (let row = 0; row < grid.rows; row++) for (let c = 0; c < grid.cols; c++) {
+    if (!grid.solidAt(c, row) || (earth && out(c, row))) continue;
+    if (!grid.solidAt(c, row - 1)) shade(c * TILE, row * TILE - CORNER_UP, row * TILE, 0, CORNER_DARK);
+    if (isSlab(grid, c, row)) shade(c * TILE, row * TILE + 12, row * TILE + 12 + CORNER_DOWN, CORNER_DARK, 0);
+  }
+  b.restore();
 
   // Masses of stone: a block texture where they face the air, the tileset's dark fill inside.
   for (let row = 0; row < grid.rows; row++) for (let c = 0; c < grid.cols; c++) {

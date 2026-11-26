@@ -207,15 +207,25 @@ A kind the engine does not know, or a missing layer, is reported in plain words 
 
 The level lies in a dim blue light. Every lamp (a torch, a candle, a window, an ember, a foe that
 glows) adds its own colour to a map of the light, inside what it can see: the stone of the grid
-stops it. The picture is multiplied by that map, and washed a little with the colour of the lamps.
+stops it. The picture is multiplied by that map. Fire is hot: close to the flame it lights the
+stone past its own colour, keeping its grain, and the air round it glows. The moon (a window, an
+arch, a breach) and the flashes of lightning are cool: they light softly and never burn; the
+glass of a window shines. The shaft of moonlight under a window stops at the stone it meets.
+Flames waver and sway, so that the shadows they throw are never quite still.
 The bodies stand in front of the wall: each throws a shadow on it for every lamp that reaches it,
-its outline enlarged round the lamp. The hero takes the colour of the light where he stands, with
-a bright edge on the side of the lamp that lights him most.
+standing on its feet and leaning away from the lamp, longer the lower and farther aside the lamp;
+under their feet the dark is pushed away from the lamp too. The hero takes the colour of the light
+where he stands, brighter on the side of the lamp that lights him most and darker on the other,
+with a bright edge where that lamp grazes him. The wall is darker in the corners where it meets
+the stone; the edge of the floors catches the light near a lamp, and shines when it is wet. Last,
+what is brightest glows into the air round it, and the dark closes in a little at the edges of
+the picture. The maps of the light are drawn at half size: they are soft, and cost little.
 
 ## Add a kind of object
 
 Add an entry to `KINDS` in `src/level/kinds.ts`: a picture with its rectangle and anchor, or an
-animated sheet, the lights it carries, the plane it is drawn on. It is then available to every
+animated sheet, the lights it carries (a light marked `cool` is moonlight: it never burns), the
+plane it is drawn on. It is then available to every
 level. Behaviour that is new goes into `src/sim/`, never into a level.
 
 ## Credits
