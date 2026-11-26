@@ -59,6 +59,7 @@ const actors = [
   obj('hero', 40, F[5]),
   obj('shade', 620, F[4]), obj('shade', 130, F[2]), obj('shade', 640, F[0]),
   obj('ghoul', 420, F[5]), obj('ghoul', 300, F[3]), obj('ghoul', 500, F[1]),
+  obj('skull', 290, 390), obj('skull', 560, 160), obj('hound', 470, F[2]),
 ];
 const group = (lid, name, objects) => ({ id: lid, name, type: 'objectgroup', draworder: 'topdown', opacity: 1, visible: true, x: 0, y: 0, objects });
 const map = {

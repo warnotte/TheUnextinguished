@@ -14,6 +14,7 @@ import { VIEW_H, VIEW_W } from './render/camera';
 import { Stage } from './render/frame';
 import { centered } from './render/text';
 import { drawEnd, drawTitle } from './render/title';
+import { type BestTime, browserStore, Records } from './records';
 import { STEP, World } from './sim/world';
 
 const canvas = document.getElementById('screen') as HTMLCanvasElement;
@@ -61,6 +62,10 @@ function run(assets: Assets, levels: Level[]): void {
   let index = 0;
   let world: World | null = null, stage: Stage | null = null;
   let last = 0, bank = 0, clock = 0, paused = false;
+  const records = new Records(browserStore());
+  let recorded = false;                  // the time of the level in hand has been compared with the best
+  let fromTitle = false;                 // the run began on the title: its time is a run's time
+  let runRecord: BestTime | undefined;
   let cheat = false;                     // G: the hero cannot be harmed, from level to level, until G again
 
   // What the attempt now ending adds to the run: its time, its dead, its blood, his fall.
@@ -71,6 +76,7 @@ function run(assets: Assets, levels: Level[]): void {
     const level = levels[i];
     world = new World(level);
     world.invincible = cheat;
+    recorded = false;
     const boss = !!world.boss;
     stage = new Stage(world, assets, openingWords(level.settings.title, boss), wonWords(i, levels.length, boss));
     sound.setMusic(level.settings.music);
@@ -80,12 +86,13 @@ function run(assets: Assets, levels: Level[]): void {
   const show = (s: 'title' | 'end'): void => {
     leave();
     scene = s; sceneT = 0;
+    runRecord = s === 'end' && fromTitle ? records.record('run', tally.time) : undefined;
     scenery.look(...panAim(0, place.width, place.height), true);
     sound.setMusic(place.settings.music);
     sound.preload([place.settings.music, levels[0].settings.music]);                                 // the first level's, for jump
     paused = false; sound.hush(false);
   };
-  if (asked === null) show('title'); else start(asked);
+  if (asked === null) show('title'); else { fromTitle = false; start(asked); }
   (window as any).__game = { get world() { return world; }, get scene() { return scene; }, get paused() { return paused; }, get level() { return index; }, get run() { return tally; }, get stage() { return stage; }, scenery, sound, start };
 
   // The title and the end: the place lives on, nobody plays in it.
@@ -93,13 +100,13 @@ function run(assets: Assets, levels: Level[]): void {
     const dt = Math.min(MAX_FRAME, Math.max(0, elapsed));
     sceneT += dt; clock += dt;
     const go = c.jumpPressed || c.restartPressed;
-    if (scene === 'title' && go) { tally = NO_RUN; start(0); return; }
+    if (scene === 'title' && go) { tally = NO_RUN; fromTitle = true; start(0); return; }
     if (scene === 'end' && go && sceneT > 1.5) { show('title'); return; }
     scenery.look(...panAim(sceneT, place.width, place.height));
     scenery.update(dt);
     for (const name of scenery.heard()) sound.play(name);
     scenery.draw(g, clock, false);
-    if (scene === 'title') drawTitle(g, sceneT); else drawEnd(g, sceneT, endWords(tally));
+    if (scene === 'title') drawTitle(g, sceneT, records.best('run')); else drawEnd(g, sceneT, endWords(tally, runRecord));
   };
 
   const play = (w: World, st: Stage, c: Frame, elapsed: number): void => {
@@ -125,6 +132,7 @@ function run(assets: Assets, levels: Level[]): void {
         clock += STEP;
       }
     }
+    if (w.state === 'won' && !recorded) { recorded = true; st.setRecord(records.record(w.level.settings.name, w.clock)); }
     st.draw(g, clock, paused);
   };
 

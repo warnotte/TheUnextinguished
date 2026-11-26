@@ -19,4 +19,8 @@ describe('the fight with the demon', () => {
     expect(r.won).toBe(true);
     expect(r.heroHp).toBeLessThan(6);                        // and not without a scratch
   });
+
+  it('can be won by a player of ordinary quickness too, who knows its ways', () => {
+    expect(fightDemon(chamber(), 0.2, true).won).toBe(true);
+  });
 });

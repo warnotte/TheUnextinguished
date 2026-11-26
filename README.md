@@ -43,10 +43,23 @@ The duel:
 - A shade at the end of its health stands dazed for three seconds: a kick, a sweep, a flying kick
   or a charge then ends it; left alone, it comes round.
 
+Other foes walk, run and fly in the levels:
+
+- **The burning ghoul** paces its floor and runs at the hero; a blow puts it out for a while.
+- **The fire skull** hovers about its place; when the hero comes near, its fire flares up and it
+  flies straight at him (the guard turns it away). A blow puts its fire out: the bare skull drops to
+  the floor, then lights again and flies home.
+- **The hell hound** sits until the hero comes onto its floor, then runs at him, faster than he
+  runs, and leaps when it is close (the guard throws it back). A punch makes it flinch, a kick fells
+  it; it comes back later where it sat.
+- **The ghost** comes out of nothing close to the hero, floats a moment, raises its arms and
+  shrieks (the guard stops that), then is gone, to come out again on his other side. A blow drives
+  it off for longer.
+
 The bell chamber, at the top of the belfry, is the room of the demon. It has no door: the room is
 won when the demon is ended.
 
-- **The demon** (44 points of health) floats over its floor and is not thrown by blows. Its wings
+- **The demon** (36 points of health) floats over its floor and is not thrown by blows. Its wings
   rise, then beat all round it, at a hero who comes close, and at once at one who strikes it again
   and again (the guard stops the wings, if the hero has stopped striking: two blows, then guard).
   It breathes blue fire low in front of it from its very body (the guard does not stop fire: get
@@ -55,15 +68,16 @@ won when the demon is ended.
   throws whoever stands near.
 - **Past half its health** it is quicker, it turns and breathes again at a hero who slipped behind
   it, and each landing sends a wave of fire along the floor each way: jump it.
-- **The great bell** tolls now and then, and skeletons come out of their graves (three at most,
-  never under the hero's feet). Their touch hurts; one blow breaks them, and the ember each one
+- **The great bell** tolls now and then, and a skeleton comes out of a grave of the hero's floor if
+  it can, never under his feet (two at most at once). Their touch hurts; one blow breaks them, and the ember each one
   carries goes to the hero.
 - **At the end of its health** the demon stands dazed for good: blows no longer touch it, and only a
   flaming charge ends it. Hence the embers of the skeletons.
 
-The levels follow each other: the door of one leads to the next. After the last comes the end,
+Each level keeps its best time in the browser: the panel of a level won says it, or that it is a
+new record. The levels follow each other: the door of one leads to the next. After the last comes the end,
 which tells the run: its time, the foes snuffed out, the blood spilt, how often the hero was knocked
-out. Then back to the title. To go straight to a level, without the title, add `?level=1` to
+out, and the best run from the title. Then back to the title, which shows that best run. To go straight to a level, without the title, add `?level=1` to
 `?level=4` to the address of the page.
 
 The title stands in front of the first level open on the sky (the belfry), climbing it slowly under
@@ -110,7 +124,8 @@ object, paint a cell); nothing drives them yet.
 - The object layers hold **point** objects whose type is their kind: `torch`, `window`, `pillar`,
   `altar`, `gargoyle`, `balustrade`, `chain-lantern` (with a `length` property), `arch` (an opening
   on the sky, with `width` and `height`), `bell` (the great bell, hung by its top), `ember`, `door`,
-  `grave` (where the bell raises a skeleton), `hero`, `shade`, `ghoul`, `demon`. The point is the anchor of the kind: the bottom middle of a piece of
+  `grave` (where the bell raises a skeleton), `hero`, `shade`, `ghoul`, `skull` (its point is the
+  bottom of its box, in the air), `hound`, `ghost`, `demon`. The point is the anchor of the kind: the bottom middle of a piece of
   decor, the feet of an actor, the pivot of a torch.
 - The map's own properties set the level: `title`, `darkness` (0 to 1), `music`, `mist`, `bats`,
   `sky` (the night shows through the arches, in planes that slide at different speeds:
@@ -118,6 +133,7 @@ object, paint a cell); nothing drives them yet.
 - The third level, the belfry, is written by `node tools/make-beffroi.mjs`; the fourth, the bell
   chamber, by `node tools/make-clocher.mjs`.
 - A level with a `demon` is won when the demon is ended, not by a door.
+- `node tools/add-creatures.mjs` puts the skull, the hounds and the ghosts into the nave and the crypt.
 - The levels are played in the order `index.html` loads them.
 
 A kind the engine does not know, or a missing layer, is reported in plain words on the page.
@@ -140,7 +156,8 @@ level. Behaviour that is new goes into `src/sim/`, never into a level.
 ## Credits
 
 - Sprites and tiles: "Gothicvania Church", the skeletons of "Gothicvania Cemetery" and the demon of
-  the "Gothicvania Patreon's Collection", all by Luis Zuno (ansimuz), public domain (CC0; their
+  the "Gothicvania Patreon's Collection" (with the fire skull, the hell hound and the ghost), all by
+  Luis Zuno (ansimuz), public domain (CC0; their
   licences are in `assets/gothicvania-*/public-license.txt`). The files ending in `-cut.png` are the
   same pictures with their flat backdrop made transparent.
 - Effects: rendered with [pixelfx](https://github.com/patch-gg/pixelfx) by Patch, MIT licence

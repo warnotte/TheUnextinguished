@@ -2,6 +2,7 @@
 // the controls, and the tally of the run.
 
 import { VIEW_H, VIEW_W } from './camera';
+import { clockText } from '../campaign';
 import { centered, text, textWidth } from './text';
 
 const FIRE = ['#fff3c4', '#ffc93c', '#ff8a2a', '#e0401c'];
@@ -65,7 +66,7 @@ const CONTROLS: [string, string, string][] = [
 ];
 
 /** The title: the name, what each key does, and what starts the game. */
-export function drawTitle(g: CanvasRenderingContext2D, t: number): void {
+export function drawTitle(g: CanvasRenderingContext2D, t: number, bestRun: number | null = null): void {
   g.setTransform(1, 0, 0, 1, 0, 0);
   veil(g);
   sparks(g, t);
@@ -83,6 +84,7 @@ export function drawTitle(g: CanvasRenderingContext2D, t: number): void {
   centered(g, 'THE CHARGE COSTS AN EMBER', py + 116, DIM);
 
   if (blink(t)) centered(g, 'PRESS JUMP TO START', 286, GOLD, 3);
+  if (bestRun !== null) centered(g, `BEST RUN ${clockText(bestRun)}`, 310, PALE);
   centered(g, 'F FULL SCREEN    M MUSIC    P PAUSE', 334, DIM);
 }
 

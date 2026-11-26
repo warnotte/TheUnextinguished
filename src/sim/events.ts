@@ -1,7 +1,7 @@
 // What the simulation tells the outside world. It never draws or plays a sound itself.
 
 export type SoundName = 'jump' | 'land' | 'swing' | 'hit' | 'hurt' | 'ember' | 'door' | 'ko' | 'win' | 'daze' | 'finish' | 'block' | 'charge' | 'empty' | 'thunder'
-  | 'bell' | 'roar' | 'breath' | 'slam' | 'bones';
+  | 'bell' | 'roar' | 'breath' | 'slam' | 'bones' | 'flare' | 'growl' | 'bark' | 'shriek';
 
 export type GameEvent =
   | { type: 'effect'; kind: string; x: number; y: number; flip: boolean }   // a one-shot effect with its origin on (x, y)

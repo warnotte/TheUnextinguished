@@ -327,6 +327,27 @@ export class Sound {
         }
         this.hiss('bandpass', 2600, 1200, { dur: 0.12, vol: 0.2, hall: 0.3 }, 2);
         break;
+      case 'flare':
+        // The skull's fire roars up before it flies.
+        this.hiss('bandpass', 400, 2400, { dur: 0.45, vol: 0.4, hall: 0.3 }, 1);
+        this.tone('sawtooth', 160, 420, { dur: 0.45, vol: 0.12, hall: 0.3 });
+        this.splatter(4, 0.4, 0.12);
+        break;
+      case 'growl':
+        this.tone('sawtooth', 70, 58, { dur: 0.6, vol: 0.2, hall: 0.2 }, 22);
+        this.hiss('lowpass', 500, 200, { dur: 0.55, vol: 0.22, hall: 0.2 });
+        break;
+      case 'bark':
+        this.tone('square', 330, 160, { dur: 0.12, vol: 0.18, hall: 0.25 });
+        this.hiss('bandpass', 900, 400, { dur: 0.12, vol: 0.35, hall: 0.25 }, 2);
+        break;
+      case 'shriek':
+        // A wail that rises, wavers and falls away.
+        this.duck(0.5);
+        this.tone('triangle', 700, 1500, { dur: 0.25, vol: 0.18, hall: 0.6 }, 16);
+        this.tone('sawtooth', 1500, 520, { at: 0.2, dur: 0.5, vol: 0.12, hall: 0.6 }, 11);
+        this.hiss('highpass', 3000, 5200, { dur: 0.6, vol: 0.12, hall: 0.6 });
+        break;
       case 'win':
         this.duck(1.2);
         [587.3, 740, 880, 1174.7].forEach((f, i) => { this.bell(f, i * 0.12, 0.16); this.tone('triangle', f / 2, f / 2, { at: i * 0.12, dur: 0.3, vol: 0.1, hall: 0.5 }); });

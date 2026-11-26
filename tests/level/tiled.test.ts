@@ -4,7 +4,7 @@ import { LevelError, parseLevel } from '../../src/level/tiled';
 import { readLevelFile } from '../helpers';
 
 const raw = (): any => readLevelFile('salle3') as any;
-const kinds = new Set(['window', 'pillar', 'altar', 'gargoyle', 'balustrade', 'chain-lantern', 'torch', 'ember', 'door', 'hero', 'shade', 'ghoul']);
+const kinds = new Set(['window', 'pillar', 'altar', 'gargoyle', 'balustrade', 'chain-lantern', 'torch', 'ember', 'door', 'hero', 'shade', 'ghoul', 'skull']);
 const withObject = (kind: string): any => { const m = raw(); m.layers[1].objects.push({ id: 999, type: kind, point: true, x: 10, y: 10 }); return m; };
 const withoutLayer = (name: string): any => { const m = raw(); m.layers = m.layers.filter((l: any) => l.name !== name); return m; };
 

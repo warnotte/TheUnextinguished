@@ -11,28 +11,29 @@ export const BELL = {
   first: 4,          // seconds before the first toll
   every: 11,         // seconds between two tolls
   fast: 7,           // ... once the demon is enraged
-  most: 3,           // skeletons standing at once, at most
+  most: 2,           // skeletons standing at once, at most
+  each: 1,           // skeletons raised by one toll, at most
   clear: 72,         // px: no skeleton comes out of a grave this close to the hero
 } as const;
 
 export const SKELETON = {
   rise: 1.0,         // seconds to come out of the ground
   soft: 0.5,         // seconds of rising left when it can first be struck
-  speed: 52,
+  speed: 46,
   hurt: 1,
 } as const;
 
 export const DEMON = {
-  hp: 44,
+  hp: 36,
   w: 48, h: 92,
   speed: 46, fast: 72,                 // px a second, drifting towards the hero
   near: 110,                           // px: it drifts no closer than this
   back: 52,                            // px: a hero closer than this, it glides away from, to have room for its fire
-  rest: 1.4, restFast: 0.9,            // seconds between two attacks
-  pressure: { limit: 4, fade: 1 },     // the damage that makes it answer at once with its wings, and how fast it forgets it (a second)
+  rest: 1.6, restFast: 1.1,            // seconds between two attacks
+  pressure: { limit: 5, fade: 1 },     // the damage that makes it answer at once with its wings, and how fast it forgets it (a second)
   start: 1.5,                          // seconds it waits when the room opens
   buffet: { near: 64, time: 0.6, at: 0.35, reach: 60, damage: 1 },      // its wings rise for a moment before they strike: time to guard
-  breath: { range: 230, windup: 0.65, time: 0.6, from: -6, reach: 136, height: 60, turn: 0.35 },     // from its middle: no shelter against its body;
+  breath: { range: 230, windup: 0.75, time: 0.6, from: -6, reach: 136, height: 60, turn: 0.35 },     // from its middle: no shelter against its body;
                                                                                                   // `turn`: the short windup of a second breath, enraged
   burn: 2,                             // what the breath costs the hero: the guard does not stop fire
   swoop: { up: 0.5, mark: 0.9, follow: 0.4, fall: 0.14, wave: 80 },
@@ -64,11 +65,12 @@ export interface Wave { x: number; y: number; dir: 1 | -1; t: number; hit: boole
 /** What the demon needs of the room: the hero, its width, and a way to hurt him. */
 export interface Arena {
   hero: Actor;
+  grid: Grid;
   width: number;
   playing: boolean;
   emit: Emit;
-  /** Hurts the hero, unless he cannot be hurt now; true when the blow landed or was stopped. */
-  hurt(dir: 1 | -1, damage: number, unblockable: boolean): boolean;
+  /** Hurts the hero, unless he cannot be hurt now: whether the blow landed, was stopped by his guard, or did nothing. */
+  hurt(dir: 1 | -1, damage: number, unblockable: boolean): 'hurt' | 'blocked' | null;
   shake(seconds: number): void;
 }
 
@@ -108,7 +110,7 @@ export function stepDemon(d: Demon, a: Arena, dt: number): void {
   for (const v of d.waves) {
     v.x += v.dir * DEMON.wave.speed * dt; v.t += dt;
     const box = { x: v.x - DEMON.wave.half, y: v.y - DEMON.wave.height, w: DEMON.wave.half * 2, h: DEMON.wave.height };
-    if (!v.hit && a.playing && overlap(box, hero)) v.hit = a.hurt(v.dir, DEMON.wave.damage, true);
+    if (!v.hit && a.playing && overlap(box, hero)) v.hit = !!a.hurt(v.dir, DEMON.wave.damage, true);
   }
   d.waves = d.waves.filter(v => v.t < DEMON.wave.life && v.x > TILE && v.x < a.width - TILE && d.phase !== 'dying' && d.phase !== 'gone');
   switch (d.phase) {
@@ -130,7 +132,7 @@ export function stepDemon(d: Demon, a: Arena, dt: number): void {
       if (d.t >= DEMON.breath.windup) { go(d, 'breath'); a.emit({ type: 'sound', name: 'breath' }); }
       break;
     case 'breath':
-      if (!d.hit && a.playing && overlap(breathBox(d), hero)) d.hit = a.hurt(b.facing, DEMON.burn, true);
+      if (!d.hit && a.playing && overlap(breathBox(d), hero)) d.hit = !!a.hurt(b.facing, DEMON.burn, true);
       if (d.t >= DEMON.breath.time) {
         // Enraged, it is not fooled twice: a hero who slipped behind it gets a second breath, sooner.
         const behind = Math.sign(centreX(hero) - centreX(b)) === -b.facing;
@@ -142,7 +144,7 @@ export function stepDemon(d: Demon, a: Arena, dt: number): void {
       }
       break;
     case 'buffet':
-      if (!d.hit && d.t >= DEMON.buffet.at && a.playing && overlap(buffetBox(d), hero)) d.hit = a.hurt(centreX(hero) >= centreX(b) ? 1 : -1, DEMON.buffet.damage, false);
+      if (!d.hit && d.t >= DEMON.buffet.at && a.playing && overlap(buffetBox(d), hero)) d.hit = !!a.hurt(centreX(hero) >= centreX(b) ? 1 : -1, DEMON.buffet.damage, false);
       if (d.t >= DEMON.buffet.time) settle(d);
       break;
     case 'rise':

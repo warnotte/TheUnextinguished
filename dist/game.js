@@ -192,13 +192,13 @@
       }
     }
     /** A note that slides from one pitch to another; `wobble` makes it tremble (cycles a second). */
-    tone(wave, from, to, l, wobble = 0) {
+    tone(wave, from, to2, l, wobble = 0) {
       const ac = this.ac;
       if (!ac || ac.state !== "running" || !this.bus) return;
       const t = ac.currentTime + (l.at ?? 0), o = ac.createOscillator();
       o.type = wave;
       o.frequency.setValueAtTime(from, t);
-      o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + l.dur);
+      o.frequency.exponentialRampToValueAtTime(Math.max(20, to2), t + l.dur);
       if (wobble) {
         const lfo = ac.createOscillator(), depth = ac.createGain();
         lfo.frequency.value = wobble;
@@ -212,7 +212,7 @@
       o.stop(t + l.dur + 0.05);
     }
     /** Noise through a filter that sweeps from one frequency to another: a hiss, a crack, a squelch. */
-    hiss(kind, from, to, l, q = 0.9) {
+    hiss(kind, from, to2, l, q = 0.9) {
       const ac = this.ac;
       if (!ac || ac.state !== "running" || !this.bus || !this.noise) return;
       const t = ac.currentTime + (l.at ?? 0), src = ac.createBufferSource(), f = ac.createBiquadFilter();
@@ -221,7 +221,7 @@
       f.type = kind;
       f.Q.value = q;
       f.frequency.setValueAtTime(from, t);
-      f.frequency.exponentialRampToValueAtTime(Math.max(30, to), t + l.dur);
+      f.frequency.exponentialRampToValueAtTime(Math.max(30, to2), t + l.dur);
       src.connect(f);
       this.shape(f, l, t);
       src.start(t, Math.random() * 0.8);
@@ -361,6 +361,25 @@
           }
           this.hiss("bandpass", 2600, 1200, { dur: 0.12, vol: 0.2, hall: 0.3 }, 2);
           break;
+        case "flare":
+          this.hiss("bandpass", 400, 2400, { dur: 0.45, vol: 0.4, hall: 0.3 }, 1);
+          this.tone("sawtooth", 160, 420, { dur: 0.45, vol: 0.12, hall: 0.3 });
+          this.splatter(4, 0.4, 0.12);
+          break;
+        case "growl":
+          this.tone("sawtooth", 70, 58, { dur: 0.6, vol: 0.2, hall: 0.2 }, 22);
+          this.hiss("lowpass", 500, 200, { dur: 0.55, vol: 0.22, hall: 0.2 });
+          break;
+        case "bark":
+          this.tone("square", 330, 160, { dur: 0.12, vol: 0.18, hall: 0.25 });
+          this.hiss("bandpass", 900, 400, { dur: 0.12, vol: 0.35, hall: 0.25 }, 2);
+          break;
+        case "shriek":
+          this.duck(0.5);
+          this.tone("triangle", 700, 1500, { dur: 0.25, vol: 0.18, hall: 0.6 }, 16);
+          this.tone("sawtooth", 1500, 520, { at: 0.2, dur: 0.5, vol: 0.12, hall: 0.6 }, 11);
+          this.hiss("highpass", 3e3, 5200, { dur: 0.6, vol: 0.12, hall: 0.6 });
+          break;
         case "win":
           this.duck(1.2);
           [587.3, 740, 880, 1174.7].forEach((f, i) => {
@@ -399,9 +418,10 @@
     return { time: run2.time + w.clock, slain: run2.slain + w.slain, spilt: run2.spilt + w.spilt, falls: run2.falls + (w.state === "lost" ? 1 : 0) };
   }
   var BLOOD_PER_LITRE = 100;
-  function endWords(run2) {
+  function endWords(run2, record) {
     const falls = run2.falls === 0 ? "NEVER KNOCKED OUT" : run2.falls === 1 ? "KNOCKED OUT ONCE" : `KNOCKED OUT ${run2.falls} TIMES`;
-    return [`TIME ${clockText(run2.time)}`, `FOES SNUFFED OUT ${run2.slain}`, `BLOOD SPILT ${(run2.spilt / BLOOD_PER_LITRE).toFixed(1)} L`, falls];
+    const best = !record ? "" : record.isNew ? "   NEW RECORD!" : `   BEST ${clockText(record.best)}`;
+    return [`TIME ${clockText(run2.time)}${best}`, `FOES SNUFFED OUT ${run2.slain}`, `BLOOD SPILT ${(run2.spilt / BLOOD_PER_LITRE).toFixed(1)} L`, falls];
   }
   function titleLevel(levels) {
     return Math.max(0, levels.findIndex((l) => l.settings.sky));
@@ -508,6 +528,11 @@
     shade: { role: "spawn", actor: "shade" },
     ghoul: { role: "spawn", actor: "ghoul" },
     demon: { role: "spawn", actor: "demon" },
+    skull: { role: "spawn", actor: "skull" },
+    // flies: its point is the bottom of its box, in the air
+    hound: { role: "spawn", actor: "hound" },
+    ghost: { role: "spawn", actor: "ghost" },
+    // comes out near a hero within its haunt, either side of its point
     grave: { role: "grave" },
     bell: { role: "bell" },
     ember: { role: "ember" },
@@ -563,7 +588,7 @@
     "crouch-kick4",
     "crouch-kick5"
   ];
-  var range = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+  var range = (from, to2) => Array.from({ length: to2 - from + 1 }, (_, i) => from + i);
   var IMAGES = {
     tiles: CHURCH + "environment/tileset.png",
     tilesCut: CHURCH + "environment/tileset-cut.png",
@@ -579,7 +604,18 @@
   };
   var STRIPS = {
     "demon/idle": { file: "gothicvania-patreon/demon/demon-idle.png", w: 160, h: 144, frames: 6, footX: 61, footY: 126 },
-    "demon/attack": { file: "gothicvania-patreon/demon/demon-attack.png", w: 240, h: 192, frames: 11, footX: 135, footY: 166 }
+    "demon/attack": { file: "gothicvania-patreon/demon/demon-attack.png", w: 240, h: 192, frames: 11, footX: 135, footY: 166 },
+    // The fire skull, at half the size of the pack's (made with ffmpeg, its edges kept sharp): (footX, footY)
+    // is the middle of the skull, which flies; the bare skull lies on its bottom.
+    "skull/fire": { file: "gothicvania-patreon/skull/fire-skull-half.png", w: 48, h: 56, frames: 8, footX: 22, footY: 33 },
+    "skull/bare": { file: "gothicvania-patreon/skull/fire-skull-no-fire-half.png", w: 27, h: 35, frames: 4, footX: 13, footY: 32 },
+    "hound/idle": { file: "gothicvania-patreon/hound/hell-hound-idle.png", w: 64, h: 32, frames: 6, footX: 29, footY: 31 },
+    "hound/run": { file: "gothicvania-patreon/hound/hell-hound-run.png", w: 67, h: 32, frames: 5, footX: 35, footY: 31 },
+    "hound/jump": { file: "gothicvania-patreon/hound/hell-hound-jump.png", w: 65, h: 48, frames: 6, footX: 33, footY: 47 },
+    "ghost/appear": { file: "gothicvania-patreon/ghost/ghost-appears.png", w: 64, h: 48, frames: 6, footX: 32, footY: 45 },
+    "ghost/idle": { file: "gothicvania-patreon/ghost/ghost-idle.png", w: 64, h: 80, frames: 7, footX: 32, footY: 63 },
+    "ghost/shriek": { file: "gothicvania-patreon/ghost/ghost-shriek.png", w: 64, h: 80, frames: 4, footX: 31, footY: 58 },
+    "ghost/vanish": { file: "gothicvania-patreon/ghost/ghost-vanish.png", w: 64, h: 64, frames: 7, footX: 32, footY: 61 }
   };
   var sheet = (name2, frames, w, h, px, py, cols) => ({ file: `pixelfx/${name2}.png`, fps: 30, frames, w, h, px, py, cols });
   var SHEETS = {
@@ -769,7 +805,7 @@
   // src/sim/actor.ts
   var ACTOR_W = 14;
   var ACTOR_H = 40;
-  var SIZE = { skeleton: [16, 44], demon: [48, 92] };
+  var SIZE = { skeleton: [16, 44], demon: [48, 92], skull: [18, 18], hound: [30, 18], ghost: [20, 40] };
   var MAX_HP = 6;
   function makeActor(kind, centreX2, feetY2) {
     const [w, h] = SIZE[kind] ?? [ACTOR_W, ACTOR_H];
@@ -824,7 +860,9 @@
       bleedDir: 1,
       bleedTick: 0,
       rise: 0,
-      look: 0
+      look: 0,
+      mode: "",
+      modeT: 0
     };
   }
   var centreX = (a) => a.x + a.w / 2;
@@ -968,6 +1006,267 @@
     }
   }
 
+  // src/sim/creatures.ts
+  var SKULL = {
+    hurt: 1,
+    range: 150,
+    high: 90,
+    // px: how near the hero must be, across and up or down, for it to fly at him
+    flare: 0.45,
+    // seconds its fire flares up before it flies: the warning
+    dash: 330,
+    dashTime: 0.8,
+    // px a second, and for how long at most
+    back: 90,
+    drift: 50,
+    // px a second, going home and hovering
+    cool: 1.4,
+    // seconds before it flies again
+    out: 6
+    // seconds it lies out after a blow, before it lights again
+  };
+  var HOUND = {
+    hurt: 1,
+    hp: 2,
+    sight: 230,
+    // px: a hero on its floor this near wakes it
+    run: 195,
+    // faster than the hero
+    leapRange: 70,
+    leapVx: 250,
+    leapVy: 360,
+    rest: 0.6,
+    // seconds it gathers itself after a leap
+    back: 9
+    // seconds before it comes back where it sat
+  };
+  var GHOST = {
+    hurt: 1,
+    haunt: 220,
+    // px: it haunts this far either side of its place
+    near: [56, 80],
+    // px: how far from the hero it comes out
+    appear: 0.6,
+    idle: 1,
+    windup: 0.5,
+    scream: 0.35,
+    vanish: 0.6,
+    reach: 90,
+    // px: how far its shriek carries
+    away: [2.2, 3.6],
+    // seconds it stays away, in turn
+    driven: 6
+    // seconds it stays away when a blow drives it off
+  };
+  var to = (e, mode) => {
+    e.mode = mode;
+    e.modeT = 0;
+    e.struck = false;
+  };
+  var towards = (e, tx, ty, speed, dt) => {
+    const cx = centreX(e), cy = e.y + e.h / 2, dx = tx - cx, dy = ty - cy, d = Math.hypot(dx, dy);
+    if (d > 0.01) {
+      const k = Math.min(d, speed * dt) / d;
+      e.x += dx * k;
+      e.y += dy * k;
+      if (Math.abs(dx) > 1) e.facing = dx > 0 ? 1 : -1;
+    }
+    return d;
+  };
+  var sideOf = (hero, e) => centreX(hero) >= centreX(e) ? 1 : -1;
+  var overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  function stepSkull(e, a, dt) {
+    const hero = a.hero, homeX = e.spawnX, homeY = e.spawnY - e.h / 2;
+    e.modeT += dt;
+    e.animT += dt;
+    e.invul = Math.max(0, e.invul - dt);
+    e.cool = Math.max(0, e.cool - dt);
+    const cx = centreX(e), cy = e.y + e.h / 2, hx = centreX(hero), hy = hero.y + hero.h / 2;
+    switch (e.mode) {
+      case "hover":
+        towards(e, homeX + Math.sin(e.animT * 0.9) * 22, homeY + Math.sin(e.animT * 1.7) * 7, SKULL.drift, dt);
+        if (a.playing && e.cool <= 0 && Math.abs(hx - cx) < SKULL.range && Math.abs(hy - cy) < SKULL.high) {
+          to(e, "flare");
+          e.facing = hx >= cx ? 1 : -1;
+          a.emit({ type: "sound", name: "flare" });
+        }
+        break;
+      case "flare":
+        if (e.modeT >= SKULL.flare) {
+          const dx = hx - cx, dy = hy - cy, d = Math.hypot(dx, dy) || 1;
+          e.vx = dx / d * SKULL.dash;
+          e.vy = dy / d * SKULL.dash;
+          to(e, "dash");
+        }
+        break;
+      case "dash": {
+        const nx = e.x + e.vx * dt, ny = e.y + e.vy * dt;
+        if (a.grid.solidAt(Math.floor((nx + e.w / 2) / TILE), Math.floor((ny + e.h / 2) / TILE)) || e.modeT >= SKULL.dashTime) {
+          to(e, "back");
+          e.cool = SKULL.cool;
+        } else {
+          e.x = nx;
+          e.y = ny;
+        }
+        break;
+      }
+      case "back":
+        if (towards(e, homeX, homeY, SKULL.back, dt) < 4) to(e, "hover");
+        break;
+      case "out":
+        e.vy = Math.min(TUNING.maxFall, e.vy + TUNING.gravity * dt);
+        if (e.onGround) e.vx *= Math.exp(-6 * dt);
+        move(e, a.grid, dt, () => {
+        });
+        if (e.modeT >= SKULL.out) {
+          to(e, "back");
+          e.invul = 0.6;
+          e.cool = SKULL.cool;
+          a.emit({ type: "effect", kind: "collect-burst", x: centreX(e), y: e.y + e.h + 20, flip: false });
+        }
+        return;
+    }
+    if (a.playing && (e.mode === "dash" || e.mode === "hover" || e.mode === "flare") && e.invul <= 0 && overlap(e, hero)) {
+      if (a.hurt(sideOf(hero, e), SKULL.hurt, false)) {
+        to(e, "back");
+        e.cool = SKULL.cool;
+      }
+    }
+  }
+  function strikeSkull(e, dir) {
+    to(e, "out");
+    e.vx = dir * 120;
+    e.vy = -140;
+    e.onGround = false;
+  }
+  function stepHound(e, a, dt) {
+    const hero = a.hero;
+    if (e.dead > 0) {
+      e.dead -= dt;
+      if (e.dead <= 0) {
+        e.dead = 0;
+        e.hp = HOUND.hp;
+        e.invul = 1;
+        e.stun = 0;
+        e.x = e.spawnX - e.w / 2;
+        e.y = e.spawnY - e.h;
+        e.vx = 0;
+        e.vy = 0;
+        to(e, "sit");
+      }
+      return;
+    }
+    e.modeT += dt;
+    e.invul = Math.max(0, e.invul - dt);
+    e.stun = Math.max(0, e.stun - dt);
+    const dx = centreX(hero) - centreX(e), sameFloor = hero.lastFloor === e.lastFloor;
+    if (e.stun > 0) e.vx *= Math.exp(-5 * dt);
+    else switch (e.mode) {
+      case "sit":
+        e.vx = 0;
+        if (a.playing && sameFloor && Math.abs(dx) < HOUND.sight) {
+          to(e, "run");
+          a.emit({ type: "sound", name: "growl" });
+        }
+        break;
+      case "run": {
+        if (Math.abs(dx) > 2) e.facing = dx > 0 ? 1 : -1;
+        const ahead = !e.onGround || a.grid.floorAt(Math.floor((centreX(e) + e.facing * 14) / TILE), e.lastFloor);
+        e.vx = ahead ? e.facing * HOUND.run : 0;
+        if (a.playing && e.onGround && sameFloor && Math.abs(dx) < HOUND.leapRange) {
+          e.vx = e.facing * HOUND.leapVx;
+          e.vy = -HOUND.leapVy;
+          e.onGround = false;
+          to(e, "leap");
+          a.emit({ type: "sound", name: "bark" });
+        } else if (!sameFloor && e.modeT > 2) to(e, "sit");
+        break;
+      }
+      case "leap":
+        if (e.onGround && e.modeT > 0.1) to(e, "land");
+        break;
+      case "land":
+        e.vx *= Math.exp(-8 * dt);
+        if (e.modeT >= HOUND.rest) to(e, "run");
+        break;
+    }
+    e.vy = Math.min(TUNING.maxFall, e.vy + TUNING.gravity * dt);
+    move(e, a.grid, dt, a.emit);
+    e.animT += dt;
+    if (a.playing && (e.mode === "run" || e.mode === "leap") && e.stun <= 0 && e.invul <= 0 && overlap(e, hero)) {
+      const outcome = a.hurt(sideOf(hero, e), HOUND.hurt, false);
+      if (outcome) {
+        to(e, "land");
+        if (outcome === "blocked") {
+          e.vx = -e.facing * 220;
+          e.vy = -160;
+          e.onGround = false;
+        }
+      }
+    }
+  }
+  function strikeHound(e, dir, damage) {
+    e.hp = Math.max(0, e.hp - damage);
+    if (e.hp <= 0) {
+      e.dead = HOUND.back;
+      e.vx = 0;
+      return true;
+    }
+    e.stun = 0.4;
+    e.vx = dir * 160;
+    e.vy = -140;
+    e.onGround = false;
+    if (e.mode === "sit") to(e, "run");
+    return false;
+  }
+  function stepGhost(e, a, dt) {
+    const hero = a.hero, hx = centreX(hero);
+    e.modeT += dt;
+    e.animT += dt;
+    switch (e.mode) {
+      case "away":
+        if (e.modeT >= e.cool && a.playing && Math.abs(hx - e.spawnX) < GHOST.haunt) {
+          const side = e.look % 2 ? 1 : -1, far = GHOST.near[0] + e.look * 7 % 5 / 4 * (GHOST.near[1] - GHOST.near[0]);
+          e.look++;
+          let x = hx + side * far;
+          if (Math.abs(x - e.spawnX) > GHOST.haunt || x < TILE * 2 || x > a.width - TILE * 2) x = hx - side * far;
+          e.x = x - e.w / 2;
+          e.y = hero.lastFloor * TILE - 2 - e.h;
+          e.facing = hx >= x ? 1 : -1;
+          to(e, "appear");
+        }
+        break;
+      case "appear":
+        if (e.modeT >= GHOST.appear) to(e, "idle");
+        break;
+      case "idle":
+        e.facing = sideOf(hero, e);
+        if (e.modeT >= GHOST.idle) to(e, "shriek");
+        break;
+      case "shriek":
+        if (!e.struck && e.modeT >= GHOST.windup) {
+          e.struck = true;
+          a.emit({ type: "sound", name: "shriek" });
+          if (a.playing && Math.abs(hx - centreX(e)) < GHOST.reach && Math.abs(feetY(hero) - feetY(e)) < 30) a.hurt(sideOf(hero, e), GHOST.hurt, false);
+        }
+        if (e.modeT >= GHOST.windup + GHOST.scream) {
+          e.cool = GHOST.away[e.look % 2];
+          to(e, "vanish");
+        }
+        break;
+      case "vanish":
+        if (e.modeT >= GHOST.vanish) to(e, "away");
+        break;
+    }
+  }
+  function ghostThere(e) {
+    return e.mode === "idle" || e.mode === "shriek" || e.mode === "appear" && e.modeT > GHOST.appear / 2;
+  }
+  function strikeGhost(e) {
+    to(e, "vanish");
+    e.cool = GHOST.driven;
+  }
+
   // src/sim/demon.ts
   var BELL = {
     first: 4,
@@ -976,8 +1275,10 @@
     // seconds between two tolls
     fast: 7,
     // ... once the demon is enraged
-    most: 3,
+    most: 2,
     // skeletons standing at once, at most
+    each: 1,
+    // skeletons raised by one toll, at most
     clear: 72
     // px: no skeleton comes out of a grave this close to the hero
   };
@@ -986,11 +1287,11 @@
     // seconds to come out of the ground
     soft: 0.5,
     // seconds of rising left when it can first be struck
-    speed: 52,
+    speed: 46,
     hurt: 1
   };
   var DEMON = {
-    hp: 44,
+    hp: 36,
     w: 48,
     h: 92,
     speed: 46,
@@ -1000,16 +1301,16 @@
     // px: it drifts no closer than this
     back: 52,
     // px: a hero closer than this, it glides away from, to have room for its fire
-    rest: 1.4,
-    restFast: 0.9,
+    rest: 1.6,
+    restFast: 1.1,
     // seconds between two attacks
-    pressure: { limit: 4, fade: 1 },
+    pressure: { limit: 5, fade: 1 },
     // the damage that makes it answer at once with its wings, and how fast it forgets it (a second)
     start: 1.5,
     // seconds it waits when the room opens
     buffet: { near: 64, time: 0.6, at: 0.35, reach: 60, damage: 1 },
     // its wings rise for a moment before they strike: time to guard
-    breath: { range: 230, windup: 0.65, time: 0.6, from: -6, reach: 136, height: 60, turn: 0.35 },
+    breath: { range: 230, windup: 0.75, time: 0.6, from: -6, reach: 136, height: 60, turn: 0.35 },
     // from its middle: no shelter against its body;
     // `turn`: the short windup of a second breath, enraged
     burn: 2,
@@ -1028,7 +1329,7 @@
   function demonTouchable(d) {
     return d.phase !== "rise" && d.phase !== "mark" && d.phase !== "fall" && d.phase !== "dying" && d.phase !== "gone";
   }
-  var overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  var overlap2 = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   function breathBox(d) {
     const b = d.body, s = DEMON.breath, front = b.facing > 0 ? centreX(b) + s.from : centreX(b) - s.from - s.reach;
     return { x: front, y: d.floor - s.height, w: s.reach, h: s.height };
@@ -1058,7 +1359,7 @@
       v.x += v.dir * DEMON.wave.speed * dt;
       v.t += dt;
       const box = { x: v.x - DEMON.wave.half, y: v.y - DEMON.wave.height, w: DEMON.wave.half * 2, h: DEMON.wave.height };
-      if (!v.hit && a.playing && overlap(box, hero)) v.hit = a.hurt(v.dir, DEMON.wave.damage, true);
+      if (!v.hit && a.playing && overlap2(box, hero)) v.hit = !!a.hurt(v.dir, DEMON.wave.damage, true);
     }
     d.waves = d.waves.filter((v) => v.t < DEMON.wave.life && v.x > TILE && v.x < a.width - TILE && d.phase !== "dying" && d.phase !== "gone");
     switch (d.phase) {
@@ -1085,7 +1386,7 @@
         }
         break;
       case "breath":
-        if (!d.hit && a.playing && overlap(breathBox(d), hero)) d.hit = a.hurt(b.facing, DEMON.burn, true);
+        if (!d.hit && a.playing && overlap2(breathBox(d), hero)) d.hit = !!a.hurt(b.facing, DEMON.burn, true);
         if (d.t >= DEMON.breath.time) {
           const behind = Math.sign(centreX(hero) - centreX(b)) === -b.facing;
           if (d.enraged && !d.again && behind && a.playing) {
@@ -1101,7 +1402,7 @@
         }
         break;
       case "buffet":
-        if (!d.hit && d.t >= DEMON.buffet.at && a.playing && overlap(buffetBox(d), hero)) d.hit = a.hurt(centreX(hero) >= centreX(b) ? 1 : -1, DEMON.buffet.damage, false);
+        if (!d.hit && d.t >= DEMON.buffet.at && a.playing && overlap2(buffetBox(d), hero)) d.hit = !!a.hurt(centreX(hero) >= centreX(b) ? 1 : -1, DEMON.buffet.damage, false);
         if (d.t >= DEMON.buffet.time) settle(d);
         break;
       case "rise":
@@ -1346,7 +1647,7 @@
   var GUARD_PUSH = 150;
   var GUARD_SAFE = 0.3;
   var KNOCK = { near: { vx: 110, vy: 120, stun: 0.6 }, far: { vx: 350, vy: 300, stun: 1 } };
-  var overlap2 = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  var overlap3 = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   var World = class {
     constructor(level) {
       this.level = level;
@@ -1363,8 +1664,11 @@
             this.boss = makeDemon(actor);
             this.foes.push(actor);
           } else {
-            if (kind.actor === "shade") actor.cool = START_GRACE;
-            else actor.invul = START_GRACE;
+            if (kind.actor === "shade" || kind.actor === "skull") actor.cool = START_GRACE;
+            else if (kind.actor === "ghoul") actor.invul = START_GRACE;
+            actor.mode = kind.actor === "skull" ? "hover" : kind.actor === "hound" ? "sit" : kind.actor === "ghost" ? "away" : "";
+            if (kind.actor === "hound") actor.hp = 2;
+            if (kind.actor === "ghost") actor.cool = GHOST.away[0];
             this.foes.push(actor);
           }
         } else if (kind.role === "ember") this.embers.push({ x: o.x, y: o.y, taken: false });
@@ -1377,16 +1681,13 @@
       const world = this;
       this.arena = {
         hero,
+        grid: this.grid,
         width: level.width,
         emit: this.emit,
         get playing() {
           return world.state === "play";
         },
-        hurt: (dir, damage, unblockable) => {
-          if (hero.invul > 0 || world.state !== "play") return false;
-          world.hurtHero(dir, damage, unblockable);
-          return true;
-        },
+        hurt: (dir, damage, unblockable) => hero.invul > 0 || world.state !== "play" ? null : world.hurtHero(dir, damage, unblockable),
         shake: (seconds) => {
           world.shake = Math.max(world.shake, seconds);
         }
@@ -1460,16 +1761,16 @@
     /** The hero takes a blow coming from the given side. */
     hurtHero(dir, damage = HIT.shade, unblockable = false) {
       const p = this.hero;
-      if (this.state !== "play" || p.charge > 0) return;
+      if (this.state !== "play" || p.charge > 0) return null;
       if (p.guard && dir === -p.facing && !unblockable) {
         p.invul = GUARD_SAFE;
         p.vx = dir * GUARD_PUSH;
         this.hitStop = 0.05;
         this.emit({ type: "effect", kind: "hit-spark", x: p.x + p.w / 2 - dir * 8, y: p.y + p.h, flip: dir > 0 });
         this.emit({ type: "sound", name: "block" });
-        return;
+        return "blocked";
       }
-      if (this.invincible) return;
+      if (this.invincible) return null;
       p.guard = false;
       p.hp = Math.max(0, p.hp - damage);
       p.invul = 1.2;
@@ -1494,6 +1795,7 @@
         this.bleed(p, dir > 0 ? -1 : 1, BLOOD.back, 0);
         this.emit({ type: "sound", name: "ko" });
       }
+      return "hurt";
     }
     stepHero(c) {
       const p = this.hero;
@@ -1548,7 +1850,7 @@
         p.sinceAttack = 0;
         this.struck.clear();
         if (!p.attackAir) {
-          if (p.attackKind !== "punch" && !this.foes.some((f) => f.ko <= 0 && f.dead <= 0 && overlap2(this.reach(p), f))) p.vx = p.facing * LUNGE;
+          if (p.attackKind !== "punch" && !this.foes.some((f) => f.ko <= 0 && f.dead <= 0 && overlap3(this.reach(p), f))) p.vx = p.facing * LUNGE;
           this.warn(p);
         }
         this.emit({ type: "sound", name: "swing" });
@@ -1562,7 +1864,7 @@
         if (since > s.from && since < s.to) {
           const box = this.reach(p);
           for (const foe of this.foes) {
-            if (this.struck.has(foe) || !this.canBeHit(foe) || !overlap2(box, foe)) continue;
+            if (this.struck.has(foe) || !this.canBeHit(foe) || !overlap3(box, foe)) continue;
             this.struck.add(foe);
             this.strikeFoe(foe, p.facing, s);
           }
@@ -1583,7 +1885,7 @@
       }
       const box = { x: p.facing > 0 ? p.x : p.x - CHARGE.reach, y: p.y, w: p.w + CHARGE.reach, h: p.h };
       for (const foe of this.foes) {
-        if (this.struck.has(foe) || foe.ko > 0 || foe.dead > 0 || !this.touchable(foe) || !overlap2(box, foe)) continue;
+        if (this.struck.has(foe) || foe.ko > 0 || foe.dead > 0 || !this.touchable(foe) || !overlap3(box, foe)) continue;
         this.struck.add(foe);
         this.strikeFoe(foe, p.facing, CHARGE_BLOW);
       }
@@ -1636,6 +1938,8 @@
     // A skeleton half out of the ground can be struck; the demon not while it is in the air.
     touchable(f) {
       if (f.kind === "skeleton") return f.rise <= SKELETON.soft;
+      if (f.kind === "skull") return f.mode !== "out";
+      if (f.kind === "ghost") return ghostThere(f);
       if (f.kind === "demon") return !!this.boss && demonTouchable(this.boss);
       return true;
     }
@@ -1644,6 +1948,39 @@
       const x = e.x + e.w / 2, y = e.y + e.h, heavy = blow.heavy;
       if (e.kind === "skeleton") {
         this.breakSkeleton(e);
+        return;
+      }
+      if (e.kind === "skull") {
+        strikeSkull(e, dir);
+        this.slain++;
+        this.hitStop = 0.05;
+        this.shake = Math.max(this.shake, 0.12);
+        this.emit({ type: "effect", kind: "hit-spark", x, y: e.y + e.h, flip: dir < 0 });
+        this.emit({ type: "sound", name: "ko" });
+        return;
+      }
+      if (e.kind === "ghost") {
+        strikeGhost(e);
+        this.slain++;
+        this.hitStop = 0.04;
+        this.emit({ type: "effect", kind: "hit-spark", x, y: e.y + e.h - 10, flip: dir < 0 });
+        this.emit({ type: "sound", name: "shriek" });
+        return;
+      }
+      if (e.kind === "hound") {
+        const fell = strikeHound(e, dir, blow.damage);
+        this.hitStop = heavy ? 0.08 : 0.05;
+        this.shake = Math.max(this.shake, heavy ? 0.16 : 0.1);
+        this.emit({ type: "effect", kind: heavy ? "crit-hit" : "hit-spark", x: x - dir * 4, y, flip: dir < 0 });
+        this.bleed(e, dir, blow.blood, 0);
+        e.bleed = heavy ? BLEEDING.heavy : BLEEDING.light;
+        e.bleedDir = dir;
+        if (fell) {
+          this.slain++;
+          this.bleed(e, dir, BLOOD.finish, FINISH_CHUNKS / 2);
+          this.emit({ type: "effect", kind: "death", x, y, flip: false });
+          this.emit({ type: "sound", name: "ko" });
+        } else this.emit({ type: "sound", name: "hit" });
         return;
       }
       if (e.kind === "demon" && this.boss) {
@@ -1719,7 +2056,20 @@
       const p = this.hero, playing = this.state === "play";
       if (e.kind === "skeleton") {
         stepSkeleton(e, p, this.grid, STEP, playing, this.emit);
-        if (playing && e.dead <= 0 && e.rise <= 0 && p.invul <= 0 && overlap2(e, p)) this.hurtHero(centreX(p) >= centreX(e) ? 1 : -1, SKELETON.hurt);
+        if (playing && e.dead <= 0 && e.rise <= 0 && p.invul <= 0 && overlap3(e, p)) this.hurtHero(centreX(p) >= centreX(e) ? 1 : -1, SKELETON.hurt);
+        return;
+      }
+      if (e.kind === "skull") {
+        stepSkull(e, this.arena, STEP);
+        return;
+      }
+      if (e.kind === "hound") {
+        stepHound(e, this.arena, STEP);
+        this.trickle(e);
+        return;
+      }
+      if (e.kind === "ghost") {
+        stepGhost(e, this.arena, STEP);
         return;
       }
       if (e.kind === "demon") {
@@ -1734,7 +2084,7 @@
       }
       if (e.kind === "ghoul") {
         stepGhoul(e, p, this.grid, STEP, playing, this.emit);
-        if (playing && e.dead <= 0 && e.invul <= 0 && p.invul <= 0 && overlap2(e, p)) this.hurtHero(p.x + p.w / 2 >= e.x + e.w / 2 ? 1 : -1, HIT.ghoul);
+        if (playing && e.dead <= 0 && e.invul <= 0 && p.invul <= 0 && overlap3(e, p)) this.hurtHero(p.x + p.w / 2 >= e.x + e.w / 2 ? 1 : -1, HIT.ghoul);
         return;
       }
       e.guardT = Math.max(0, e.guardT - STEP);
@@ -1773,7 +2123,7 @@
       } else if (e.strike > 0) {
         e.strike -= STEP;
         const box = { x: e.facing > 0 ? e.x + e.w : e.x - SHADE_REACH, y: e.y + 6, w: SHADE_REACH, h: 22 };
-        if (!e.struck && p.invul <= 0 && playing && overlap2(box, p)) {
+        if (!e.struck && p.invul <= 0 && playing && overlap3(box, p)) {
           e.struck = true;
           this.hurtHero(e.facing);
         }
@@ -1794,7 +2144,7 @@
     stepItems() {
       const p = this.hero;
       for (const m of this.embers) {
-        if (m.taken || !overlap2({ x: m.x - EMBER_REACH, y: m.y - EMBER_REACH, w: EMBER_REACH * 2, h: EMBER_REACH * 2 }, p)) continue;
+        if (m.taken || !overlap3({ x: m.x - EMBER_REACH, y: m.y - EMBER_REACH, w: EMBER_REACH * 2, h: EMBER_REACH * 2 }, p)) continue;
         m.taken = true;
         this.emit({ type: "effect", kind: "collect-burst", x: m.x, y: m.y + EMBER_BURST_DROP, flip: false });
         this.emit({ type: "sound", name: "ember" });
@@ -1806,7 +2156,7 @@
         this.doorChime -= STEP;
         if (this.doorChime < 0) this.emit({ type: "sound", name: "door" });
       }
-      const reached = this.door ? overlap2(this.door, p) && p.onGround : this.embers.length > 0;
+      const reached = this.door ? overlap3(this.door, p) && p.onGround : this.embers.length > 0;
       if (!this.boss && this.doorOpen && reached) {
         this.state = "won";
         this.emit({ type: "sound", name: "win" });
@@ -1825,9 +2175,10 @@
       this.emit({ type: "sound", name: "bell" });
       this.shake = Math.max(this.shake, 0.25);
       this.foes = this.foes.filter((f) => !(f.kind === "skeleton" && f.dead > 0));
-      let room = BELL.most - this.foes.filter((f) => f.kind === "skeleton").length;
+      let room = Math.min(BELL.each, BELL.most - this.foes.filter((f) => f.kind === "skeleton").length);
       const hx = centreX(this.hero);
-      const spots = this.graves.filter((g2) => Math.abs(g2.x - hx) >= BELL.clear).sort((a, b) => Math.abs(b.x - hx) - Math.abs(a.x - hx));
+      const floor = this.hero.lastFloor * TILE, mine = (g2) => Math.abs(g2.y - floor) < 8 ? 0 : 1;
+      const spots = this.graves.filter((g2) => Math.abs(g2.x - hx) >= BELL.clear).sort((a, b) => mine(a) - mine(b) || Math.abs(b.x - hx) - Math.abs(a.x - hx));
       for (const g2 of spots) {
         if (room-- <= 0) break;
         const s = makeActor("skeleton", g2.x, g2.y);
@@ -3030,6 +3381,8 @@
     foeLag = MAX_HP;
     finish = 0;
     foe = null;
+    /** The best time of the level, once it is won. */
+    record = null;
     /** A foe has just been ended. */
     finisher() {
       this.finish = FINISH_WORDS;
@@ -3120,7 +3473,8 @@
         g2.strokeRect(121, y + 1, 398, h - 2);
         lines.forEach(([str, color, scale], i) => centered(g2, str, y + 20 + i * 26, color, scale ?? 2));
       };
-      if (w.state === "won") panel2([[won.title, "#ffe27a", 4], [`TIME ${clock}`, "#e2d8f0"], ...won.lines.map((l) => [l, "#9d93b8"])]);
+      const best = !this.record ? [] : this.record.isNew ? [["NEW RECORD!", Math.floor(t * 4) % 2 ? "#ffe27a" : "#ff8a2a"]] : [[`BEST ${clockText(this.record.best)}`, "#9d93b8"]];
+      if (w.state === "won") panel2([[won.title, "#ffe27a", 4], [`TIME ${clock}`, "#e2d8f0"], ...best, ...won.lines.map((l) => [l, "#9d93b8"])]);
       else if (w.state === "lost" && w.slow <= 0) panel2([["KNOCKED OUT", "#ff7a6a", 4], ["PRESS JUMP TO TRY AGAIN", "#9d93b8"]]);
       else if (paused) panel2([["PAUSED", "#ffe27a", 4], ["PRESS P TO GO ON", "#9d93b8"]]);
     }
@@ -3254,6 +3608,10 @@
     look(x, y, jump = false) {
       this.aim = [x, y];
       if (jump) this.camera.follow(x, y);
+    }
+    /** The best time of the level, once it is won: the panel says it. */
+    setRecord(record) {
+      this.hud.record = record;
     }
     /** The sounds of the stage since the last call: the thunder. */
     heard() {
@@ -3400,6 +3758,9 @@
           this.drawWaves(g2, w.boss, t);
         }
         for (const f of w.foes) if (f.kind === "skeleton") this.drawSkeleton(g2, f, t);
+        for (const f of w.foes) if (f.kind === "hound") this.drawHound(g2, f, t);
+        for (const f of w.foes) if (f.kind === "ghost") this.drawGhost(g2, f, t);
+        for (const f of w.foes) if (f.kind === "skull") this.drawSkull(g2, f, t);
         for (const f of w.foes) if (f.kind === "ghoul") this.drawGhoul(g2, f, t);
         for (const f of w.foes) if (f.kind === "shade") this.drawMonk(g2, f, t);
         this.drawMonk(g2, w.hero, t);
@@ -3473,6 +3834,11 @@
         if (d.phase === "breath") out.push({ x: b.x + b.w / 2 + b.facing * 80, y: d.floor - 26, radius: 200, strength: 1.3, flicker: 0, color: DEMON_GLOW });
       }
       if (d) for (const v of d.waves) out.push({ x: v.x, y: v.y - 10, radius: 80, strength: 0.9, flicker: 0, color: DEMON_GLOW });
+      for (const f of w.foes) {
+        if (f.kind === "skull" && f.mode !== "out") carry(f, { x: f.x + f.w / 2, y: f.y + f.h / 2, radius: 90, strength: f.mode === "flare" || f.mode === "dash" ? 1.3 : 0.8, flicker: 0, color: [255, 140, 60] });
+        if (f.kind === "hound" && f.dead <= 0) carry(f, { x: f.x + f.w / 2, y: f.y + 6, radius: 64, strength: 0.7, flicker: 0, color: [255, 90, 40] });
+        if (f.kind === "ghost" && f.mode !== "away") carry(f, { x: f.x + f.w / 2, y: f.y + 10, radius: 70, strength: f.mode === "shriek" ? 1.2 : 0.5, flicker: 0, color: DEMON_GLOW });
+      }
       for (const fx of this.effects) if (fx.t < 0.35) out.push({ x: fx.x, y: fx.y - 26, radius: 130, strength: 1 - fx.t / 0.35, flicker: 0, color: [255, 236, 200] });
       return out;
     }
@@ -3653,6 +4019,63 @@
         }
         if (Math.random() < 0.6) this.particles.push({ x: v.x + (Math.random() - 0.5) * 10, y: v.y - 4, vx: -v.dir * (30 + Math.random() * 60), vy: -40 - Math.random() * 60, life: 0.25 + Math.random() * 0.25, color: ["#8ff0ff", "#3cc8ff", "#e8fbff"][Math.floor(Math.random() * 3)], g: -40 });
       }
+    }
+    // ---- the creatures ---------------------------------------------------------------------------------
+    // A frame of a strip, its foot (footX, footY) on (x, y), mirrored when asked; lit as the place lights it, or not.
+    stripFrame(g2, strip, n, x, y, mirror, lit, alpha = 1) {
+      const s = STRIPS[strip], key = `${strip}/${1 + n % s.frames}`;
+      const pic = lit ? this.litSprite(key, x, y - s.footY / 2, mirror, null) : this.assets.image(key);
+      if (alpha < 1) g2.globalAlpha = alpha;
+      this.picture(g2, pic, x, y + (s.h - 1 - s.footY), s.footX, mirror);
+      g2.globalAlpha = 1;
+    }
+    // The fire skull: its fire, flaring before it flies; out, the bare skull, rolling to rest.
+    drawSkull(g2, e, t) {
+      const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
+      if (e.mode === "out") {
+        const lying = e.onGround ? 0 : Math.floor(e.modeT * 12);
+        this.stripFrame(g2, "skull/bare", lying, cx, e.y + e.h, e.facing > 0, true);
+        if (e.modeT > SKULL.out - 1 && Math.floor(t * 12) % 2) this.glow(g2, cx, cy, 12, "rgba(255,140,50,0.5)");
+        return;
+      }
+      const flaring = e.mode === "flare", shake = flaring ? Math.round(Math.sin(t * 60) * 2) : 0;
+      this.glow(g2, cx, cy, flaring ? 40 : 26, flaring ? "rgba(255,200,90,0.55)" : "rgba(255,120,40,0.35)");
+      if (e.invul > 0 && Math.floor(t * 20) % 2) return;
+      this.stripFrame(g2, "skull/fire", Math.floor(e.animT * (flaring || e.mode === "dash" ? 20 : 10)), cx + shake, cy, e.facing > 0, false);
+    }
+    // The hell hound: sitting, running, leaping; lit as the place lights it.
+    drawHound(g2, e, t) {
+      if (e.dead > 0 || e.invul > 0 && Math.floor(t * 20) % 2) return;
+      const cx = e.x + e.w / 2, feet = e.y + e.h, mirror = e.facing > 0;
+      g2.fillStyle = "rgba(0,0,0,0.3)";
+      g2.fillRect(Math.round(cx - 12), Math.round(feet), 24, 2);
+      this.glow(g2, cx, e.y + 8, 34, "rgba(255,80,30,0.3)");
+      if (e.mode === "leap" || !e.onGround) {
+        const n = Math.min(5, 1 + Math.floor(e.modeT * 9)), lifted = [47, 47, 43, 32, 43, 47][n];
+        this.stripFrame(g2, "hound/jump", n, cx, feet - (47 - lifted), mirror, true);
+      } else if (e.mode === "run" && Math.abs(e.vx) > 20) this.stripFrame(g2, "hound/run", Math.floor(e.animT * 14), cx, feet, mirror, true);
+      else this.stripFrame(g2, "hound/idle", Math.floor(t * 7), cx, feet, mirror, true);
+    }
+    // The ghost: out of nothing, floating, its arms up to shriek, gone again in a swirl.
+    drawGhost(g2, e, t) {
+      if (e.mode === "away") return;
+      const cx = e.x + e.w / 2, feet = e.y + e.h + Math.round(Math.sin(t * 2.4) * 2), mirror = e.facing > 0;
+      if (e.mode === "appear") this.stripFrame(g2, "ghost/appear", Math.min(5, Math.floor(e.modeT / GHOST.appear * 6)), cx, feet, mirror, false, 0.9);
+      else if (e.mode === "idle") this.stripFrame(g2, "ghost/idle", Math.floor(t * 8), cx, feet, mirror, false, 0.9);
+      else if (e.mode === "shriek") {
+        this.stripFrame(g2, "ghost/shriek", Math.min(3, Math.floor(e.modeT / GHOST.windup * 3)), cx, feet, mirror, false, 0.9);
+        if (e.modeT >= GHOST.windup) {
+          const k = (e.modeT - GHOST.windup) / GHOST.scream;
+          g2.save();
+          g2.globalCompositeOperation = "lighter";
+          g2.strokeStyle = `rgba(140,235,255,${(0.6 * (1 - k)).toFixed(3)})`;
+          g2.lineWidth = 2;
+          g2.beginPath();
+          g2.ellipse(cx, e.y + 14, 10 + k * GHOST.reach, 6 + k * 30, 0, 0, Math.PI * 2);
+          g2.stroke();
+          g2.restore();
+        }
+      } else if (e.mode === "vanish") this.stripFrame(g2, "ghost/vanish", Math.min(6, Math.floor(e.modeT / GHOST.vanish * 7)), cx, feet, mirror, false, 0.9);
     }
     // Its skull, where the blue fire burns.
     demonHead(d, t) {
@@ -4006,7 +4429,7 @@
     ["GUARD", "C", "LB"],
     ["CHARGE", "V", "Y"]
   ];
-  function drawTitle(g2, t) {
+  function drawTitle(g2, t, bestRun = null) {
     g2.setTransform(1, 0, 0, 1, 0, 0);
     veil(g2);
     sparks(g2, t);
@@ -4025,6 +4448,7 @@
     });
     centered(g2, "THE CHARGE COSTS AN EMBER", py + 116, DIM);
     if (blink(t)) centered(g2, "PRESS JUMP TO START", 286, GOLD, 3);
+    if (bestRun !== null) centered(g2, `BEST RUN ${clockText(bestRun)}`, 310, PALE);
     centered(g2, "F FULL SCREEN    M MUSIC    P PAUSE", 334, DIM);
   }
   function drawEnd(g2, t, lines) {
@@ -4038,6 +4462,58 @@
     lines.forEach((line, i) => centered(g2, line, py + 18 + i * 26, i === lines.length - 1 ? DIM : PALE, 3));
     if (t > 1.5 && blink(t)) centered(g2, "PRESS JUMP", 300, GOLD, 3);
   }
+
+  // src/records.ts
+  var KEY = "unextinguished.best";
+  function browserStore() {
+    return {
+      get: (key) => {
+        try {
+          return globalThis.localStorage?.getItem(key) ?? null;
+        } catch {
+          return null;
+        }
+      },
+      set: (key, value) => {
+        try {
+          globalThis.localStorage?.setItem(key, value);
+        } catch {
+        }
+      }
+    };
+  }
+  var Records = class {
+    constructor(store) {
+      this.store = store;
+      let read = null;
+      try {
+        read = JSON.parse(store.get(KEY) ?? "null");
+      } catch {
+        read = null;
+      }
+      this.times = {};
+      if (read && typeof read === "object") {
+        for (const [name2, t] of Object.entries(read)) if (typeof t === "number" && t > 0) this.times[name2] = t;
+      }
+    }
+    store;
+    times;
+    /** The best time of a level (by its name) or of the run ("run"), in seconds, or null. */
+    best(name2) {
+      return this.times[name2] ?? null;
+    }
+    /** A time just made: kept if it is the first or a better one. */
+    record(name2, seconds) {
+      const before = this.times[name2];
+      if (before !== void 0 && before <= seconds) return { best: before, isNew: false };
+      this.times[name2] = seconds;
+      try {
+        this.store.set(KEY, JSON.stringify(this.times));
+      } catch {
+      }
+      return { best: seconds, isNew: true };
+    }
+  };
 
   // src/main.ts
   var canvas = document.getElementById("screen");
@@ -4085,6 +4561,10 @@
     let index = 0;
     let world = null, stage = null;
     let last = 0, bank = 0, clock = 0, paused = false;
+    const records = new Records(browserStore());
+    let recorded = false;
+    let fromTitle = false;
+    let runRecord;
     let cheat = false;
     const leave = () => {
       if (world) tally = addRun(tally, world);
@@ -4098,6 +4578,7 @@
       const level = levels[i];
       world = new World(level);
       world.invincible = cheat;
+      recorded = false;
       const boss = !!world.boss;
       stage = new Stage(world, assets, openingWords(level.settings.title, boss), wonWords(i, levels.length, boss));
       sound.setMusic(level.settings.music);
@@ -4110,6 +4591,7 @@
       leave();
       scene = s;
       sceneT = 0;
+      runRecord = s === "end" && fromTitle ? records.record("run", tally.time) : void 0;
       scenery.look(...panAim(0, place.width, place.height), true);
       sound.setMusic(place.settings.music);
       sound.preload([place.settings.music, levels[0].settings.music]);
@@ -4117,7 +4599,10 @@
       sound.hush(false);
     };
     if (asked === null) show("title");
-    else start(asked);
+    else {
+      fromTitle = false;
+      start(asked);
+    }
     window.__game = { get world() {
       return world;
     }, get scene() {
@@ -4138,6 +4623,7 @@
       const go2 = c.jumpPressed || c.restartPressed;
       if (scene === "title" && go2) {
         tally = NO_RUN;
+        fromTitle = true;
         start(0);
         return;
       }
@@ -4149,8 +4635,8 @@
       scenery.update(dt);
       for (const name2 of scenery.heard()) sound.play(name2);
       scenery.draw(g, clock, false);
-      if (scene === "title") drawTitle(g, sceneT);
-      else drawEnd(g, sceneT, endWords(tally));
+      if (scene === "title") drawTitle(g, sceneT, records.best("run"));
+      else drawEnd(g, sceneT, endWords(tally, runRecord));
     };
     const play = (w, st, c, elapsed) => {
       if (c.pausePressed && w.state === "play") {
@@ -4179,6 +4665,10 @@
           for (const name2 of st.heard()) sound.play(name2);
           clock += STEP;
         }
+      }
+      if (w.state === "won" && !recorded) {
+        recorded = true;
+        st.setRecord(records.record(w.level.settings.name, w.clock));
       }
       st.draw(g, clock, paused);
     };

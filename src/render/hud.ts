@@ -18,6 +18,8 @@ export class Hud {
   private foeLag = MAX_HP;
   private finish = 0;
   private foe: Actor | null = null;
+  /** The best time of the level, once it is won. */
+  record: { best: number; isNew: boolean } | null = null;
 
   constructor(private readonly world: World, private readonly opening: string[]) {}
 
@@ -101,7 +103,8 @@ export class Hud {
       g.strokeStyle = '#9a8fc0'; g.lineWidth = 2; g.strokeRect(121, y + 1, 398, h - 2);
       lines.forEach(([str, color, scale], i) => centered(g, str, y + 20 + i * 26, color, scale ?? 2));
     };
-    if (w.state === 'won') panel([[won.title, '#ffe27a', 4], [`TIME ${clock}`, '#e2d8f0'], ...won.lines.map(l => [l, '#9d93b8'] as [string, string])]);
+    const best: [string, string][] = !this.record ? [] : this.record.isNew ? [['NEW RECORD!', Math.floor(t * 4) % 2 ? '#ffe27a' : '#ff8a2a']] : [[`BEST ${clockText(this.record.best)}`, '#9d93b8']];
+    if (w.state === 'won') panel([[won.title, '#ffe27a', 4], [`TIME ${clock}`, '#e2d8f0'], ...best, ...won.lines.map(l => [l, '#9d93b8'] as [string, string])]);
     else if (w.state === 'lost' && w.slow <= 0) panel([['KNOCKED OUT', '#ff7a6a', 4], ['PRESS JUMP TO TRY AGAIN', '#9d93b8']]);
     else if (paused) panel([['PAUSED', '#ffe27a', 4], ['PRESS P TO GO ON', '#9d93b8']]);
   }

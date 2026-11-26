@@ -4,6 +4,7 @@
 import { KINDS } from '../level/kinds';
 import type { Level } from '../level/tiled';
 import { type Actor, centreX, makeActor, MAX_HP } from './actor';
+import { ghostThere, GHOST, stepGhost, stepHound, stepSkull, strikeGhost, strikeHound, strikeSkull } from './creatures';
 import { BELL, DEMON, type Arena, type Demon, demonTouchable, makeDemon, SKELETON, stepDemon, stepSkeleton } from './demon';
 import type { Emit, GameEvent } from './events';
 import { type Grid, TILE } from './grid';
@@ -96,7 +97,11 @@ export class World {
         else if (kind.actor === 'demon') { actor.hp = DEMON.hp; this.boss = makeDemon(actor); this.foes.push(actor); }
         else {
           // A moment of grace when the level starts: the shade holds its blow, the ghoul does not burn.
-          if (kind.actor === 'shade') actor.cool = START_GRACE; else actor.invul = START_GRACE;
+          if (kind.actor === 'shade' || kind.actor === 'skull') actor.cool = START_GRACE;
+          else if (kind.actor === 'ghoul') actor.invul = START_GRACE;
+          actor.mode = kind.actor === 'skull' ? 'hover' : kind.actor === 'hound' ? 'sit' : kind.actor === 'ghost' ? 'away' : '';
+          if (kind.actor === 'hound') actor.hp = 2;
+          if (kind.actor === 'ghost') actor.cool = GHOST.away[0];
           this.foes.push(actor);
         }
       } else if (kind.role === 'ember') this.embers.push({ x: o.x, y: o.y, taken: false });
@@ -108,13 +113,9 @@ export class World {
     this.wasOpen = this.doorOpen;
     const world = this;
     this.arena = {
-      hero, width: level.width, emit: this.emit,
+      hero, grid: this.grid, width: level.width, emit: this.emit,
       get playing() { return world.state === 'play'; },
-      hurt: (dir, damage, unblockable) => {
-        if (hero.invul > 0 || world.state !== 'play') return false;
-        world.hurtHero(dir, damage, unblockable);
-        return true;
-      },
+      hurt: (dir, damage, unblockable) => (hero.invul > 0 || world.state !== 'play' ? null : world.hurtHero(dir, damage, unblockable)),
       shake: seconds => { world.shake = Math.max(world.shake, seconds); },
     };
   }
@@ -144,17 +145,17 @@ export class World {
   }
 
   /** The hero takes a blow coming from the given side. */
-  hurtHero(dir: 1 | -1, damage: number = HIT.shade, unblockable = false): void {
+  hurtHero(dir: 1 | -1, damage: number = HIT.shade, unblockable = false): 'hurt' | 'blocked' | null {
     const p = this.hero;
-    if (this.state !== 'play' || p.charge > 0) return;
+    if (this.state !== 'play' || p.charge > 0) return null;
     if (p.guard && dir === -p.facing && !unblockable) {            // stopped: it costs him a step back
       p.invul = GUARD_SAFE; p.vx = dir * GUARD_PUSH;
       this.hitStop = 0.05;
       this.emit({ type: 'effect', kind: 'hit-spark', x: p.x + p.w / 2 - dir * 8, y: p.y + p.h, flip: dir > 0 });
       this.emit({ type: 'sound', name: 'block' });
-      return;
+      return 'blocked';
     }
-    if (this.invincible) return;
+    if (this.invincible) return null;
     p.guard = false;
     p.hp = Math.max(0, p.hp - damage); p.invul = 1.2; p.hurtT = 0.3; p.attackT = 0; p.climbing = false;
     this.emit({ type: 'effect', kind: 'blunt-hit', x: p.x + p.w / 2, y: p.y + p.h, flip: dir < 0 });
@@ -170,6 +171,7 @@ export class World {
       this.bleed(p, dir > 0 ? -1 : 1, BLOOD.back, 0);
       this.emit({ type: 'sound', name: 'ko' });
     }
+    return 'hurt';
   }
 
   private stepHero(c: Controls): void {
@@ -293,6 +295,8 @@ export class World {
   // A skeleton half out of the ground can be struck; the demon not while it is in the air.
   private touchable(f: Actor): boolean {
     if (f.kind === 'skeleton') return f.rise <= SKELETON.soft;
+    if (f.kind === 'skull') return f.mode !== 'out';
+    if (f.kind === 'ghost') return ghostThere(f);
     if (f.kind === 'demon') return !!this.boss && demonTouchable(this.boss);
     return true;
   }
@@ -301,6 +305,30 @@ export class World {
     this.hero.attackHit = true;
     const x = e.x + e.w / 2, y = e.y + e.h, heavy = blow.heavy;
     if (e.kind === 'skeleton') { this.breakSkeleton(e); return; }
+    if (e.kind === 'skull') {
+      strikeSkull(e, dir); this.slain++;
+      this.hitStop = 0.05; this.shake = Math.max(this.shake, 0.12);
+      this.emit({ type: 'effect', kind: 'hit-spark', x, y: e.y + e.h, flip: dir < 0 });
+      this.emit({ type: 'sound', name: 'ko' });
+      return;
+    }
+    if (e.kind === 'ghost') {
+      strikeGhost(e); this.slain++;
+      this.hitStop = 0.04;
+      this.emit({ type: 'effect', kind: 'hit-spark', x, y: e.y + e.h - 10, flip: dir < 0 });
+      this.emit({ type: 'sound', name: 'shriek' });
+      return;
+    }
+    if (e.kind === 'hound') {
+      const fell = strikeHound(e, dir, blow.damage);
+      this.hitStop = heavy ? 0.08 : 0.05; this.shake = Math.max(this.shake, heavy ? 0.16 : 0.1);
+      this.emit({ type: 'effect', kind: heavy ? 'crit-hit' : 'hit-spark', x: x - dir * 4, y, flip: dir < 0 });
+      this.bleed(e, dir, blow.blood, 0);
+      e.bleed = heavy ? BLEEDING.heavy : BLEEDING.light; e.bleedDir = dir;
+      if (fell) { this.slain++; this.bleed(e, dir, BLOOD.finish, FINISH_CHUNKS / 2); this.emit({ type: 'effect', kind: 'death', x, y, flip: false }); this.emit({ type: 'sound', name: 'ko' }); }
+      else this.emit({ type: 'sound', name: 'hit' });
+      return;
+    }
     if (e.kind === 'demon' && this.boss) { this.strikeDemon(this.boss, dir, blow); return; }
     if (e.kind === 'ghoul') {
       e.dead = 6; e.vx = 0; this.slain++;
@@ -355,6 +383,9 @@ export class World {
       if (playing && e.dead <= 0 && e.rise <= 0 && p.invul <= 0 && overlap(e, p)) this.hurtHero(centreX(p) >= centreX(e) ? 1 : -1, SKELETON.hurt);
       return;
     }
+    if (e.kind === 'skull') { stepSkull(e, this.arena, STEP); return; }
+    if (e.kind === 'hound') { stepHound(e, this.arena, STEP); this.trickle(e); return; }
+    if (e.kind === 'ghost') { stepGhost(e, this.arena, STEP); return; }
     if (e.kind === 'demon') {
       const d = this.boss!;
       stepDemon(d, this.arena, STEP);
@@ -433,9 +464,11 @@ export class World {
     this.emit({ type: 'sound', name: 'bell' });
     this.shake = Math.max(this.shake, 0.25);
     this.foes = this.foes.filter(f => !(f.kind === 'skeleton' && f.dead > 0));
-    let room = BELL.most - this.foes.filter(f => f.kind === 'skeleton').length;
+    let room = Math.min(BELL.each, BELL.most - this.foes.filter(f => f.kind === 'skeleton').length);
     const hx = centreX(this.hero);
-    const spots = this.graves.filter(g => Math.abs(g.x - hx) >= BELL.clear).sort((a, b) => Math.abs(b.x - hx) - Math.abs(a.x - hx));
+    // The graves of the hero's floor first, so that the dead come for him; the farthest of them first.
+    const floor = this.hero.lastFloor * TILE, mine = (g: { y: number }) => (Math.abs(g.y - floor) < 8 ? 0 : 1);
+    const spots = this.graves.filter(g => Math.abs(g.x - hx) >= BELL.clear).sort((a, b) => mine(a) - mine(b) || Math.abs(b.x - hx) - Math.abs(a.x - hx));
     for (const g of spots) {
       if (room-- <= 0) break;
       const s = makeActor('skeleton', g.x, g.y);

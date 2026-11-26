@@ -2,6 +2,7 @@
 // flight, particles, the camera) and draws a frame, plane by plane, through the camera.
 
 import { EFFECTS, effectDuration, KINDS, SHEETS, STRIPS } from '../level/kinds';
+import { GHOST, SKULL } from '../sim/creatures';
 import { DEMON, type Demon, SKELETON } from '../sim/demon';
 import type { Actor } from '../sim/actor';
 import type { GameEvent, SoundName } from '../sim/events';
@@ -116,6 +117,9 @@ export class Stage {
     this.aim = [x, y];
     if (jump) this.camera.follow(x, y);
   }
+
+  /** The best time of the level, once it is won: the panel says it. */
+  setRecord(record: { best: number; isNew: boolean }): void { this.hud.record = record; }
 
   /** The sounds of the stage since the last call: the thunder. */
   heard(): SoundName[] { const out = this.heardNow; this.heardNow = []; return out; }
@@ -251,6 +255,9 @@ export class Stage {
     if (!this.scenery) {
       if (w.boss) { this.drawDemon(g, w.boss, t); this.drawWaves(g, w.boss, t); }
       for (const f of w.foes) if (f.kind === 'skeleton') this.drawSkeleton(g, f, t);
+      for (const f of w.foes) if (f.kind === 'hound') this.drawHound(g, f, t);
+      for (const f of w.foes) if (f.kind === 'ghost') this.drawGhost(g, f, t);
+      for (const f of w.foes) if (f.kind === 'skull') this.drawSkull(g, f, t);
       for (const f of w.foes) if (f.kind === 'ghoul') this.drawGhoul(g, f, t);
       for (const f of w.foes) if (f.kind === 'shade') this.drawMonk(g, f, t);
       this.drawMonk(g, w.hero, t);
@@ -319,6 +326,11 @@ export class Stage {
       if (d.phase === 'breath') out.push({ x: b.x + b.w / 2 + b.facing * 80, y: d.floor - 26, radius: 200, strength: 1.3, flicker: 0, color: DEMON_GLOW });
     }
     if (d) for (const v of d.waves) out.push({ x: v.x, y: v.y - 10, radius: 80, strength: 0.9, flicker: 0, color: DEMON_GLOW });
+    for (const f of w.foes) {
+      if (f.kind === 'skull' && f.mode !== 'out') carry(f, { x: f.x + f.w / 2, y: f.y + f.h / 2, radius: 90, strength: f.mode === 'flare' || f.mode === 'dash' ? 1.3 : 0.8, flicker: 0, color: [255, 140, 60] });
+      if (f.kind === 'hound' && f.dead <= 0) carry(f, { x: f.x + f.w / 2, y: f.y + 6, radius: 64, strength: 0.7, flicker: 0, color: [255, 90, 40] });
+      if (f.kind === 'ghost' && f.mode !== 'away') carry(f, { x: f.x + f.w / 2, y: f.y + 10, radius: 70, strength: f.mode === 'shriek' ? 1.2 : 0.5, flicker: 0, color: DEMON_GLOW });
+    }
     for (const fx of this.effects) if (fx.t < 0.35) out.push({ x: fx.x, y: fx.y - 26, radius: 130, strength: 1 - fx.t / 0.35, flicker: 0, color: [255, 236, 200] });
     return out;
   }
@@ -467,6 +479,64 @@ export class Stage {
       }
       if (Math.random() < 0.6) this.particles.push({ x: v.x + (Math.random() - 0.5) * 10, y: v.y - 4, vx: -v.dir * (30 + Math.random() * 60), vy: -40 - Math.random() * 60, life: 0.25 + Math.random() * 0.25, color: ['#8ff0ff', '#3cc8ff', '#e8fbff'][Math.floor(Math.random() * 3)], g: -40 });
     }
+  }
+
+  // ---- the creatures ---------------------------------------------------------------------------------
+
+  // A frame of a strip, its foot (footX, footY) on (x, y), mirrored when asked; lit as the place lights it, or not.
+  private stripFrame(g: CanvasRenderingContext2D, strip: string, n: number, x: number, y: number, mirror: boolean, lit: boolean, alpha = 1): void {
+    const s = STRIPS[strip], key = `${strip}/${1 + (n % s.frames)}`;
+    const pic = lit ? this.litSprite(key, x, y - s.footY / 2, mirror, null) : (this.assets.image(key) as HTMLCanvasElement);
+    if (alpha < 1) g.globalAlpha = alpha;
+    this.picture(g, pic, x, y + (s.h - 1 - s.footY), s.footX, mirror);
+    g.globalAlpha = 1;
+  }
+
+  // The fire skull: its fire, flaring before it flies; out, the bare skull, rolling to rest.
+  private drawSkull(g: CanvasRenderingContext2D, e: Actor, t: number): void {
+    const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
+    if (e.mode === 'out') {
+      const lying = e.onGround ? 0 : Math.floor(e.modeT * 12);
+      this.stripFrame(g, 'skull/bare', lying, cx, e.y + e.h, e.facing > 0, true);
+      if (e.modeT > SKULL.out - 1 && Math.floor(t * 12) % 2) this.glow(g, cx, cy, 12, 'rgba(255,140,50,0.5)');   // it is about to light again
+      return;
+    }
+    const flaring = e.mode === 'flare', shake = flaring ? Math.round(Math.sin(t * 60) * 2) : 0;
+    this.glow(g, cx, cy, flaring ? 40 : 26, flaring ? 'rgba(255,200,90,0.55)' : 'rgba(255,120,40,0.35)');
+    if (e.invul > 0 && Math.floor(t * 20) % 2) return;
+    this.stripFrame(g, 'skull/fire', Math.floor(e.animT * (flaring || e.mode === 'dash' ? 20 : 10)), cx + shake, cy, e.facing > 0, false);
+  }
+
+  // The hell hound: sitting, running, leaping; lit as the place lights it.
+  private drawHound(g: CanvasRenderingContext2D, e: Actor, t: number): void {
+    if (e.dead > 0 || (e.invul > 0 && Math.floor(t * 20) % 2)) return;
+    const cx = e.x + e.w / 2, feet = e.y + e.h, mirror = e.facing > 0;
+    g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(Math.round(cx - 12), Math.round(feet), 24, 2);
+    this.glow(g, cx, e.y + 8, 34, 'rgba(255,80,30,0.3)');              // the embers under its hide
+    if (e.mode === 'leap' || !e.onGround) {
+      // The leap: its frames from the spring to the landing, the body lifted by the jump itself.
+      const n = Math.min(5, 1 + Math.floor(e.modeT * 9)), lifted = [47, 47, 43, 32, 43, 47][n];
+      this.stripFrame(g, 'hound/jump', n, cx, feet - (47 - lifted), mirror, true);
+    } else if (e.mode === 'run' && Math.abs(e.vx) > 20) this.stripFrame(g, 'hound/run', Math.floor(e.animT * 14), cx, feet, mirror, true);
+    else this.stripFrame(g, 'hound/idle', Math.floor(t * 7), cx, feet, mirror, true);
+  }
+
+  // The ghost: out of nothing, floating, its arms up to shriek, gone again in a swirl.
+  private drawGhost(g: CanvasRenderingContext2D, e: Actor, t: number): void {
+    if (e.mode === 'away') return;
+    const cx = e.x + e.w / 2, feet = e.y + e.h + Math.round(Math.sin(t * 2.4) * 2), mirror = e.facing > 0;
+    if (e.mode === 'appear') this.stripFrame(g, 'ghost/appear', Math.min(5, Math.floor((e.modeT / GHOST.appear) * 6)), cx, feet, mirror, false, 0.9);
+    else if (e.mode === 'idle') this.stripFrame(g, 'ghost/idle', Math.floor(t * 8), cx, feet, mirror, false, 0.9);
+    else if (e.mode === 'shriek') {
+      this.stripFrame(g, 'ghost/shriek', Math.min(3, Math.floor((e.modeT / GHOST.windup) * 3)), cx, feet, mirror, false, 0.9);
+      if (e.modeT >= GHOST.windup) {                 // the shriek, seen going out
+        const k = (e.modeT - GHOST.windup) / GHOST.scream;
+        g.save(); g.globalCompositeOperation = 'lighter';
+        g.strokeStyle = `rgba(140,235,255,${(0.6 * (1 - k)).toFixed(3)})`; g.lineWidth = 2;
+        g.beginPath(); g.ellipse(cx, e.y + 14, 10 + k * GHOST.reach, 6 + k * 30, 0, 0, Math.PI * 2); g.stroke();
+        g.restore();
+      }
+    } else if (e.mode === 'vanish') this.stripFrame(g, 'ghost/vanish', Math.min(6, Math.floor((e.modeT / GHOST.vanish) * 7)), cx, feet, mirror, false, 0.9);
   }
 
   // Its skull, where the blue fire burns.

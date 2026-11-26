@@ -2,7 +2,7 @@
 
 import { TILE } from './grid';
 
-export type ActorKind = 'hero' | 'shade' | 'ghoul' | 'skeleton' | 'demon';
+export type ActorKind = 'hero' | 'shade' | 'ghoul' | 'skeleton' | 'demon' | 'skull' | 'hound' | 'ghost';
 
 export interface Actor {
   kind: ActorKind;
@@ -30,11 +30,12 @@ export interface Actor {
   dead: number;
   rise: number;                                    // a skeleton: seconds left coming out of the ground
   look: number;                                    // which of its pictures an actor wears (a skeleton: bare or in rags)
+  mode: string; modeT: number;                     // what a creature is doing, and since when
 }
 
 export const ACTOR_W = 14, ACTOR_H = 40;
 // The bodies that are not the size of a man.
-const SIZE: Partial<Record<ActorKind, [number, number]>> = { skeleton: [16, 44], demon: [48, 92] };
+const SIZE: Partial<Record<ActorKind, [number, number]>> = { skeleton: [16, 44], demon: [48, 92], skull: [18, 18], hound: [30, 18], ghost: [20, 40] };
 export const MAX_HP = 6;
 
 /** An actor standing with its feet on feetY, centred on centreX. */
@@ -46,7 +47,7 @@ export function makeActor(kind: ActorKind, centreX: number, feetY: number): Acto
     animT: 0, attackT: 0, attackKind: 'punch', attackAir: false, attackHit: false, sinceAttack: 9,
     invul: 0, hurtT: 0, hp: MAX_HP, coyote: 0, buffer: 0,
     stun: 0, ko: 0, windup: 0, strike: 0, recover: 0, struck: false, cool: 0, airDir: 0, climbDir: 1, dead: 0,
-    strikeBuffer: 0, guard: false, guardT: 0, guardCool: 0, chain: 0, charge: 0, motion: 0, motionT: 0, motionDir: 1, dazed: 0, gore: 0, bleed: 0, bleedDir: 1, bleedTick: 0, rise: 0, look: 0,
+    strikeBuffer: 0, guard: false, guardT: 0, guardCool: 0, chain: 0, charge: 0, motion: 0, motionT: 0, motionDir: 1, dazed: 0, gore: 0, bleed: 0, bleedDir: 1, bleedTick: 0, rise: 0, look: 0, mode: '', modeT: 0,
   };
 }
 

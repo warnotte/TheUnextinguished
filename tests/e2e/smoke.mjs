@@ -77,6 +77,9 @@ await game(() => {
 });
 await page.waitForFunction(() => __game.world.state === 'won', null, { timeout: 4000 }).catch(() => {});
 check('reaching the open door wins the level', await game(() => __game.world.state === 'won'));
+await page.waitForTimeout(100);
+const kept = await game(() => JSON.parse(localStorage.getItem('unextinguished.best') || '{}'));
+check('its time is kept as the best, for the next game too', kept.salle3 > 0, JSON.stringify(kept));
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/won.png' });
 // Watch, frame by frame, how long the next level stays without its music.
 await game(() => {

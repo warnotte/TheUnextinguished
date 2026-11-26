@@ -174,7 +174,7 @@ describe('the demon', () => {
     const d = w.boss!;
     d.rest = 99;
     stand(w, d.body.x - 6); w.hero.facing = 1;
-    for (let blow = 0; blow < 3; blow++) {
+    for (let blow = 0; blow < 5; blow++) {
       for (let i = 0; i < 200 && (w.hero.attackT > 0 || w.hitStop > 0); i++) w.step(NO_CONTROLS);
       w.step(press({ attackPressed: true }));
     }

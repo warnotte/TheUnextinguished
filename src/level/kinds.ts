@@ -31,6 +31,9 @@ export const KINDS: Readonly<Record<string, Kind>> = {
   shade: { role: 'spawn', actor: 'shade' },
   ghoul: { role: 'spawn', actor: 'ghoul' },
   demon: { role: 'spawn', actor: 'demon' },
+  skull: { role: 'spawn', actor: 'skull' },            // flies: its point is the bottom of its box, in the air
+  hound: { role: 'spawn', actor: 'hound' },
+  ghost: { role: 'spawn', actor: 'ghost' },            // comes out near a hero within its haunt, either side of its point
   grave: { role: 'grave' },
   bell: { role: 'bell' },
   ember: { role: 'ember' },
@@ -80,6 +83,17 @@ export interface Strip { file: string; w: number; h: number; frames: number; foo
 export const STRIPS: Readonly<Record<string, Strip>> = {
   'demon/idle': { file: 'gothicvania-patreon/demon/demon-idle.png', w: 160, h: 144, frames: 6, footX: 61, footY: 126 },
   'demon/attack': { file: 'gothicvania-patreon/demon/demon-attack.png', w: 240, h: 192, frames: 11, footX: 135, footY: 166 },
+  // The fire skull, at half the size of the pack's (made with ffmpeg, its edges kept sharp): (footX, footY)
+  // is the middle of the skull, which flies; the bare skull lies on its bottom.
+  'skull/fire': { file: 'gothicvania-patreon/skull/fire-skull-half.png', w: 48, h: 56, frames: 8, footX: 22, footY: 33 },
+  'skull/bare': { file: 'gothicvania-patreon/skull/fire-skull-no-fire-half.png', w: 27, h: 35, frames: 4, footX: 13, footY: 32 },
+  'hound/idle': { file: 'gothicvania-patreon/hound/hell-hound-idle.png', w: 64, h: 32, frames: 6, footX: 29, footY: 31 },
+  'hound/run': { file: 'gothicvania-patreon/hound/hell-hound-run.png', w: 67, h: 32, frames: 5, footX: 35, footY: 31 },
+  'hound/jump': { file: 'gothicvania-patreon/hound/hell-hound-jump.png', w: 65, h: 48, frames: 6, footX: 33, footY: 47 },
+  'ghost/appear': { file: 'gothicvania-patreon/ghost/ghost-appears.png', w: 64, h: 48, frames: 6, footX: 32, footY: 45 },
+  'ghost/idle': { file: 'gothicvania-patreon/ghost/ghost-idle.png', w: 64, h: 80, frames: 7, footX: 32, footY: 63 },
+  'ghost/shriek': { file: 'gothicvania-patreon/ghost/ghost-shriek.png', w: 64, h: 80, frames: 4, footX: 31, footY: 58 },
+  'ghost/vanish': { file: 'gothicvania-patreon/ghost/ghost-vanish.png', w: 64, h: 64, frames: 7, footX: 32, footY: 61 },
 };
 
 // ---- Animated sheets (rendered with pixelfx; frame size, pivot and columns as its JSON gives them) -
