@@ -6,6 +6,7 @@ import { Sound } from './audio';
 import { addRun, afterWin, creditsLength, endWords, firstLevel, type LevelResult, NO_RUN, openingWords, panAim, REACHED_KEY, reachedFrom, type Run, startWords, testMode, titleLevel, titlePage, wonWords } from './campaign';
 import { feedName, Initials } from './initials';
 import { feedOptions, loadOptions, type Changed, type Options, OptionsMenu, saveOptions } from './options';
+import { feedPause, PauseMenu } from './pause';
 import { type Frame, Input } from './input';
 import { KIND_NAMES } from './level/kinds';
 import { type Level, parseLevel } from './level/tiled';
@@ -18,6 +19,7 @@ import { centered } from './render/text';
 import { drawCredits, drawEnd, drawOptions, drawTitle } from './render/title';
 import { apart, Board, browserStore, seedBoard } from './records';
 import { text } from './render/text';
+import { demoControls, type DemoMind, makeDemoMind } from './sim/demo';
 import { STEP, World } from './sim/world';
 
 const canvas = document.getElementById('screen') as HTMLCanvasElement;
@@ -54,7 +56,11 @@ function showError(title: string, err: unknown): void {
   status.textContent = err instanceof Error ? err.message : String(err);
 }
 
-type Scene = 'title' | 'play' | 'end' | 'credits';
+type Scene = 'title' | 'play' | 'end' | 'credits' | 'demo';
+
+const IDLE = 25;              // seconds on the title with nobody at the controls, before the demo
+const DEMO_LENGTH = 40;       // seconds a demo lasts, at most
+
 
 function run(assets: Assets, levels: Level[]): void {
   const asked = firstLevel(location.search, levels.length);
@@ -84,6 +90,10 @@ function run(assets: Assets, levels: Level[]): void {
   const store = browserStore();
   let settings: Options = loadOptions(store);
   let options: OptionsMenu | null = null;
+  const pauseMenu = new PauseMenu();
+  // The demo: the levels it shows, in turn; what plays it; how long it has been on.
+  const demoLevels = levels.map((l, i) => (l.settings.demo ? i : -1)).filter(i => i >= 0);       // the levels say it
+  let demoTurn = 0, demoT = 0, idleT = 0, mind: DemoMind | null = null;
   const ashen = (): boolean => settings.blood === 'ash';
   sound.setLevels(settings.music, settings.sounds);
   scenery.ash = ashen();
@@ -107,10 +117,10 @@ function run(assets: Assets, levels: Level[]): void {
 
   // What the attempt now ending adds to the run: its time, its dead, its blood, his fall.
   const leave = (): void => { if (world) tally = addRun(tally, world); world = null; stage = null; };
-  const start = (i: number): void => {
+  const start = (i: number, demo = false): void => {
     leave();
-    index = i; scene = 'play';
-    if (keeps && i > reached) { reached = i; store.set(REACHED_KEY, String(i)); }
+    index = i; scene = demo ? 'demo' : 'play';
+    if (keeps && !demo && i > reached) { reached = i; store.set(REACHED_KEY, String(i)); }
     const level = levels[i];
     world = new World(level);
     world.invincible = cheat;
@@ -121,6 +131,7 @@ function run(assets: Assets, levels: Level[]): void {
     const boss = !!world.boss, beast = !!world.beast;
     stage = new Stage(world, assets, openingWords(level.settings.title, boss ? 'boss' : beast ? 'beast' : world.fall ? 'fall' : ''), wonWords(i, levels.length, boss || beast, beast ? 'BEAST SLAIN' : 'DEMON SLAIN'));
     stage.ash = ashen();
+    if (demo) { world.invincible = true; levelCheated = true; stage.demo = true; mind = makeDemoMind(); demoT = 0; }
     sound.setMusic(level.settings.music, level.settings.intro);
     sound.setPlace({ rain: level.settings.rain, drips: level.settings.water > 0 });
     const next = levels[i + 1]?.settings;                                                            // the next one, or the end's
@@ -147,8 +158,9 @@ function run(assets: Assets, levels: Level[]): void {
     sound.preload([place.settings.music, levels[0].settings.music, endPlace.settings.ending].filter(Boolean));     // the first level's, for jump; the end's
     paused = false; sound.hush(false);
   };
+  const startDemo = (): void => { if (demoLevels.length) start(demoLevels[demoTurn++ % demoLevels.length], true); idleT = 0; };
   if (asked === null) show('title'); else { fromTitle = false; start(asked); }
-  (window as any).__game = { get reached() { return reached; }, get startAt() { return startAt; }, get options() { return options; }, get settings() { return settings; }, get world() { return world; }, get scene() { return scene; }, get paused() { return paused; }, get level() { return index; }, get run() { return tally; }, get stage() { return stage; }, get naming() { return naming; }, board, scenery, sound, start };
+  (window as any).__game = { demo: startDemo, get pauseAt() { return pauseMenu.line; }, get reached() { return reached; }, get startAt() { return startAt; }, get options() { return options; }, get settings() { return settings; }, get world() { return world; }, get scene() { return scene; }, get paused() { return paused; }, get level() { return index; }, get run() { return tally; }, get stage() { return stage; }, get naming() { return naming; }, board, scenery, sound, start };
 
   // The title and the end: the place lives on, nobody plays in it.
   const showScene = (c: Frame, elapsed: number): void => {
@@ -161,6 +173,8 @@ function run(assets: Assets, levels: Level[]): void {
       if (c.pad.up) startAt = 0;
       if (c.pad.down) startAt = 1;
     }
+    // Nobody at the controls a while: the demo.
+    if (scene === 'title') { idleT = c.any || options ? 0 : idleT + dt; if (idleT > IDLE && !trial) { startDemo(); return; } }
     if (scene === 'title' && go) {
       tally = NO_RUN; runCheated = cheat; runEased = false;
       // Going on from where he got to is not a whole run: its time does not go on the board of the runs.
@@ -190,7 +204,7 @@ function run(assets: Assets, levels: Level[]): void {
       w.clock = 15 + Math.random() * 120; w.state = 'won';
       sound.play('win');
     }
-    if (c.pausePressed && w.state === 'play') { paused = !paused; sound.hush(paused); }
+    if (c.pausePressed && w.state === 'play') { paused = !paused; sound.hush(paused); pauseMenu.line = 0; }
     if (c.restartPressed) { start(index); return; }
     if (w.state !== 'play' && w.slow <= 0 && c.jumpPressed && !naming) {
       const next = w.state === 'won' ? afterWin(index, levels.length) : index;
@@ -220,6 +234,7 @@ function run(assets: Assets, levels: Level[]): void {
       st.setResult(result, naming?.name ?? null);
     }
     st.collisions = collisions;
+    st.pauseAt = pauseMenu.line;
     st.draw(g, clock, paused && !options);
     if (options) drawOptions(g, clock, options, sound.musicOn);
     if (trial) text(g, 'TEST  N WINS THE LEVEL', 16, VIEW_H - 20, '#ff8a2a');
@@ -255,9 +270,29 @@ function run(assets: Assets, levels: Level[]): void {
       const playing = scene === 'play' && world?.state === 'play';
       const open = scene === 'title' ? c.optionsPressed || c.pad.select : playing && (c.optionsPressed || (paused && c.pad.options));
       if (open) {
-        if (scene === 'play') { paused = true; sound.hush(false); }          // the music is heard as it is set
+        if (scene === 'play') { if (!paused) pauseMenu.line = 0; paused = true; sound.hush(false); }          // the music is heard as it is set
         options = new OptionsMenu(settings);
         Object.assign(c, { jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, pausePressed: false });
+      } else if (scene === 'play' && paused && world?.state === 'play') {
+        // The pause: its keys choose; going on, the options, or the title.
+        const choice = feedPause(pauseMenu, c.typed, c.pad);
+        if (choice === 'resume') { paused = false; sound.hush(false); }
+        else if (choice === 'options') { sound.hush(false); options = new OptionsMenu(settings); }
+        else if (choice === 'title') show('title');
+        Object.assign(c, { jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, typed: [] });
+        if (choice) c.pausePressed = false;
+      }
+    }
+    if (scene === 'demo' && world && stage && mind) {
+      // The demo: any key or button brings the title back; else the player of the demo plays, a while.
+      if (c.any) { show('title'); Object.assign(c, { jumpPressed: false, restartPressed: false }); }
+      else {
+        demoT += Math.min(MAX_FRAME, elapsed);
+        const bot = demoControls(world, mind, Math.min(MAX_FRAME, elapsed));
+        play(world, stage, { ...c, ...bot, restartPressed: false, pausePressed: false, winPressed: false }, elapsed);
+        if (demoT > DEMO_LENGTH || world.state !== 'play') show('title');
+        requestAnimationFrame(frame);
+        return;
       }
     }
     if (scene === 'play' && world && !paused) {

@@ -17,6 +17,9 @@ const WIND = 0.035;              // the air of the place, always there, very low
 const RAIN = 0.024;              // the rain where it falls into the place
 const OPEN = 22000, STIFLED = 520;   // Hz: what the ear lets through, in the air and under the water
 
+// The sounds that are tuned, or drawn by chance already: each time the same.
+const TUNED: ReadonlySet<SoundName> = new Set<SoundName>(['bell', 'win', 'door', 'ember', 'finish', 'daze', 'empty', 'drip', 'thunder']);
+
 type Wave = OscillatorType;
 type Filter = 'lowpass' | 'highpass' | 'bandpass';
 /** A layer of a sound: when it starts, how long it lasts, how loud, how much of it goes to the hall, and where between the ears (-1 to 1). */
@@ -40,6 +43,8 @@ export class Sound {
   private rainfall: { sources: AudioScheduledSourceNode[]; level: GainNode } | null = null;
   private dripT = 1.5;                          // seconds to the next drop that falls somewhere in the dark
   private under = false;
+  private pitch = 1;                            // of the sound being made: a little different each time
+  private loud = 1;
   private musicLv = 7;                          // the levels of the options, 0 to 10; 7 is the mix as made
   private soundsLv = 7;
   private reader: BaseAudioContext | null = null;                     // reads the tunes before sound is allowed
@@ -271,6 +276,7 @@ export class Sound {
     const ac = this.ac;
     if (!ac || ac.state !== 'running' || !this.bus) return;
     const t = ac.currentTime + (l.at ?? 0), o = ac.createOscillator();
+    from *= this.pitch; to *= this.pitch; l = { ...l, vol: l.vol * this.loud };
     o.type = wave;
     o.frequency.setValueAtTime(from, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + l.dur);
     if (wobble) { const lfo = ac.createOscillator(), depth = ac.createGain(); lfo.frequency.value = wobble; depth.gain.value = from * 0.06; lfo.connect(depth).connect(o.frequency); lfo.start(t); lfo.stop(t + l.dur + 0.05); }
@@ -283,6 +289,7 @@ export class Sound {
     const ac = this.ac;
     if (!ac || ac.state !== 'running' || !this.bus || !this.noise) return;
     const t = ac.currentTime + (l.at ?? 0), src = ac.createBufferSource(), f = ac.createBiquadFilter();
+    from *= this.pitch; to *= this.pitch; l = { ...l, vol: l.vol * this.loud };
     src.buffer = this.noise; src.loop = true;
     f.type = kind; f.Q.value = q;
     f.frequency.setValueAtTime(from, t); f.frequency.exponentialRampToValueAtTime(Math.max(30, to), t + l.dur);
@@ -307,17 +314,27 @@ export class Sound {
   }
 
   play(name: SoundName): void {
+    // Each time a little higher or lower, louder or softer, so that a blow repeated is not a machine;
+    // but not the sounds that are tuned, nor those already drawn by chance.
+    const tuned = TUNED.has(name);
+    this.pitch = tuned ? 1 : 0.96 + Math.random() * 0.08;
+    this.loud = tuned ? 1 : 0.88 + Math.random() * 0.24;
+    this.make(name);
+    this.pitch = 1; this.loud = 1;
+  }
+
+  private make(name: SoundName): void {
     switch (name) {
       case 'jump':
-        this.hiss('bandpass', 500, 1500, { dur: 0.12, vol: 0.14 }, 1.4);
-        this.tone('sine', 200, 330, { dur: 0.09, vol: 0.06 });
+        this.hiss('bandpass', 500, 1500, { dur: 0.12, vol: 0.42 }, 1.4);
+        this.tone('sine', 200, 330, { dur: 0.09, vol: 0.18 });
         break;
       case 'land':
         this.tone('sine', 110, 44, { dur: 0.13, vol: 0.4 });
         this.hiss('lowpass', 500, 160, { dur: 0.1, vol: 0.3, hall: 0.2 });
         break;
       case 'swing':
-        this.hiss('bandpass', 800, 3400, { dur: 0.11, vol: 0.22 }, 1.6);
+        this.hiss('bandpass', 800, 3400, { dur: 0.11, vol: 0.95 }, 1.6);
         break;
       case 'hit':
         this.duck();
@@ -356,7 +373,7 @@ export class Sound {
         this.bell(1318, 0.02, 0.06);
         break;
       case 'empty':
-        this.tone('square', 110, 78, { dur: 0.08, vol: 0.16, hall: 0.1 });
+        this.tone('square', 110, 78, { dur: 0.08, vol: 0.36, hall: 0.1 });
         break;
       case 'daze':
         this.duck(0.5);
@@ -438,8 +455,8 @@ export class Sound {
         this.hiss('lowpass', 500, 200, { dur: 0.55, vol: 0.22, hall: 0.2 });
         break;
       case 'bark':
-        this.tone('square', 330, 160, { dur: 0.12, vol: 0.18, hall: 0.25 });
-        this.hiss('bandpass', 900, 400, { dur: 0.12, vol: 0.35, hall: 0.25 }, 2);
+        this.tone('square', 330, 160, { dur: 0.12, vol: 0.36, hall: 0.25 });
+        this.hiss('bandpass', 900, 400, { dur: 0.12, vol: 0.7, hall: 0.25 }, 2);
         break;
       case 'shriek':
         // A wail that rises, wavers and falls away.
@@ -479,6 +496,29 @@ export class Sound {
         this.tone('sawtooth', 70, 38, { dur: 0.6, vol: 0.35, hall: 0.5 });
         this.hiss('lowpass', 500, 160, { dur: 0.55, vol: 0.45, hall: 0.4 }, 0.6);
         this.splatter(5, 0.3, 0.18);
+        break;
+      case 'step':
+        // A step on stone: a soft knock under the sole, a scrape, the hall answering a little.
+        this.tone('sine', 120, 62, { dur: 0.05, vol: 0.16, hall: 0.12 });
+        this.hiss('lowpass', 1400, 400, { dur: 0.04, vol: 0.16, hall: 0.12 });
+        break;
+      case 'grass':
+        // A step on grass: the blades brushed, no stone under them.
+        this.hiss('highpass', 2600, 1700, { dur: 0.07, vol: 0.14 });
+        this.hiss('bandpass', 700, 400, { dur: 0.05, vol: 0.1 }, 1.2);
+        break;
+      case 'rung':
+        // A rung of a ladder: wood, knocked by a hand and a foot.
+        this.tone('triangle', 330, 270, { dur: 0.05, vol: 0.2, hall: 0.2 });
+        this.hiss('bandpass', 1800, 1200, { dur: 0.02, vol: 0.12 }, 3);
+        break;
+      case 'blaze':
+        // Fire bursting up out of the stone: a rush that rises, a low roar under it, crackling.
+        this.duck(0.4);
+        this.hiss('bandpass', 220, 1900, { dur: 0.6, vol: 0.95, hall: 0.4 }, 0.9);
+        this.tone('sawtooth', 70, 150, { dur: 0.55, vol: 0.32, hall: 0.3 });
+        this.hiss('lowpass', 700, 180, { dur: 0.5, vol: 0.6, hall: 0.3 });
+        this.splatter(7, 0.5, 0.22);
         break;
       case 'wade':
         // A step in water: it is pushed aside, wet and low, and falls back.

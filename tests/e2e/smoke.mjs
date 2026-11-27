@@ -86,10 +86,16 @@ await game(() => { window.__doneEdges = true; window.__edges.length = 0; });
 const size = await game(() => { const c = document.getElementById('screen'); return [c.width, c.height, c.getBoundingClientRect().width]; });
 check('the picture is 640 x 360, shown at a whole scale', size[0] === 640 && size[1] === 360 && size[2] % 640 === 0, size.join(' '));
 
+await game(() => { const snd = __game.sound, play = snd.play.bind(snd); window.__heard = []; snd.play = n => { window.__heard.push(n); play(n); }; });
 const x0 = await game(() => __game.world.hero.x);
 await page.keyboard.down('ArrowRight'); await page.waitForTimeout(600); await page.keyboard.up('ArrowRight');
 const x1 = await game(() => __game.world.hero.x);
 check('the right arrow runs the hero right', x1 > x0 + 50, `${x0.toFixed(0)} -> ${x1.toFixed(0)}`);
+check('his steps on the stone are heard', await game(() => window.__heard.includes('step')), (await game(() => window.__heard)).join(' '));
+// Up a ladder: its rungs are heard.
+await game(() => { const w = __game.world, h = w.hero, l = w.grid.ladders[0]; Object.assign(h, { x: l.x - h.w / 2, y: (l.rowBottom + 1) * 16 - h.h, vx: 0, vy: 0, onGround: true, climbing: false, lastFloor: l.rowBottom + 1 }); window.__heard.length = 0; });
+await page.keyboard.down('ArrowUp'); await page.waitForTimeout(700); await page.keyboard.up('ArrowUp');
+check('the rungs of a ladder are heard as he climbs', await game(() => window.__heard.includes('rung')), (await game(() => window.__heard)).join(' '));
 
 await page.keyboard.down('Space'); await page.waitForTimeout(120);
 check('space jumps', await game(() => !__game.world.hero.onGround));
@@ -261,8 +267,9 @@ await page.waitForTimeout(600);
 const cemetery = await game(() => ({ name: __game.world.level.settings.name, skyline: __game.world.level.settings.skyline }));
 check('out of the fallen belfry, the cemetery, under its own sky', cemetery.name === 'cimetiere' && cemetery.skyline === 'cemetery', JSON.stringify(cemetery));
 await game(() => { const w = __game.world, h = w.hero; w.invincible = true; Object.assign(h, { x: 1180, y: 320 - h.h, vx: 0, vy: 0, onGround: true, climbing: false, lastFloor: 20 }); });      // on firm ground, clear of the pits
-await page.waitForFunction(() => __game.world.foes.some(f => f.kind === 'skeleton' && f.dead <= 0), null, { timeout: 6000 }).catch(() => {});
-check('the dead come up out of the ground as the hero goes', await game(() => __game.world.foes.some(f => f.kind === 'skeleton' && f.dead <= 0)));
+// Some 1.5 to 3 s of the game; up to 12 s of the clock, for a browser that runs slow a moment.
+await page.waitForFunction(() => __game.world.foes.some(f => f.kind === 'skeleton' && f.dead <= 0), null, { timeout: 12000 }).catch(() => {});
+check('the dead come up out of the ground as the hero goes', await game(() => __game.world.foes.some(f => f.kind === 'skeleton' && f.dead <= 0)), await game(() => { const w = __game.world, h = w.hero; return JSON.stringify({ x: Math.round(h.x), y: Math.round(h.y), ground: h.onGround, climbing: h.climbing, held: !!w.heldBy, restT: w.restT, restless: w.level.settings.restless, clock: w.clock.toFixed(1), state: w.state, paused: __game.paused, scene: __game.scene, skeletons: w.foes.filter(f => f.kind === 'skeleton').map(f => [Math.round(f.x), f.dead, f.rise]) }); }));
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/cemetery.png' });
 await game(() => {
   const w = __game.world;
@@ -324,6 +331,28 @@ await keys('Escape', 'KeyP');
 const eased = await game(() => { const w = __game.world; w.hero.invul = 0; const hp = w.hero.hp; w.hurtHero(1, 1); return { mercy: w.mercy, lost: hp - w.hero.hp, kept: __game.settings.difficulty }; });
 check('the easy mode, chosen in the pause, halves the blows', eased.mercy === 0.5 && eased.lost === 0.5 && eased.kept === 'easy', JSON.stringify(eased));
 await keys('KeyP', 'KeyO', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'Escape', 'KeyP');
+// The pause is a small menu: going on first; two lines down, back to the title.
+await keys('KeyP');
+check('the pause offers to go on first', await game(() => __game.paused && __game.pauseAt === 0));
+await keys('ArrowDown', 'ArrowDown');
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/pause.png' });
+await keys('Space');
+await page.waitForTimeout(300);
+check('from the pause, down twice and jump: back to the title', await game(() => __game.scene === 'title' && !__game.paused));
+// The demo: the game plays itself, the hero cannot be harmed and goes about; a key brings back the title.
+await page.goto(pathToFileURL('index.html').href);
+await page.waitForFunction(() => window.__game, null, { timeout: 15000 });
+await page.waitForTimeout(300);
+await game(() => __game.demo());
+await page.waitForTimeout(300);
+const demo0 = await game(() => ({ scene: __game.scene, invincible: __game.world?.invincible, x: __game.world?.hero.x }));
+await page.waitForTimeout(3000);
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/demo.png' });
+const demo1 = await game(() => ({ scene: __game.scene, x: __game.world?.hero.x, reached: __game.reached }));
+check('the demo plays a level by itself, the hero going about, out of harm', demo0.scene === 'demo' && demo0.invincible && demo1.scene === 'demo' && Math.abs(demo1.x - demo0.x) > 20, JSON.stringify([demo0, demo1]));
+await page.keyboard.press('KeyX');
+await page.waitForTimeout(300);
+check('a key brings the title back from the demo', await game(() => __game.scene === 'title'));
 
 // The trial mode: N wins a level at once, and its board is kept apart from the real one.
 await page.goto(pathToFileURL('index.html').href + '?test&level=1');

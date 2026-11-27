@@ -5,6 +5,7 @@ import { type Actor, MAX_HP } from '../sim/actor';
 import { boardWords, clockText, type LevelResult, type Words } from '../campaign';
 import type { Initials } from '../initials';
 import { drawName } from './title';
+import { PAUSE_LINES } from '../pause';
 import { BEAST } from '../sim/beast';
 import { DEMON } from '../sim/demon';
 import type { World } from '../sim/world';
@@ -90,7 +91,7 @@ export class Hud {
     for (const line of won.lines) { centered(g, line, at + 6, '#9d93b8'); at += 22; }
   }
 
-  draw(g: CanvasRenderingContext2D, t: number, paused: boolean, won: Words): void {
+  draw(g: CanvasRenderingContext2D, t: number, paused: boolean, won: Words, pauseAt = 0, demo = false): void {
     const w = this.world, p = w.hero;
     const strip = g.createLinearGradient(0, VIEW_H - 34, 0, VIEW_H);
     strip.addColorStop(0, 'rgba(8,6,18,0)'); strip.addColorStop(1, 'rgba(8,6,18,0.85)');
@@ -102,7 +103,8 @@ export class Hud {
     const low = p.hp <= 2;
     this.bar(g, MARGIN, p.hp, this.heroLag, false, low ? '#ff5a3a' : '#ffd23a', t, low && w.state === 'play');
     text(g, 'MONK', MARGIN, BAR_Y + BAR_H + 5, '#e2d8f0');
-    if (w.invincible) text(g, 'INVINCIBLE', MARGIN + textWidth('MONK') + 12, BAR_Y + BAR_H + 5, '#ffe27a');
+    if (demo) { if (Math.floor(t * 1.6) % 2 === 0) centered(g, 'DEMO    PRESS ANY KEY', VIEW_H - 44, '#ffe27a'); }
+    else if (w.invincible) text(g, 'INVINCIBLE', MARGIN + textWidth('MONK') + 12, BAR_Y + BAR_H + 5, '#ffe27a');
     const foe = this.foe;
     if (foe) {
       const demon = foe.kind === 'demon', beast = foe.kind === 'beast', dazed = demon ? w.boss?.phase === 'dazed' : foe.dazed > 0, x = VIEW_W - MARGIN - BAR_W;
@@ -138,6 +140,6 @@ export class Hud {
     };
     if (w.state === 'won') this.wonPanel(g, t, clock, won);
     else if (w.state === 'lost' && w.slow <= 0) panel([['KNOCKED OUT', '#ff7a6a', 4], ['PRESS JUMP TO TRY AGAIN', '#9d93b8']]);
-    else if (paused) panel([['PAUSED', '#ffe27a', 4], ['PRESS P TO GO ON', '#9d93b8'], ['O OR Y  OPTIONS', '#9d93b8']]);
+    else if (paused) panel([['PAUSED', '#ffe27a', 4], ['', '#9d93b8'], ...PAUSE_LINES.map((line, i): [string, string] => i === pauseAt ? [`> ${line} <`, '#ffe27a'] : [line, '#9d93b8'])]);
   }
 }

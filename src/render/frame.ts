@@ -91,11 +91,16 @@ export class Stage {
   private readonly wading = new Map<Actor, number>();             // px each body has waded since its last splash
   /** H: what collides, drawn over the picture. */
   collisions = false;
+  /** The line of the pause chosen now. */
+  pauseAt = 0;
+  /** The game plays itself: the demo. */
+  demo = false;
   /** The blood turned to ash (an option, for the younger players): blows throw ash, and no blood is drawn. */
   ash = false;
   private readonly flocks: { x: number; y: number; t: number; birds: { dx: number; dy: number; vx: number; vy: number; flap: number }[] }[] = [];     // t: seconds since they flew, -1 perched
   private ripples: { x: number; t: number; size: number }[] = [];  // rings on the water, in level x
-  private feet = { x: 0, walked: 0, bloody: 0, side: 1 };          // the hero's steps: the blood his feet carry
+  private feet = { x: 0, walked: 0, bloody: 0, side: 1 };
+  private paces = { far: 0, climbed: 0 };                         // how far since the last step heard, the last rung          // the hero's steps: the blood his feet carry
   private readonly bells: { x: number; y: number }[] = [];        // where each great bell hangs
   private swing = { amp: 0, t: 0 };                               // how far the bells swing since their last toll
   private rings: { x: number; y: number; t: number }[] = [];      // the sound of a toll, seen going out
@@ -248,6 +253,7 @@ export class Stage {
     this.rainfall(dt);
     this.wade(dt);
     if (!this.ash) this.steps();
+    this.footfalls(dt);
     for (const r of this.rings) r.t += dt;
     this.rings = this.rings.filter(r => r.t < 1.1);
     const fall = this.world.fall;
@@ -400,7 +406,7 @@ export class Stage {
     this.grade.vignette(g);
     if (!this.ash) this.drawLens(g);
     if (this.collisions) this.drawCollisions(g, cx, cy);
-    if (!this.scenery) this.hud.draw(g, t, paused, this.won);
+    if (!this.scenery) this.hud.draw(g, t, paused, this.won, this.pauseAt, this.demo);
   }
 
   // Closes in on a finishing blow: the picture drawn so far is enlarged round the place of the blow.
@@ -1088,6 +1094,25 @@ export class Stage {
       if (water > 0 && y === water) this.ripples.push({ x, t: 0, size: 0.4 });
       else this.particles.push({ x, y: y - 1, vx: (Math.random() - 0.5) * 40, vy: -30 - Math.random() * 40, life: 0.15 + Math.random() * 0.15, color: '#8ea6d8', g: 600 });
     }
+  }
+
+  // The hero's steps heard: on stone, or on grass out of doors (on a ledge or a column, stone again);
+  // in water, the wading is heard instead. The rungs of a ladder as he climbs it.
+  private footfalls(dt: number): void {
+    const w = this.world, p = w.hero, water = w.level.settings.water, pace = this.paces;
+    if (this.scenery || w.state !== 'play') return;
+    if (p.climbing) {
+      pace.climbed += Math.abs(p.vy) * dt;
+      if (pace.climbed > 16) { pace.climbed = 0; this.heardNow.push('rung'); }
+      return;
+    }
+    const wet = water > 0 && p.y + p.h > water + 4;
+    if (!p.onGround || wet || Math.abs(p.vx) < 20) return;
+    pace.far += Math.abs(p.vx) * dt;
+    if (pace.far < 26) return;
+    pace.far = 0;
+    const col = Math.floor((p.x + p.w / 2) / TILE), onSlab = w.grid.platformAt(col, p.lastFloor);
+    this.heardNow.push(w.level.settings.skyline && !onSlab ? 'grass' : 'step');
   }
 
   // The bodies in the water: each one wading throws water up now and then; the hero under it lets out bubbles.

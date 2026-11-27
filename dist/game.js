@@ -125,6 +125,7 @@
   var RAIN = 0.024;
   var OPEN = 22e3;
   var STIFLED = 520;
+  var TUNED = /* @__PURE__ */ new Set(["bell", "win", "door", "ember", "finish", "daze", "empty", "drip", "thunder"]);
   var Sound = class {
     ac = null;
     gain = null;
@@ -148,6 +149,9 @@
     dripT = 1.5;
     // seconds to the next drop that falls somewhere in the dark
     under = false;
+    pitch = 1;
+    // of the sound being made: a little different each time
+    loud = 1;
     musicLv = 7;
     // the levels of the options, 0 to 10; 7 is the mix as made
     soundsLv = 7;
@@ -438,6 +442,9 @@
       const ac = this.ac;
       if (!ac || ac.state !== "running" || !this.bus) return;
       const t = ac.currentTime + (l.at ?? 0), o = ac.createOscillator();
+      from *= this.pitch;
+      to5 *= this.pitch;
+      l = { ...l, vol: l.vol * this.loud };
       o.type = wave;
       o.frequency.setValueAtTime(from, t);
       o.frequency.exponentialRampToValueAtTime(Math.max(20, to5), t + l.dur);
@@ -458,6 +465,9 @@
       const ac = this.ac;
       if (!ac || ac.state !== "running" || !this.bus || !this.noise) return;
       const t = ac.currentTime + (l.at ?? 0), src = ac.createBufferSource(), f = ac.createBiquadFilter();
+      from *= this.pitch;
+      to5 *= this.pitch;
+      l = { ...l, vol: l.vol * this.loud };
       src.buffer = this.noise;
       src.loop = true;
       f.type = kind;
@@ -483,17 +493,25 @@
       }
     }
     play(name2) {
+      const tuned = TUNED.has(name2);
+      this.pitch = tuned ? 1 : 0.96 + Math.random() * 0.08;
+      this.loud = tuned ? 1 : 0.88 + Math.random() * 0.24;
+      this.make(name2);
+      this.pitch = 1;
+      this.loud = 1;
+    }
+    make(name2) {
       switch (name2) {
         case "jump":
-          this.hiss("bandpass", 500, 1500, { dur: 0.12, vol: 0.14 }, 1.4);
-          this.tone("sine", 200, 330, { dur: 0.09, vol: 0.06 });
+          this.hiss("bandpass", 500, 1500, { dur: 0.12, vol: 0.42 }, 1.4);
+          this.tone("sine", 200, 330, { dur: 0.09, vol: 0.18 });
           break;
         case "land":
           this.tone("sine", 110, 44, { dur: 0.13, vol: 0.4 });
           this.hiss("lowpass", 500, 160, { dur: 0.1, vol: 0.3, hall: 0.2 });
           break;
         case "swing":
-          this.hiss("bandpass", 800, 3400, { dur: 0.11, vol: 0.22 }, 1.6);
+          this.hiss("bandpass", 800, 3400, { dur: 0.11, vol: 0.95 }, 1.6);
           break;
         case "hit":
           this.duck();
@@ -533,7 +551,7 @@
           this.bell(1318, 0.02, 0.06);
           break;
         case "empty":
-          this.tone("square", 110, 78, { dur: 0.08, vol: 0.16, hall: 0.1 });
+          this.tone("square", 110, 78, { dur: 0.08, vol: 0.36, hall: 0.1 });
           break;
         case "daze":
           this.duck(0.5);
@@ -613,8 +631,8 @@
           this.hiss("lowpass", 500, 200, { dur: 0.55, vol: 0.22, hall: 0.2 });
           break;
         case "bark":
-          this.tone("square", 330, 160, { dur: 0.12, vol: 0.18, hall: 0.25 });
-          this.hiss("bandpass", 900, 400, { dur: 0.12, vol: 0.35, hall: 0.25 }, 2);
+          this.tone("square", 330, 160, { dur: 0.12, vol: 0.36, hall: 0.25 });
+          this.hiss("bandpass", 900, 400, { dur: 0.12, vol: 0.7, hall: 0.25 }, 2);
           break;
         case "shriek":
           this.duck(0.5);
@@ -651,6 +669,25 @@
           this.tone("sawtooth", 70, 38, { dur: 0.6, vol: 0.35, hall: 0.5 });
           this.hiss("lowpass", 500, 160, { dur: 0.55, vol: 0.45, hall: 0.4 }, 0.6);
           this.splatter(5, 0.3, 0.18);
+          break;
+        case "step":
+          this.tone("sine", 120, 62, { dur: 0.05, vol: 0.16, hall: 0.12 });
+          this.hiss("lowpass", 1400, 400, { dur: 0.04, vol: 0.16, hall: 0.12 });
+          break;
+        case "grass":
+          this.hiss("highpass", 2600, 1700, { dur: 0.07, vol: 0.14 });
+          this.hiss("bandpass", 700, 400, { dur: 0.05, vol: 0.1 }, 1.2);
+          break;
+        case "rung":
+          this.tone("triangle", 330, 270, { dur: 0.05, vol: 0.2, hall: 0.2 });
+          this.hiss("bandpass", 1800, 1200, { dur: 0.02, vol: 0.12 }, 3);
+          break;
+        case "blaze":
+          this.duck(0.4);
+          this.hiss("bandpass", 220, 1900, { dur: 0.6, vol: 0.95, hall: 0.4 }, 0.9);
+          this.tone("sawtooth", 70, 150, { dur: 0.55, vol: 0.32, hall: 0.3 });
+          this.hiss("lowpass", 700, 180, { dur: 0.5, vol: 0.6, hall: 0.3 });
+          this.splatter(7, 0.5, 0.22);
           break;
         case "wade":
           this.hiss("bandpass", 900, 330, { dur: 0.2, vol: 0.32, hall: 0.25 }, 1.1);
@@ -883,6 +920,36 @@
     if (pad.left || pad.back) name2.back();
     if (pad.right || pad.confirm) name2.confirm();
     if (pad.finish) name2.finish();
+  }
+
+  // src/pause.ts
+  var PAUSE_LINES = ["GO ON", "OPTIONS", "TO THE TITLE"];
+  var CHOICES = ["resume", "options", "title"];
+  var PauseMenu = class {
+    line = 0;
+    up() {
+      this.line = Math.max(0, this.line - 1);
+    }
+    down() {
+      this.line = Math.min(PAUSE_LINES.length - 1, this.line + 1);
+    }
+  };
+  var UP2 = ["ArrowUp", "z", "Z", "w", "W"];
+  var DOWN2 = ["ArrowDown", "s", "S"];
+  var CONFIRM2 = ["Enter", " ", "k", "K"];
+  var BACK2 = ["Escape", "Backspace"];
+  function feedPause(menu, typed, pad) {
+    for (const k of typed) {
+      if (UP2.includes(k)) menu.up();
+      else if (DOWN2.includes(k)) menu.down();
+      else if (CONFIRM2.includes(k)) return CHOICES[menu.line];
+      else if (BACK2.includes(k)) return "resume";
+    }
+    if (pad.up) menu.up();
+    if (pad.down) menu.down();
+    if (pad.confirm) return CHOICES[menu.line];
+    if (pad.back) return "resume";
+    return null;
   }
 
   // src/input.ts
@@ -1351,7 +1418,8 @@
       restless: typeof p.restless === "number" && p.restless > 0 ? p.restless : 0,
       tremor: typeof p.tremor === "number" && p.tremor > 0 ? p.tremor : 0,
       fliers: typeof p.fliers === "string" ? p.fliers : "",
-      ending: typeof p.ending === "string" ? p.ending : ""
+      ending: typeof p.ending === "string" ? p.ending : "",
+      demo: p.demo === true
     };
     return { grid: new Grid(map.width, map.height, cells), objects, settings, width: map.width * TILE, height: map.height * TILE };
   }
@@ -2557,7 +2625,7 @@
         const f = BEAST.flare;
         if (!e.struck && e.modeT >= f.windup) {
           e.struck = true;
-          a.emit({ type: "sound", name: "flare" });
+          a.emit({ type: "sound", name: "blaze" });
           a.shake(0.3);
           if (Math.abs(dx) < f.reach && feetY(hero) > e.y && hero.y < floor) a.hurt(Math.abs(dx) < 2 ? e.facing : dx > 0 ? 1 : -1, f.hurt, true);
         }
@@ -2618,7 +2686,7 @@
       if (pillar.t < p.warn) continue;
       if (!pillar.rose) {
         pillar.rose = true;
-        a.emit({ type: "sound", name: "flare" });
+        a.emit({ type: "sound", name: "blaze" });
         a.shake(0.15);
       }
       const feet = feetY(hero), under = Math.abs(centreX(hero) - pillar.x) < p.half && feet > pillar.y - p.high && feet <= pillar.y + 4;
@@ -6022,7 +6090,7 @@
         at += 22;
       }
     }
-    draw(g2, t, paused, won) {
+    draw(g2, t, paused, won, pauseAt = 0, demo = false) {
       const w = this.world, p = w.hero;
       const strip = g2.createLinearGradient(0, VIEW_H - 34, 0, VIEW_H);
       strip.addColorStop(0, "rgba(8,6,18,0)");
@@ -6037,7 +6105,9 @@
       const low = p.hp <= 2;
       this.bar(g2, MARGIN2, p.hp, this.heroLag, false, low ? "#ff5a3a" : "#ffd23a", t, low && w.state === "play");
       text(g2, "MONK", MARGIN2, BAR_Y + BAR_H + 5, "#e2d8f0");
-      if (w.invincible) text(g2, "INVINCIBLE", MARGIN2 + textWidth("MONK") + 12, BAR_Y + BAR_H + 5, "#ffe27a");
+      if (demo) {
+        if (Math.floor(t * 1.6) % 2 === 0) centered(g2, "DEMO    PRESS ANY KEY", VIEW_H - 44, "#ffe27a");
+      } else if (w.invincible) text(g2, "INVINCIBLE", MARGIN2 + textWidth("MONK") + 12, BAR_Y + BAR_H + 5, "#ffe27a");
       const foe = this.foe;
       if (foe) {
         const demon = foe.kind === "demon", beast = foe.kind === "beast", dazed = demon ? w.boss?.phase === "dazed" : foe.dazed > 0, x = VIEW_W - MARGIN2 - BAR_W;
@@ -6071,7 +6141,7 @@
       };
       if (w.state === "won") this.wonPanel(g2, t, clock, won);
       else if (w.state === "lost" && w.slow <= 0) panel2([["KNOCKED OUT", "#ff7a6a", 4], ["PRESS JUMP TO TRY AGAIN", "#9d93b8"]]);
-      else if (paused) panel2([["PAUSED", "#ffe27a", 4], ["PRESS P TO GO ON", "#9d93b8"], ["O OR Y  OPTIONS", "#9d93b8"]]);
+      else if (paused) panel2([["PAUSED", "#ffe27a", 4], ["", "#9d93b8"], ...PAUSE_LINES.map((line, i) => i === pauseAt ? [`> ${line} <`, "#ffe27a"] : [line, "#9d93b8"])]);
     }
   };
 
@@ -6234,6 +6304,10 @@
     // px each body has waded since its last splash
     /** H: what collides, drawn over the picture. */
     collisions = false;
+    /** The line of the pause chosen now. */
+    pauseAt = 0;
+    /** The game plays itself: the demo. */
+    demo = false;
     /** The blood turned to ash (an option, for the younger players): blows throw ash, and no blood is drawn. */
     ash = false;
     flocks = [];
@@ -6241,7 +6315,8 @@
     ripples = [];
     // rings on the water, in level x
     feet = { x: 0, walked: 0, bloody: 0, side: 1 };
-    // the hero's steps: the blood his feet carry
+    paces = { far: 0, climbed: 0 };
+    // how far since the last step heard, the last rung          // the hero's steps: the blood his feet carry
     bells = [];
     // where each great bell hangs
     swing = { amp: 0, t: 0 };
@@ -6355,6 +6430,7 @@
       this.rainfall(dt);
       this.wade(dt);
       if (!this.ash) this.steps();
+      this.footfalls(dt);
       for (const r of this.rings) r.t += dt;
       this.rings = this.rings.filter((r) => r.t < 1.1);
       const fall = this.world.fall;
@@ -6522,7 +6598,7 @@
       this.grade.vignette(g2);
       if (!this.ash) this.drawLens(g2);
       if (this.collisions) this.drawCollisions(g2, cx, cy);
-      if (!this.scenery) this.hud.draw(g2, t, paused, this.won);
+      if (!this.scenery) this.hud.draw(g2, t, paused, this.won, this.pauseAt, this.demo);
     }
     // Closes in on a finishing blow: the picture drawn so far is enlarged round the place of the blow.
     closeIn(g2, cx, cy) {
@@ -7397,6 +7473,27 @@
         else this.particles.push({ x, y: y - 1, vx: (Math.random() - 0.5) * 40, vy: -30 - Math.random() * 40, life: 0.15 + Math.random() * 0.15, color: "#8ea6d8", g: 600 });
       }
     }
+    // The hero's steps heard: on stone, or on grass out of doors (on a ledge or a column, stone again);
+    // in water, the wading is heard instead. The rungs of a ladder as he climbs it.
+    footfalls(dt) {
+      const w = this.world, p = w.hero, water = w.level.settings.water, pace = this.paces;
+      if (this.scenery || w.state !== "play") return;
+      if (p.climbing) {
+        pace.climbed += Math.abs(p.vy) * dt;
+        if (pace.climbed > 16) {
+          pace.climbed = 0;
+          this.heardNow.push("rung");
+        }
+        return;
+      }
+      const wet = water > 0 && p.y + p.h > water + 4;
+      if (!p.onGround || wet || Math.abs(p.vx) < 20) return;
+      pace.far += Math.abs(p.vx) * dt;
+      if (pace.far < 26) return;
+      pace.far = 0;
+      const col = Math.floor((p.x + p.w / 2) / TILE), onSlab = w.grid.platformAt(col, p.lastFloor);
+      this.heardNow.push(w.level.settings.skyline && !onSlab ? "grass" : "step");
+    }
     // The bodies in the water: each one wading throws water up now and then; the hero under it lets out bubbles.
     wade(dt) {
       const w = this.world, water = w.level.settings.water;
@@ -7874,6 +7971,97 @@
     }
   };
 
+  // src/sim/demo.ts
+  function makeDemoMind() {
+    return { t: 0, target: "", giveUp: /* @__PURE__ */ new Map(), lastX: 0, lastY: 0, still: 0, blowT: 0 };
+  }
+  var STUCK = 3.5;
+  var GIVE_UP = 12;
+  var NEAR = 70;
+  var HIGH = 30;
+  var STRIKE = 36;
+  var BLOW_EVERY = 0.3;
+  function there(f) {
+    if (f.dead > 0 || f.ko > 0) return false;
+    switch (f.kind) {
+      case "shade":
+      case "ghoul":
+      case "hound":
+        return true;
+      case "skeleton":
+        return f.rise <= 0.5;
+      case "drowned":
+        return f.mode === "walk" || f.mode === "stagger";
+      case "crow":
+        return f.mode !== "perch";
+      case "skull":
+        return f.mode !== "out";
+      default:
+        return false;
+    }
+  }
+  function floorUnder(w, x, y) {
+    const col = Math.floor(x / TILE);
+    for (let r = Math.max(0, Math.floor(y / TILE)); r < w.grid.rows; r++) if (w.grid.floorAt(col, r)) return r;
+    return Math.floor(y / TILE);
+  }
+  function demoControls(w, m, dt) {
+    m.t += dt;
+    m.blowT -= dt;
+    const h = w.hero, hx = centreX(h), hf = feetY(h);
+    for (const [k, until] of m.giveUp) if (until < m.t) m.giveUp.delete(k);
+    if (Math.abs(h.x - m.lastX) + Math.abs(h.y - m.lastY) > 10) {
+      m.lastX = h.x;
+      m.lastY = h.y;
+      m.still = 0;
+    } else m.still += dt;
+    const foe = w.foes.filter((f) => there(f) && Math.abs(centreX(f) - hx) < NEAR && Math.abs(feetY(f) - hf) < HIGH).sort((a, b) => Math.abs(centreX(a) - hx) - Math.abs(centreX(b) - hx))[0];
+    if (foe && h.onGround && !h.climbing) {
+      m.still = 0;
+      const dx2 = centreX(foe) - hx, dir = dx2 >= 0 ? 1 : -1;
+      if (foe.kind === "shade" && foe.windup > 0 && Math.abs(dx2) < 50) {
+        h.facing = dir;
+        return { ...NO_CONTROLS, guard: true };
+      }
+      if (Math.abs(dx2) > STRIKE) return { ...NO_CONTROLS, x: dir };
+      h.facing = dir;
+      if (m.blowT <= 0) {
+        m.blowT = BLOW_EVERY;
+        return { ...NO_CONTROLS, attackPressed: true };
+      }
+      return NO_CONTROLS;
+    }
+    if (m.still > STUCK && m.target) {
+      m.giveUp.set(m.target, m.t + GIVE_UP);
+      m.target = "";
+      m.still = 0;
+    }
+    let goal = null, best = Infinity;
+    w.embers.forEach((e, i) => {
+      const key = "ember " + i;
+      if (e.taken || m.giveUp.has(key)) return;
+      const cost = Math.abs(e.x - hx) + Math.abs(e.y - hf) * 2;
+      if (cost < best) {
+        best = cost;
+        goal = { key, x: e.x, y: e.y };
+      }
+    });
+    if (!goal && w.door && !m.giveUp.has("door")) goal = { key: "door", x: w.door.x + w.door.w / 2, y: w.door.y + w.door.h - 1 };
+    if (!goal) return NO_CONTROLS;
+    const g2 = goal;
+    m.target = g2.key;
+    const row = floorUnder(w, g2.x, g2.y), dx = g2.x - hx;
+    if (h.onGround && !h.climbing && h.lastFloor === row && Math.abs(dx) < 26) {
+      const above = hf - g2.y > 34 && Math.abs(dx) < 10;
+      return { ...NO_CONTROLS, x: Math.abs(dx) > 3 ? dx > 0 ? 1 : -1 : 0, jump: above, jumpPressed: above };
+    }
+    const mark = makeActor("hero", g2.x, row * TILE);
+    mark.lastFloor = row;
+    mark.onGround = true;
+    mark.invul = 1;
+    return thinkShade(h, mark, w.grid, true);
+  }
+
   // src/main.ts
   var canvas = document.getElementById("screen");
   var wrap = document.getElementById("wrap");
@@ -7911,6 +8099,8 @@
     centered(g, "SEE THE MESSAGE UNDER THE PICTURE", 200, "#9d93b8");
     status.textContent = err instanceof Error ? err.message : String(err);
   }
+  var IDLE = 25;
+  var DEMO_LENGTH = 40;
   function run(assets, levels) {
     const asked = firstLevel(location.search, levels.length);
     const place = levels[titleLevel(levels)];
@@ -7936,6 +8126,9 @@
     const store = browserStore();
     let settings = loadOptions(store);
     let options = null;
+    const pauseMenu = new PauseMenu();
+    const demoLevels = levels.map((l, i) => l.settings.demo ? i : -1).filter((i) => i >= 0);
+    let demoTurn = 0, demoT = 0, idleT = 0, mind = null;
     const ashen = () => settings.blood === "ash";
     sound.setLevels(settings.music, settings.sounds);
     scenery.ash = ashen();
@@ -7963,11 +8156,11 @@
       world = null;
       stage = null;
     };
-    const start = (i) => {
+    const start = (i, demo = false) => {
       leave();
       index = i;
-      scene = "play";
-      if (keeps && i > reached) {
+      scene = demo ? "demo" : "play";
+      if (keeps && !demo && i > reached) {
         reached = i;
         store.set(REACHED_KEY, String(i));
       }
@@ -7984,6 +8177,13 @@
       const boss = !!world.boss, beast = !!world.beast;
       stage = new Stage(world, assets, openingWords(level.settings.title, boss ? "boss" : beast ? "beast" : world.fall ? "fall" : ""), wonWords(i, levels.length, boss || beast, beast ? "BEAST SLAIN" : "DEMON SLAIN"));
       stage.ash = ashen();
+      if (demo) {
+        world.invincible = true;
+        levelCheated = true;
+        stage.demo = true;
+        mind = makeDemoMind();
+        demoT = 0;
+      }
       sound.setMusic(level.settings.music, level.settings.intro);
       sound.setPlace({ rain: level.settings.rain, drips: level.settings.water > 0 });
       const next = levels[i + 1]?.settings;
@@ -8022,12 +8222,18 @@
       paused = false;
       sound.hush(false);
     };
+    const startDemo = () => {
+      if (demoLevels.length) start(demoLevels[demoTurn++ % demoLevels.length], true);
+      idleT = 0;
+    };
     if (asked === null) show("title");
     else {
       fromTitle = false;
       start(asked);
     }
-    window.__game = { get reached() {
+    window.__game = { demo: startDemo, get pauseAt() {
+      return pauseMenu.line;
+    }, get reached() {
       return reached;
     }, get startAt() {
       return startAt;
@@ -8063,6 +8269,13 @@
         }
         if (c.pad.up) startAt = 0;
         if (c.pad.down) startAt = 1;
+      }
+      if (scene === "title") {
+        idleT = c.any || options ? 0 : idleT + dt;
+        if (idleT > IDLE && !trial) {
+          startDemo();
+          return;
+        }
       }
       if (scene === "title" && go2) {
         tally = NO_RUN;
@@ -8108,6 +8321,7 @@
       if (c.pausePressed && w.state === "play") {
         paused = !paused;
         sound.hush(paused);
+        pauseMenu.line = 0;
       }
       if (c.restartPressed) {
         start(index);
@@ -8139,6 +8353,7 @@
         st.setResult(result, naming?.name ?? null);
       }
       st.collisions = collisions;
+      st.pauseAt = pauseMenu.line;
       st.draw(g, clock, paused && !options);
       if (options) drawOptions(g, clock, options, sound.musicOn);
       if (trial) text(g, "TEST  N WINS THE LEVEL", 16, VIEW_H - 20, "#ff8a2a");
@@ -8182,11 +8397,36 @@
         const open = scene === "title" ? c.optionsPressed || c.pad.select : playing && (c.optionsPressed || paused && c.pad.options);
         if (open) {
           if (scene === "play") {
+            if (!paused) pauseMenu.line = 0;
             paused = true;
             sound.hush(false);
           }
           options = new OptionsMenu(settings);
           Object.assign(c, { jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, pausePressed: false });
+        } else if (scene === "play" && paused && world?.state === "play") {
+          const choice = feedPause(pauseMenu, c.typed, c.pad);
+          if (choice === "resume") {
+            paused = false;
+            sound.hush(false);
+          } else if (choice === "options") {
+            sound.hush(false);
+            options = new OptionsMenu(settings);
+          } else if (choice === "title") show("title");
+          Object.assign(c, { jumpPressed: false, attackPressed: false, specialPressed: false, restartPressed: false, typed: [] });
+          if (choice) c.pausePressed = false;
+        }
+      }
+      if (scene === "demo" && world && stage && mind) {
+        if (c.any) {
+          show("title");
+          Object.assign(c, { jumpPressed: false, restartPressed: false });
+        } else {
+          demoT += Math.min(MAX_FRAME, elapsed);
+          const bot = demoControls(world, mind, Math.min(MAX_FRAME, elapsed));
+          play(world, stage, { ...c, ...bot, restartPressed: false, pausePressed: false, winPressed: false }, elapsed);
+          if (demoT > DEMO_LENGTH || world.state !== "play") show("title");
+          requestAnimationFrame(frame);
+          return;
         }
       }
       if (scene === "play" && world && !paused) {

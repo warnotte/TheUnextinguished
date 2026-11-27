@@ -118,7 +118,7 @@ export function stepBeast(e: Actor, a: Arena, fire: BeastFire, dt: number): void
       const f = BEAST.flare;
       if (!e.struck && e.modeT >= f.windup) {
         e.struck = true;
-        a.emit({ type: 'sound', name: 'flare' }); a.shake(0.3);
+        a.emit({ type: 'sound', name: 'blaze' }); a.shake(0.3);
         if (Math.abs(dx) < f.reach && feetY(hero) > e.y && hero.y < floor) a.hurt(Math.abs(dx) < 2 ? e.facing : dx > 0 ? 1 : -1, f.hurt, true);
       }
       if (e.modeT >= f.windup + f.recover) to(e, 'rest');
@@ -173,7 +173,7 @@ function stepFire(e: Actor, a: Arena, fire: BeastFire, dt: number): void {
   for (const pillar of fire.pillars) {
     pillar.t += dt;
     if (pillar.t < p.warn) continue;
-    if (!pillar.rose) { pillar.rose = true; a.emit({ type: 'sound', name: 'flare' }); a.shake(0.15); }
+    if (!pillar.rose) { pillar.rose = true; a.emit({ type: 'sound', name: 'blaze' }); a.shake(0.15); }
     const feet = feetY(hero), under = Math.abs(centreX(hero) - pillar.x) < p.half && feet > pillar.y - p.high && feet <= pillar.y + 4;
     if (!pillar.hit && under && a.playing && a.hurt(centreX(hero) >= pillar.x ? 1 : -1, p.hurt, true)) pillar.hit = true;
   }

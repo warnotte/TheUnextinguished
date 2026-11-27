@@ -15,6 +15,8 @@ Open `index.html` by double-click (after a build, see below). No server, no netw
 on its title, which shows the controls; jump starts it. Once a level past the first has been
 reached, the title offers first to go on from the furthest one reached (it is kept in the browser),
 or, one line down, a new game; going on from it is not a whole run, and its time goes on no board.
+Left alone on its title for 25 seconds, the game plays itself in one of its levels, in turn, for 40
+seconds, the hero out of harm, as the arcade machines did; any key or button brings the title back.
 
 | | Keyboard | Gamepad |
 |---|---|---|
@@ -24,7 +26,7 @@ or, one line down, a new game; going on from it is not a whole run, and its time
 | Strike | X or Ctrl, or J | X or B |
 | Guard | C or Shift, or L, or hold ↓ | LB or RB, or hold ↓ |
 | Flaming charge | V or I; or ↓, then → (or ←), then strike | Y; or ↓, then → (or ←), then strike |
-| Pause | P | Select |
+| Pause: go on, the options, or back to the title | P | Select |
 | Restart | R or Enter | Start |
 | Music on / off | M | |
 | Full screen | F, or a double click on the picture | |
@@ -33,6 +35,9 @@ or, one line down, a new game; going on from it is not a whole run, and its time
 | Cheat: the monk cannot be harmed (G again to stop) | G | |
 
 J, K, L and I are the same moves under the right hand, for whoever moves with Q, Z, S and D.
+
+The pause is a small menu: going on comes first, then the options, then back to the title (so that
+the next player can take the gamepad); up and down choose, jump goes; P, Select or Escape go on at once.
 
 H shows what collides over the picture: stone in red, platforms in yellow, ladders in green, what
 hurts in magenta, the line of the hills in cyan, the bodies and the reach of a blow; H again hides it.
@@ -227,7 +232,7 @@ object, paint a cell); nothing drives them yet.
   decor, the feet of an actor, the pivot of a torch.
 - The map's own properties set the level: `title`, `darkness` (0 to 1), `music`, `mist`, `bats`,
   `intro` (a tune played once before `music`), `sky` (the night shows through the arches, in planes that slide at different speeds:
-  `src/render/sky.ts`), `snow` and `storm` (now and then lightning lights the place through its openings, each body throws a long shadow on the wall, and the thunder follows), `omen` (the giant shape of the demon in the sky), `collapse` (px a second: the level comes down from the top), `water` (the height of its surface, in px from the top: the air under it is water) `rain` (it falls wherever the roof of the grid is open, down to the stone or the water) `skyline` (`cemetery`: the cemetery's own sky, its red moon, its rocks, its far graves, as its pack lays them out), `restless` (seconds: now and then one of the dead comes up out of the ground near the hero, a few at a time), `tremor` (seconds: the ground shakes and stones fall as the level begins) `fliers` (`crows`: crows fly over the level instead of bats; `bats` says how many) and `ending` (on the last level: the
+  `src/render/sky.ts`), `snow` and `storm` (now and then lightning lights the place through its openings, each body throws a long shadow on the wall, and the thunder follows), `omen` (the giant shape of the demon in the sky), `collapse` (px a second: the level comes down from the top), `water` (the height of its surface, in px from the top: the air under it is water) `rain` (it falls wherever the roof of the grid is open, down to the stone or the water) `skyline` (`cemetery`: the cemetery's own sky, its red moon, its rocks, its far graves, as its pack lays them out), `restless` (seconds: now and then one of the dead comes up out of the ground near the hero, a few at a time), `tremor` (seconds: the ground shakes and stones fall as the level begins) `fliers` (`crows`: crows fly over the level instead of bats; `bats` says how many), `demo` (the demo may play this level) and `ending` (on the last level: the
   tune of the end, which is then seen over that level, at dawn when it is out of doors).
 - The third level, the furnace, is written by `node tools/make-fournaise.mjs`; the fourth, the
   flooded crypt, by `node tools/make-inondee.mjs`; the fifth, the belfry, by `node tools/make-beffroi.mjs`;
@@ -281,4 +286,6 @@ level. Behaviour that is new goes into `src/sim/`, never into a level.
   Commodore 64, emulated by reSID, for the furnace, the flooded crypt, the cemetery and the fall) by the program in
   `tools/music` (see its README to render them again). The belfry plays `assets/music/poursuite.*`,
   an earlier tune on the AY-3-8910, made by `essais/ay-essai`.
-- Sound effects: made on the spot by `src/audio.ts`, no samples.
+- Sound effects: made on the spot by `src/audio.ts`, no samples; each a little higher or lower, louder or
+  softer every time, but those that are tuned. The hero's steps are heard on stone and on grass, and the
+  rungs of a ladder as he climbs.

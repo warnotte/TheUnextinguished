@@ -17,6 +17,7 @@ const set = (name, type, value) => {
 set('title', 'string', 'THE FALL');
 set('music', 'string', 'collapse');
 set('omen', 'bool', null);                          // the demon is dead: no giant in the sky
+set('demo', 'bool', null);                          // the demo shows the belfry, not its fall
 set('collapse', 'float', 34);                       // px a second: it reaches the foot in some twenty-three seconds
 set('darkness', 'float', 0.55);
 map.properties.sort((a, b) => a.name.localeCompare(b.name));
