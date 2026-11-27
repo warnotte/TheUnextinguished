@@ -18,6 +18,7 @@ import { type Assets, loadAssets } from './render/assets';
 import { VIEW_H, VIEW_W } from './render/camera';
 import { Stage } from './render/frame';
 import { centered } from './render/text';
+import { Tube } from './render/tube';
 import { drawCredits, drawEnd, drawOptions, drawTitle } from './render/title';
 import { apart, Board, browserStore, seedBoard } from './records';
 import { text } from './render/text';
@@ -28,13 +29,25 @@ const canvas = document.getElementById('screen') as HTMLCanvasElement;
 const wrap = document.getElementById('wrap') as HTMLElement;
 const status = document.getElementById('status') as HTMLElement;
 const g = canvas.getContext('2d')!;
+const glass = document.getElementById('glass') as HTMLCanvasElement | null;
+const tube = glass ? new Tube(glass, canvas) : null;
 const sound = new Sound();
+
+// The screen as an old tube, or sharp: by the shader where the browser allows it, else by the page's own lines.
+function screenAs(old: boolean): void {
+  wrap.classList.toggle('tube', old && !!tube?.ok);
+  wrap.classList.toggle('crt', old && !tube?.ok);
+}
 const input = new Input(window, () => (navigator.getGamepads ? navigator.getGamepads() : []));
 
 function fit(): void {
   const help = document.fullscreenElement ? 0 : document.getElementById('help')!.offsetHeight + 30;
   const scale = fitScale(window.innerWidth, window.innerHeight - help, window.devicePixelRatio || 1);
   canvas.style.width = VIEW_W * scale + 'px'; canvas.style.height = VIEW_H * scale + 'px';
+  wrap.style.setProperty('--px', scale + 'px');          // a row of the game on the screen: the scan lines of the old tube
+  const dpr = window.devicePixelRatio || 1;
+  if (glass) { glass.style.width = canvas.style.width; glass.style.height = canvas.style.height; }
+  tube?.resize(Math.round(VIEW_W * scale * dpr), Math.round(VIEW_H * scale * dpr));
 }
 window.addEventListener('resize', fit);
 document.addEventListener('fullscreenchange', fit);
@@ -101,6 +114,7 @@ function run(assets: Assets, levels: Level[]): void {
   let demoTurn = 0, demoT = 0, idleT = 0, mind: DemoMind | null = null;
   const ashen = (): boolean => settings.blood === 'ash';
   sound.setLevels(settings.music, settings.sounds);
+  screenAs(settings.crt);
   scenery.ash = ashen();
   // The way back: the furthest level reached, kept in the browser; on the title, going on from it is
   // offered first. Not when the page was opened on a level, nor in the trial mode.
@@ -113,12 +127,15 @@ function run(assets: Assets, levels: Level[]): void {
     saveOptions(store, settings);
     if (changed === 'music' && !sound.musicOn) sound.toggleMusic();          // turned up: it is wanted again
     sound.setLevels(settings.music, settings.sounds);
+    screenAs(settings.crt);
     for (const st of [stage, scenery, ending]) if (st) st.ash = ashen();
     if (world) { world.mercy = settings.difficulty === 'easy' ? 0.5 : 1; if (world.mercy < 1) { levelEased = true; runEased = true; } }
     if (changed === 'sounds') sound.play('hit');                            // to hear how loud the sounds now are
   };
   // The pages of the title, in turn: the controls, then the board of the runs and of each level.
-  const pages = [null, { title: 'BEST RUNS', key: 'run' }, ...levels.map(l => ({ title: l.settings.title, key: l.settings.name }))];
+  const pages: (null | 'controls' | { title: string; key: string })[] = [null, 'controls', { title: 'BEST RUNS', key: 'run' }, ...levels.map(l => ({ title: l.settings.title, key: l.settings.name }))];
+  // The monk of the title: his frames standing, and their dark outline.
+  const titleMonk = { idle: [1, 2, 3, 4].map(n => assets.image('monk/idle' + n)), dark: [1, 2, 3, 4].map(n => assets.image('shadow/idle' + n)) };
 
   // What the attempt now ending adds to the run: its time, its dead, its blood, his fall.
   const leave = (): void => { if (world) tally = addRun(tally, world); world = null; stage = null; };
@@ -197,7 +214,7 @@ function run(assets: Assets, levels: Level[]): void {
     if (scene === 'title') {
       const page = pages[titlePage(sceneT, pages.length)];
       const offer = startWords(reached, levels[reached].settings.title);
-      drawTitle(g, sceneT, page && { title: page.title, entries: board.table(page.key) }, options, sound.musicOn, offer && { lines: offer, at: startAt });
+      drawTitle(g, sceneT, page === 'controls' ? page : page && { title: page.title, entries: board.table(page.key) }, options, sound.musicOn, offer && { lines: offer, at: startAt }, titleMonk);
     } else if (scene === 'credits') drawCredits(g, sceneT);
     else drawEnd(g, sceneT, endLines, naming?.name ?? null, endNote);
     if (trial) text(g, 'TEST  RECORDS APART', 8, 8, '#ff8a2a');
@@ -252,6 +269,12 @@ function run(assets: Assets, levels: Level[]): void {
     if (trial) text(g, 'TEST  N WINS THE LEVEL', 16, VIEW_H - 20, '#ff8a2a');
   };
 
+  // The picture just drawn, on the glass of the old tube; if the browser refuses it, the page's lines take over.
+  const glaze = (): void => {
+    if (!settings.crt || !tube?.ok) return;
+    tube.draw();
+    if (!tube.ok) screenAs(true);
+  };
   const frame = (now: number): void => {
     const elapsed = (now - last) / 1000 || 0;
     last = now;
@@ -303,6 +326,7 @@ function run(assets: Assets, levels: Level[]): void {
         const bot = demoControls(world, mind, Math.min(MAX_FRAME, elapsed));
         play(world, stage, { ...c, ...bot, restartPressed: false, pausePressed: false, winPressed: false }, elapsed);
         if (demoT > DEMO_LENGTH || world.state !== 'play') show('title');
+        glaze();
         requestAnimationFrame(frame);
         return;
       }
@@ -315,6 +339,7 @@ function run(assets: Assets, levels: Level[]): void {
     }
     if (scene === 'play' && world && stage) play(world, stage, c, elapsed);
     else showScene(c, elapsed);
+    glaze();
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);

@@ -6,44 +6,53 @@ const seeded = (seed = 11) => () => { seed = (seed * 1664525 + 1013904223) >>> 0
 const live = (lens: Lens, seconds: number) => { for (let i = 0; i < seconds / DT; i++) lens.update(DT); };
 
 describe('blood on the screen', () => {
-  it('lands round the place of the blow, in front of everything', () => {
+  it('is a fine spray, never a blot: drops of a pixel or two, a few of three', () => {
     const lens = new Lens(640, 360, seeded());
-    lens.splash(300, 180, 6);
-    expect(lens.splats).toHaveLength(6);
-    for (const s of lens.splats) {
-      expect(Math.hypot(s.x - 300, s.y - 180)).toBeLessThan(150);
-      expect(s.x).toBeGreaterThanOrEqual(0); expect(s.x).toBeLessThanOrEqual(640);
-      expect(s.y).toBeGreaterThanOrEqual(0); expect(s.y).toBeLessThanOrEqual(360);
-      expect(s.r).toBeGreaterThanOrEqual(3); expect(s.r).toBeLessThanOrEqual(10);
+    lens.spray(300, 180, 1, 40);
+    expect(lens.specks).toHaveLength(40);
+    for (const s of lens.specks) { expect(s.size).toBeLessThanOrEqual(3); expect(s.streak).toBeLessThanOrEqual(6); }
+    expect(lens.specks.filter(s => s.size <= 2).length).toBeGreaterThan(26);
+  });
+
+  it('is flung from the blow the way it was struck, and lands on the glass', () => {
+    for (const dir of [1, -1]) {
+      const lens = new Lens(640, 360, seeded());
+      lens.spray(300, 180, dir, 40);
+      live(lens, 0.25);
+      expect(lens.specks.every(s => s.fly <= 0)).toBe(true);
+      const ahead = lens.specks.filter(s => (s.x - 300) * dir > 0).length;
+      expect(ahead).toBeGreaterThan(lens.specks.length * 0.7);
+      // Spread about, not in a heap.
+      const far = lens.specks.filter(s => Math.hypot(s.x - 300, s.y - 180) > 40).length;
+      expect(far).toBeGreaterThan(lens.specks.length * 0.4);
     }
   });
 
-  it('runs down the screen, then stops', () => {
+  it('runs down in thin rills, the bigger drops only, and they stop', () => {
     const lens = new Lens(640, 360, seeded());
-    lens.splash(300, 100, 8);
+    lens.spray(300, 100, 1, 60);
     live(lens, 0.5);
-    const early = lens.splats.map(s => s.len);
-    expect(early.some(l => l > 3)).toBe(true);
-    live(lens, 1.5);
-    const later = lens.splats.map(s => s.len);
-    expect(later.every((l, i) => l >= early[i])).toBe(true);
-    for (const s of lens.splats) expect(s.len).toBeLessThanOrEqual(s.reach);
+    const rills = lens.specks.filter(s => s.rill > 2);
+    expect(rills.length).toBeGreaterThan(0);
+    expect(rills.every(s => s.size >= 2)).toBe(true);
+    expect(lens.specks.filter(s => s.size === 1).every(s => s.rill === 0)).toBe(true);
+    for (const s of lens.specks) expect(s.rill).toBeLessThanOrEqual(40);
   });
 
-  it('stays a moment, fades, and is gone', () => {
+  it('is gone within two seconds: the fight behind is never hidden', () => {
     const lens = new Lens(640, 360, seeded());
-    lens.splash(300, 100, 8);
-    live(lens, 1.2);
-    expect(lens.splats.every(s => s.alpha === 1)).toBe(true);
-    live(lens, 2.4);
-    expect(lens.splats.some(s => s.alpha < 1)).toBe(true);
-    live(lens, 3);
-    expect(lens.splats).toHaveLength(0);
+    lens.spray(300, 100, 1, 46);
+    live(lens, 0.4);
+    expect(lens.specks.length).toBeGreaterThan(30);
+    live(lens, 0.6);
+    expect(lens.specks.some(s => s.alpha < 1)).toBe(true);
+    live(lens, 1);
+    expect(lens.specks).toHaveLength(0);
   });
 
-  it('never covers the screen: the oldest splashes give way', () => {
+  it('is never more than a spray or two at once: the oldest drops give way', () => {
     const lens = new Lens(640, 360, seeded());
-    for (let i = 0; i < 30; i++) lens.splash(300, 180, 8);
-    expect(lens.splats.length).toBe(LENS_CAP);
+    for (let i = 0; i < 30; i++) lens.spray(300, 180, 1, 46);
+    expect(lens.specks.length).toBe(LENS_CAP);
   });
 });

@@ -6,7 +6,8 @@ back its flames. Keyboard and gamepad.
 This repository holds the engine and its levels. A level is a file; nothing of a level lives in
 the code. It is a duel game on ladders and walkways: collect the embers, reach the door, and fight
 what hunts you. Blows draw blood, which runs down the walls and stays on the floors, gathers in
-pools that shine while they are fresh, and follows the hero's feet for a few steps. In water it
+pools that shine while they are fresh, and follows the hero's feet for a few steps. A heavy blow
+sprays a fine mist of it at the screen, drops of a pixel or two that are gone in a second. In water it
 spreads into red clouds. For adults; the options turn the blood to ash for younger players.
 
 ## Play
@@ -43,14 +44,19 @@ H shows what collides over the picture: stone in red, platforms in yellow, ladde
 hurts in magenta, the line of the hills in cyan, the bodies and the reach of a blow; H again hides it.
 
 O opens the options, on the title or during a level (which it pauses): how loud the music and the
-sounds are, from 0 to 10, the blood, the difficulty, and the hints. RED is the game as it is; ASH is for
+sounds are, from 0 to 10, the blood, the difficulty, the hints, and the screen. RED is the game as it is; ASH is for
 younger players: the blows throw grey ash and a few embers instead of blood, nothing stains the place
 or the bodies, and the end does not count the blood spilt. EASY is for them too: the hero takes half
 of every blow, and no time goes on the board. HINTS ON tells a beginner what to do, once in a run,
 at the moment it is needed, in a band at the foot of the picture: to guard when a shade is about to
 strike, how a dazed shade is ended, that the door wants every ember, the flaming charge when an
 ember is to spare, how to break free of a hand, to come up out of the water, to climb; in the words
-of the keyboard or of the gamepad, whichever was used last. Up and down choose a line, left and right change it
+of the keyboard or of the gamepad, whichever was used last. SCREEN is SHARP, or OLD TUBE: the
+picture as a cathode-ray tube showed it. On a site a shader draws it (`src/render/tube.ts`): the glass
+bulges, a scan line runs along every row of the game, the phosphors stand side by side, the colours part
+towards the edges, the corners go dark. Opened from the disk, a browser lets no shader read the picture:
+the page then lays the scan lines, the phosphors and the dark corners over it itself, without the bulge.
+Up and down choose a line, left and right change it
 (held, they go on), Escape (or O, or B, Y or Select on the gamepad) closes them. They are kept in the
 browser.
 
@@ -167,7 +173,10 @@ out; then the credits roll over the place at dawn. Then back to the title. To go
 `?level=8` to the address of the page.
 
 The title stands in front of the first level open on the sky (the belfry), climbing it slowly under
-a storm: now and then lightning flashes through the arches and the thunder follows.
+a storm: now and then lightning flashes through the arches and the thunder follows. Its name catches fire letter
+by letter as it comes; the monk stands large in the foreground, on a dark rise, the ember he carries in
+his hand. Its first page shows only that, and what starts the game; the controls come after it, in turn
+with the tables of the board.
 
 ## Build and test
 

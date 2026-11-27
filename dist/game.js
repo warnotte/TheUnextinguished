@@ -3,7 +3,7 @@
   // src/options.ts
   var LEVELS = 10;
   var MIDDLE = 7;
-  var DEFAULT_OPTIONS = Object.freeze({ music: MIDDLE, sounds: MIDDLE, blood: "red", difficulty: "normal", hints: true });
+  var DEFAULT_OPTIONS = Object.freeze({ music: MIDDLE, sounds: MIDDLE, blood: "red", difficulty: "normal", hints: true, crt: false });
   var KEY = "unextinguished.options";
   function loadOptions(store) {
     let kept = null;
@@ -19,16 +19,17 @@
       sounds: level(o.sounds, DEFAULT_OPTIONS.sounds),
       blood: o.blood === "ash" || o.blood === "red" ? o.blood : DEFAULT_OPTIONS.blood,
       difficulty: o.difficulty === "easy" || o.difficulty === "normal" ? o.difficulty : DEFAULT_OPTIONS.difficulty,
-      hints: typeof o.hints === "boolean" ? o.hints : DEFAULT_OPTIONS.hints
+      hints: typeof o.hints === "boolean" ? o.hints : DEFAULT_OPTIONS.hints,
+      crt: typeof o.crt === "boolean" ? o.crt : DEFAULT_OPTIONS.crt
     };
   }
   function saveOptions(store, o) {
-    store.set(KEY, JSON.stringify({ music: o.music, sounds: o.sounds, blood: o.blood, difficulty: o.difficulty, hints: o.hints }));
+    store.set(KEY, JSON.stringify({ music: o.music, sounds: o.sounds, blood: o.blood, difficulty: o.difficulty, hints: o.hints, crt: o.crt }));
   }
   function levelGain(level) {
     return (level / MIDDLE) ** 2;
   }
-  var OPTION_LINES = ["MUSIC", "SOUNDS", "BLOOD", "DIFFICULTY", "HINTS", "BACK"];
+  var OPTION_LINES = ["MUSIC", "SOUNDS", "BLOOD", "DIFFICULTY", "HINTS", "SCREEN", "BACK"];
   var OptionsMenu = class {
     line = 0;
     done = false;
@@ -55,7 +56,7 @@
     /** Jump or A: the blood or the difficulty turns, BACK closes; on a level it does nothing. */
     confirm() {
       this.changed = null;
-      if (["BLOOD", "DIFFICULTY", "HINTS"].includes(OPTION_LINES[this.line])) this.turn(1);
+      if (["BLOOD", "DIFFICULTY", "HINTS", "SCREEN"].includes(OPTION_LINES[this.line])) this.turn(1);
       else if (OPTION_LINES[this.line] === "BACK") this.done = true;
     }
     back() {
@@ -78,6 +79,9 @@
       } else if (what === "HINTS") {
         o.hints = !o.hints;
         this.changed = "hints";
+      } else if (what === "SCREEN") {
+        o.crt = !o.crt;
+        this.changed = "crt";
       }
     }
   };
@@ -1175,14 +1179,14 @@
     e.vx = 0;
     e.vy = 0;
     e.y = e.spawnY - e.h;
-    const hero = a.hero, dx = centreX(hero) - centreX(e), floor = feetY(e);
+    const hero2 = a.hero, dx = centreX(hero2) - centreX(e), floor = feetY(e);
     stepFire(e, a, fire, dt);
     const face = () => {
       if (Math.abs(dx) > 4) e.facing = dx > 0 ? 1 : -1;
     };
     switch (e.mode) {
       case "wait":
-        if (a.playing && Math.abs(dx) < BEAST.wake && Math.abs(feetY(hero) - floor) < 220) {
+        if (a.playing && Math.abs(dx) < BEAST.wake && Math.abs(feetY(hero2) - floor) < 220) {
           face();
           to(e, "rest");
           a.emit({ type: "sound", name: "roar" });
@@ -1192,7 +1196,7 @@
       case "rest":
         face();
         if (!a.playing || e.modeT < (enraged(e) ? BEAST.restEnraged : BEAST.rest)) return;
-        if (Math.abs(dx) < BEAST.claw.near && Math.abs(feetY(hero) - floor) < 30) {
+        if (Math.abs(dx) < BEAST.claw.near && Math.abs(feetY(hero2) - floor) < 30) {
           if (e.chain >= 2) {
             e.chain = 0;
             to(e, "flare");
@@ -1212,7 +1216,7 @@
         if (!e.struck && e.modeT >= BEAST.throwAt) {
           e.struck = true;
           const mx = centreX(e) + e.facing * 20, my = e.y + 22;
-          const aim = Math.atan2(hero.y + hero.h / 2 - my, centreX(hero) - mx);
+          const aim = Math.atan2(hero2.y + hero2.h / 2 - my, centreX(hero2) - mx);
           const angles = enraged(e) ? [aim - BEAST.ball.fan, aim, aim + BEAST.ball.fan] : [aim];
           for (const r of angles) fire.balls.push({ x: mx, y: my, vx: Math.cos(r) * BEAST.ball.speed, vy: Math.sin(r) * BEAST.ball.speed, life: BEAST.ball.life, gone: false });
           a.emit({ type: "sound", name: "breath" });
@@ -1228,7 +1232,7 @@
           e.struck = true;
           const left = e.facing > 0 ? e.x : e.x - c.reach, right = e.facing > 0 ? e.x + e.w + c.reach : e.x + e.w;
           const box = { x: left, y: e.y + 10, w: right - left, h: e.h - 20 };
-          if (hero.x < box.x + box.w && hero.x + hero.w > box.x && hero.y < box.y + box.h && hero.y + hero.h > box.y) a.hurt(Math.abs(dx) < 2 ? e.facing : dx > 0 ? 1 : -1, c.hurt, false);
+          if (hero2.x < box.x + box.w && hero2.x + hero2.w > box.x && hero2.y < box.y + box.h && hero2.y + hero2.h > box.y) a.hurt(Math.abs(dx) < 2 ? e.facing : dx > 0 ? 1 : -1, c.hurt, false);
           a.emit({ type: "sound", name: "swing" });
         }
         if (e.modeT >= c.windup + c.strike + c.recover) to(e, "rest");
@@ -1240,7 +1244,7 @@
           e.struck = true;
           a.emit({ type: "sound", name: "blaze" });
           a.shake(0.3);
-          if (Math.abs(dx) < f.reach && feetY(hero) > e.y && hero.y < floor) a.hurt(Math.abs(dx) < 2 ? e.facing : dx > 0 ? 1 : -1, f.hurt, true);
+          if (Math.abs(dx) < f.reach && feetY(hero2) > e.y && hero2.y < floor) a.hurt(Math.abs(dx) < 2 ? e.facing : dx > 0 ? 1 : -1, f.hurt, true);
         }
         if (e.modeT >= f.windup + f.recover) to(e, "rest");
         return;
@@ -1257,7 +1261,7 @@
         const p = BEAST.pillar;
         e.motionT -= dt;
         if (e.chain > 0 && e.motionT <= 0) {
-          fire.pillars.push({ x: centreX(hero), y: floor, t: 0, rose: false, hit: false });
+          fire.pillars.push({ x: centreX(hero2), y: floor, t: 0, rose: false, hit: false });
           e.chain--;
           e.motionT = p.every;
         }
@@ -1281,7 +1285,7 @@
     }
   }
   function stepFire(e, a, fire, dt) {
-    const hero = a.hero, b = BEAST.ball, p = BEAST.pillar;
+    const hero2 = a.hero, b = BEAST.ball, p = BEAST.pillar;
     for (const ball of fire.balls) {
       ball.x += ball.vx * dt;
       ball.y += ball.vy * dt;
@@ -1290,7 +1294,7 @@
         ball.gone = true;
         continue;
       }
-      const touch = hero.x < ball.x + b.w / 2 && hero.x + hero.w > ball.x - b.w / 2 && hero.y < ball.y + b.h / 2 && hero.y + hero.h > ball.y - b.h / 2;
+      const touch = hero2.x < ball.x + b.w / 2 && hero2.x + hero2.w > ball.x - b.w / 2 && hero2.y < ball.y + b.h / 2 && hero2.y + hero2.h > ball.y - b.h / 2;
       if (touch && a.playing && a.hurt(ball.vx >= 0 ? 1 : -1, b.hurt, false)) ball.gone = true;
     }
     fire.balls = fire.balls.filter((ball) => !ball.gone);
@@ -1302,8 +1306,8 @@
         a.emit({ type: "sound", name: "blaze" });
         a.shake(0.15);
       }
-      const feet = feetY(hero), under = Math.abs(centreX(hero) - pillar.x) < p.half && feet > pillar.y - p.high && feet <= pillar.y + 4;
-      if (!pillar.hit && under && a.playing && a.hurt(centreX(hero) >= pillar.x ? 1 : -1, p.hurt, true)) pillar.hit = true;
+      const feet = feetY(hero2), under = Math.abs(centreX(hero2) - pillar.x) < p.half && feet > pillar.y - p.high && feet <= pillar.y + 4;
+      if (!pillar.hit && under && a.playing && a.hurt(centreX(hero2) >= pillar.x ? 1 : -1, p.hurt, true)) pillar.hit = true;
     }
     fire.pillars = fire.pillars.filter((pillar) => pillar.t < p.warn + p.rise);
     void e;
@@ -1578,24 +1582,101 @@
     }
     g2.restore();
   }
-  function name(g2, t) {
+  var CATCH = 0.5;
+  var EACH = 0.085;
+  function name(g2, t, lighting = false) {
     const big = 7, word = "UNEXTINGUISHED", y = 56, h = 5 * big;
+    const taken = lighting ? Math.max(0, Math.min(word.length, (t - CATCH) / EACH)) : word.length, share = taken / word.length;
     g2.save();
     g2.globalCompositeOperation = "lighter";
     const glow = g2.createRadialGradient(VIEW_W / 2, y + h / 2, 10, VIEW_W / 2, y + h / 2, 260);
-    glow.addColorStop(0, `rgba(255,120,40,${0.32 + 0.06 * Math.sin(t * 4.3) + 0.04 * Math.sin(t * 11)})`);
+    glow.addColorStop(0, `rgba(255,120,40,${((0.32 + 0.06 * Math.sin(t * 4.3) + 0.04 * Math.sin(t * 11)) * share).toFixed(3)})`);
     glow.addColorStop(1, "rgba(255,120,40,0)");
     g2.fillStyle = glow;
     g2.fillRect(0, y - 80, VIEW_W, h + 160);
     g2.restore();
     centered(g2, "THE", 36, PALE, 3);
     const x = Math.round((VIEW_W - textWidth(word, big)) / 2);
-    text(g2, word, x + 4, y + 4, "#4a0a0c", big);
     const flame2 = g2.createLinearGradient(0, y, 0, y + h);
     flame2.addColorStop(0, FIRE[0]);
     flame2.addColorStop(0.45, FIRE[1]);
     flame2.addColorStop(1, FIRE[3]);
-    text(g2, word, x, y, flame2, big);
+    for (let i = 0; i < word.length; i++) {
+      const lx = x + i * 4 * big, since = lighting ? t - CATCH - i * EACH : 9;
+      text(g2, word[i], lx + 4, y + 4, since >= 0 ? "#4a0a0c" : "#120408", big);
+      if (since < 0) {
+        text(g2, word[i], lx, y, "#3a1410", big);
+        continue;
+      }
+      text(g2, word[i], lx, y, since < 0.1 ? "#ffffff" : flame2, big);
+      if (since < 0.35) {
+        g2.save();
+        g2.globalCompositeOperation = "lighter";
+        const burst = g2.createRadialGradient(lx + 10, y + h / 2, 2, lx + 10, y + h / 2, 46);
+        burst.addColorStop(0, `rgba(255,220,150,${(0.7 * (1 - since / 0.35)).toFixed(3)})`);
+        burst.addColorStop(1, "rgba(255,150,60,0)");
+        g2.fillStyle = burst;
+        g2.fillRect(lx - 40, y - 40, 100, h + 80);
+        for (let k = 0; k < 5; k++) {
+          const a = hash(i, k) * Math.PI - Math.PI, far = since * (90 + hash(k, i) * 140);
+          g2.fillStyle = FIRE[k % 3];
+          g2.fillRect(Math.round(lx + 10 + Math.cos(a) * far), Math.round(y + h / 2 + Math.sin(a) * far + since * since * 160), 2, 2);
+        }
+        g2.restore();
+      }
+    }
+  }
+  function hero(g2, t, h) {
+    const BIG = 3, fx = 96, fy = 318;
+    g2.fillStyle = "#06040c";
+    g2.beginPath();
+    g2.moveTo(0, VIEW_H);
+    g2.lineTo(0, fy - 4);
+    for (let x = 0; x <= 300; x += 6) g2.lineTo(x, fy - 4 + Math.pow(Math.max(0, x - 120) / 180, 2) * 46 + (hash(x, 9) < 0.3 ? -2 : 0));
+    g2.lineTo(300, VIEW_H);
+    g2.closePath();
+    g2.fill();
+    const n = Math.floor(t * 4) % h.idle.length, bob = Math.round(Math.sin(t * 1.6) * 1);
+    const draw = (pic) => {
+      const w = pic.width, hh = pic.height;
+      g2.drawImage(pic, fx - 40 * BIG, fy - hh * BIG + bob, w * BIG, hh * BIG);
+    };
+    const smooth = g2.imageSmoothingEnabled;
+    g2.imageSmoothingEnabled = false;
+    draw(h.idle[n]);
+    g2.globalAlpha = 0.28;
+    draw(h.dark[n]);
+    g2.globalAlpha = 1;
+    g2.imageSmoothingEnabled = smooth;
+    const ex = fx + 34, ey = fy - 84 + bob, flick = 0.8 + 0.2 * Math.sin(t * 13) * Math.sin(t * 7.3);
+    g2.save();
+    g2.globalCompositeOperation = "lighter";
+    const light = g2.createRadialGradient(ex, ey, 2, ex, ey, 150);
+    light.addColorStop(0, `rgba(255,170,70,${(0.55 * flick).toFixed(3)})`);
+    light.addColorStop(0.3, `rgba(255,110,40,${(0.2 * flick).toFixed(3)})`);
+    light.addColorStop(1, "rgba(255,90,30,0)");
+    g2.fillStyle = light;
+    g2.fillRect(ex - 150, ey - 150, 300, 300);
+    g2.restore();
+    const tall = Math.round(5 + 2 * flick + Math.sin(t * 19)), P = 3;
+    const px = (x, y, w, hh, c) => {
+      g2.fillStyle = c;
+      g2.fillRect(ex + x * P, ey + y * P, w * P, hh * P);
+    };
+    px(-2, -tall + 1, 4, tall, FIRE[3]);
+    px(-1, -tall, 2, 1, FIRE[3]);
+    px(-1, -tall + 2, 3, tall - 2, FIRE[2]);
+    px(-1, -tall + 4, 2, tall - 4, FIRE[1]);
+    px(0, -2, 1, 2, FIRE[0]);
+    g2.save();
+    g2.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 9; i++) {
+      const life = (t * (0.5 + hash(i, 21) * 0.5) + hash(i, 22)) % 1;
+      g2.globalAlpha = 1 - life;
+      g2.fillStyle = FIRE[i % 3];
+      g2.fillRect(Math.round(ex + Math.sin(t * 2 + i * 1.7) * (4 + life * 16)), Math.round(ey - 8 - life * 70), 2, 2);
+    }
+    g2.restore();
   }
   function panel(g2, x, y, w, h) {
     g2.fillStyle = "rgba(10,8,20,0.78)";
@@ -1612,20 +1693,21 @@
     ["GUARD", "C", "LB"],
     ["CHARGE", "V", "Y"]
   ];
-  function drawTitle(g2, t, page = null, menu = null, musicOn = true, start = null) {
+  function drawTitle(g2, t, page = null, menu = null, musicOn = true, start = null, monk = null) {
     g2.setTransform(1, 0, 0, 1, 0, 0);
-    veil(g2);
+    veil(g2, !page && !menu);
     sparks(g2, t);
-    name(g2, t);
-    centered(g2, "A GOTHIC PLATFORM FIGHTER", 104, "#c9bfe0");
+    if (monk && !page && !menu) hero(g2, t, monk);
+    name(g2, t, true);
+    if (t > CATCH + 14 * EACH + 0.2) centered(g2, "A GOTHIC PLATFORM FIGHTER", 104, "#c9bfe0");
     const px = 160, pw = 320, py = 128;
     if (menu) {
       drawOptions(g2, t, menu, musicOn);
       return;
     }
-    panel(g2, px, py, pw, 136);
-    if (page) drawTable(g2, page.title, page.entries, px, py, pw);
-    else {
+    if (page) panel(g2, px, py, pw, 136);
+    if (page && page !== "controls") drawTable(g2, page.title, page.entries, px, py, pw);
+    else if (page === "controls") {
       const col = [px + 24, px + 128, px + 228];
       text(g2, "KEYBOARD", col[1], py + 12, GOLD);
       text(g2, "GAMEPAD", col[2], py + 12, GOLD);
@@ -1646,7 +1728,7 @@
   }
   var OPTIONS_HINT = "ARROWS CHOOSE AND CHANGE  O BACK";
   function drawOptions(g2, t, menu, musicOn) {
-    const px = 150, pw = 340, py = 118, ph = 196;
+    const px = 150, pw = 340, py = 110, ph = 218;
     g2.fillStyle = "rgba(10,8,20,0.94)";
     g2.fillRect(px, py, pw, ph);
     g2.strokeStyle = "rgba(154,143,192,0.8)";
@@ -1676,6 +1758,7 @@
       } else if (what === "BLOOD") text(g2, o.blood === "red" ? "RED" : "ASH", vx, y, o.blood === "red" ? "#ff6a5a" : "#b3aeb8");
       else if (what === "DIFFICULTY") text(g2, o.difficulty === "easy" ? "EASY" : "NORMAL", vx, y, o.difficulty === "easy" ? "#8ff0c0" : PALE);
       else if (what === "HINTS") text(g2, o.hints ? "ON" : "OFF", vx, y, o.hints ? PALE : DIM);
+      else if (what === "SCREEN") text(g2, o.crt ? "OLD TUBE" : "SHARP", vx, y, o.crt ? "#9fe0ff" : PALE);
     });
     centered(g2, OPTIONS_HINT, py + ph - 22, DIM);
   }
@@ -1979,7 +2062,7 @@
   };
   var keepIn = (x, a, w) => Math.max(TILE + w / 2, Math.min(a.width - TILE - w / 2, x));
   function stepDemon(d, a, dt) {
-    const b = d.body, hero = a.hero;
+    const b = d.body, hero2 = a.hero;
     d.t += dt;
     b.animT += dt;
     b.invul = Math.max(0, b.invul - dt);
@@ -1989,7 +2072,7 @@
       v.x += v.dir * DEMON.wave.speed * dt;
       v.t += dt;
       const box = { x: v.x - DEMON.wave.half, y: v.y - DEMON.wave.height, w: DEMON.wave.half * 2, h: DEMON.wave.height };
-      if (!v.hit && a.playing && overlap(box, hero)) v.hit = !!a.hurt(v.dir, DEMON.wave.damage, true);
+      if (!v.hit && a.playing && overlap(box, hero2)) v.hit = !!a.hurt(v.dir, DEMON.wave.damage, true);
     }
     d.waves = d.waves.filter((v) => v.t < DEMON.wave.life && v.x > TILE && v.x < a.width - TILE && d.phase !== "dying" && d.phase !== "gone");
     switch (d.phase) {
@@ -2020,7 +2103,7 @@
         if (d.t >= DEMON.start) go(d, "drift");
         break;
       case "drift": {
-        const dx = centreX(hero) - centreX(b), adx = Math.abs(dx), speed = d.enraged ? DEMON.fast : DEMON.speed;
+        const dx = centreX(hero2) - centreX(b), adx = Math.abs(dx), speed = d.enraged ? DEMON.fast : DEMON.speed;
         if (adx > 2) b.facing = dx > 0 ? 1 : -1;
         if (adx > DEMON.near) b.x = keepIn(centreX(b) + b.facing * speed * dt, a, b.w) - b.w / 2;
         else if (adx < DEMON.back) b.x = keepIn(centreX(b) - b.facing * speed * 1.4 * dt, a, b.w) - b.w / 2;
@@ -2039,9 +2122,9 @@
         }
         break;
       case "breath":
-        if (!d.hit && a.playing && overlap(breathBox(d), hero)) d.hit = !!a.hurt(b.facing, DEMON.burn, true);
+        if (!d.hit && a.playing && overlap(breathBox(d), hero2)) d.hit = !!a.hurt(b.facing, DEMON.burn, true);
         if (d.t >= DEMON.breath.time) {
-          const behind = Math.sign(centreX(hero) - centreX(b)) === -b.facing;
+          const behind = Math.sign(centreX(hero2) - centreX(b)) === -b.facing;
           if (d.enraged && !d.again && behind && a.playing) {
             b.facing = b.facing > 0 ? -1 : 1;
             go(d, "windup");
@@ -2055,7 +2138,7 @@
         }
         break;
       case "buffet":
-        if (!d.hit && d.t >= DEMON.buffet.at && a.playing && overlap(buffetBox(d), hero)) d.hit = !!a.hurt(centreX(hero) >= centreX(b) ? 1 : -1, DEMON.buffet.damage, false);
+        if (!d.hit && d.t >= DEMON.buffet.at && a.playing && overlap(buffetBox(d), hero2)) d.hit = !!a.hurt(centreX(hero2) >= centreX(b) ? 1 : -1, DEMON.buffet.damage, false);
         if (d.t >= DEMON.buffet.time) settle(d);
         break;
       case "rise":
@@ -2067,8 +2150,8 @@
         break;
       case "mark":
         if (d.t <= DEMON.swoop.follow) {
-          d.markX = keepIn(centreX(hero), a, b.w);
-          d.landY = hero.lastFloor * TILE;
+          d.markX = keepIn(centreX(hero2), a, b.w);
+          d.landY = hero2.lastFloor * TILE;
         }
         if (d.t >= DEMON.swoop.mark) go(d, "fall");
         break;
@@ -2103,8 +2186,8 @@
     }
   }
   function choose(d, a) {
-    const b = d.body, hero = a.hero;
-    const adx = Math.abs(centreX(hero) - centreX(b)), level = Math.abs(hero.lastFloor * TILE - d.floor) < 8;
+    const b = d.body, hero2 = a.hero;
+    const adx = Math.abs(centreX(hero2) - centreX(b)), level = Math.abs(hero2.lastFloor * TILE - d.floor) < 8;
     if (level && adx < DEMON.buffet.near) {
       go(d, "buffet");
       a.emit({ type: "sound", name: "swing" });
@@ -2114,7 +2197,7 @@
     } else go(d, "rise");
   }
   function land(d, a) {
-    const b = d.body, hero = a.hero;
+    const b = d.body, hero2 = a.hero;
     b.y = d.landY - b.h;
     d.floor = d.landY;
     b.lastFloor = Math.round(d.landY / TILE);
@@ -2122,13 +2205,13 @@
     a.emit({ type: "effect", kind: "heavy-landing", x: d.markX, y: d.landY, flip: false });
     a.emit({ type: "dust", x: d.markX, y: d.landY, count: 26 });
     a.emit({ type: "sound", name: "slam" });
-    const dx = centreX(hero) - d.markX;
-    if (a.playing && hero.onGround && Math.abs(feetY(hero) - d.landY) < 6 && Math.abs(dx) < DEMON.swoop.wave) a.hurt(dx >= 0 ? 1 : -1, DEMON.slam, true);
+    const dx = centreX(hero2) - d.markX;
+    if (a.playing && hero2.onGround && Math.abs(feetY(hero2) - d.landY) < 6 && Math.abs(dx) < DEMON.swoop.wave) a.hurt(dx >= 0 ? 1 : -1, DEMON.slam, true);
     if (d.enraged) for (const dir of [-1, 1]) d.waves.push({ x: d.markX + dir * 20, y: d.landY, dir, t: 0, hit: false });
     settle(d);
   }
   var REACH_ON_FOOT = 700;
-  function stepSkeleton(e, hero, grid, dt, playing, emit) {
+  function stepSkeleton(e, hero2, grid, dt, playing, emit) {
     if (e.dead > 0) return;
     e.invul = Math.max(0, e.invul - dt);
     if (e.rise > 0) {
@@ -2137,8 +2220,8 @@
     }
     let speed = 0;
     if (playing) {
-      const middle = centreX(e), d = centreX(hero) - middle;
-      const chasing = hero.lastFloor === e.lastFloor || hero.onGround && Math.abs(d) < REACH_ON_FOOT && grid.walkable(middle, feetY(e), centreX(hero), feetY(hero));
+      const middle = centreX(e), d = centreX(hero2) - middle;
+      const chasing = hero2.lastFloor === e.lastFloor || hero2.onGround && Math.abs(d) < REACH_ON_FOOT && grid.walkable(middle, feetY(e), centreX(hero2), feetY(hero2));
       if (chasing && Math.abs(d) > 2) e.facing = d > 0 ? 1 : -1;
       const ahead = !e.onGround || grid.groundUnder(middle + e.facing * 8, feetY(e)) !== null;
       if (chasing) speed = ahead && Math.abs(d) > 2 ? SKELETON.speed : 0;
@@ -2768,13 +2851,13 @@
     e.struck = false;
   };
   function stepReaper(e, a, dt, held) {
-    const hero = a.hero, cx = centreX(e), hx = centreX(hero), dx = hx - cx, side = dx >= 0 ? 1 : -1;
+    const hero2 = a.hero, cx = centreX(e), hx = centreX(hero2), dx = hx - cx, side = dx >= 0 ? 1 : -1;
     e.modeT += dt;
     e.animT += dt;
     stepScythe(e, a, dt, held);
     switch (e.mode) {
       case "stone":
-        if (a.playing && Math.abs(dx) < REAPER.wake && Math.abs(hero.y + hero.h - e.spawnY) < 120) {
+        if (a.playing && Math.abs(dx) < REAPER.wake && Math.abs(hero2.y + hero2.h - e.spawnY) < 120) {
           to2(e, "waking");
           a.emit({ type: "sound", name: "reaper" });
           a.emit({ type: "debris", x: cx, y: e.y + 10, count: 10 });
@@ -2811,7 +2894,7 @@
         if (e.modeT >= REAPER.windup) to2(e, "sweep");
         return;
       case "sweep":
-        if (!e.struck && Math.abs(dx) < REAPER.reach && hero.y < e.y + e.h && hero.y + hero.h > e.y) {
+        if (!e.struck && Math.abs(dx) < REAPER.reach && hero2.y < e.y + e.h && hero2.y + hero2.h > e.y) {
           e.struck = true;
           a.hurt(side, REAPER.hurt, false);
         }
@@ -2945,15 +3028,15 @@
     }
     return d;
   };
-  var sideOf = (hero, e) => centreX(hero) >= centreX(e) ? 1 : -1;
+  var sideOf = (hero2, e) => centreX(hero2) >= centreX(e) ? 1 : -1;
   var overlap2 = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   function stepSkull(e, a, dt) {
-    const hero = a.hero, homeX = e.spawnX, homeY = e.spawnY - e.h / 2;
+    const hero2 = a.hero, homeX = e.spawnX, homeY = e.spawnY - e.h / 2;
     e.modeT += dt;
     e.animT += dt;
     e.invul = Math.max(0, e.invul - dt);
     e.cool = Math.max(0, e.cool - dt);
-    const cx = centreX(e), cy = e.y + e.h / 2, hx = centreX(hero), hy = hero.y + hero.h / 2;
+    const cx = centreX(e), cy = e.y + e.h / 2, hx = centreX(hero2), hy = hero2.y + hero2.h / 2;
     switch (e.mode) {
       case "hover":
         towards(e, homeX + Math.sin(e.animT * 0.9) * 22, homeY + Math.sin(e.animT * 1.7) * 7, SKULL.drift, dt);
@@ -2998,8 +3081,8 @@
         }
         return;
     }
-    if (a.playing && (e.mode === "dash" || e.mode === "hover" || e.mode === "flare") && e.invul <= 0 && overlap2(e, hero)) {
-      if (a.hurt(sideOf(hero, e), SKULL.hurt, false)) {
+    if (a.playing && (e.mode === "dash" || e.mode === "hover" || e.mode === "flare") && e.invul <= 0 && overlap2(e, hero2)) {
+      if (a.hurt(sideOf(hero2, e), SKULL.hurt, false)) {
         to3(e, "back");
         e.cool = SKULL.cool;
       }
@@ -3012,7 +3095,7 @@
     e.onGround = false;
   }
   function stepCrow(e, a, dt) {
-    const hero = a.hero;
+    const hero2 = a.hero;
     e.modeT += dt;
     e.animT += dt;
     if (e.mode === "fallen") {
@@ -3023,7 +3106,7 @@
       return;
     }
     if (e.dead > 0) return;
-    const cx = centreX(e), cy = e.y + e.h / 2, hx = centreX(hero), hy = hero.y + hero.h / 3;
+    const cx = centreX(e), cy = e.y + e.h / 2, hx = centreX(hero2), hy = hero2.y + hero2.h / 3;
     switch (e.mode) {
       case "perch":
         if (a.playing && Math.abs(hx - cx) < CROW.wake && Math.abs(hy - cy) < CROW.high) {
@@ -3061,9 +3144,9 @@
         }
         return;
     }
-    if (a.playing && e.mode === "dive" && overlap2(e, hero)) {
-      const got = a.hurt(sideOf(hero, e), CROW.hurt, false);
-      if (got === "blocked") strikeCrow(e, sideOf(e, hero));
+    if (a.playing && e.mode === "dive" && overlap2(e, hero2)) {
+      const got = a.hurt(sideOf(hero2, e), CROW.hurt, false);
+      if (got === "blocked") strikeCrow(e, sideOf(e, hero2));
       else if (got) {
         to3(e, "away");
         e.vy = -CROW.flee * 0.6;
@@ -3079,7 +3162,7 @@
     e.onGround = false;
   }
   function stepHound(e, a, dt) {
-    const hero = a.hero;
+    const hero2 = a.hero;
     if (e.dead > 0) {
       e.dead -= dt;
       if (e.dead <= 0) {
@@ -3098,8 +3181,8 @@
     e.modeT += dt;
     e.invul = Math.max(0, e.invul - dt);
     e.stun = Math.max(0, e.stun - dt);
-    const dx = centreX(hero) - centreX(e);
-    const sameFloor = hero.lastFloor === e.lastFloor || hero.onGround && Math.abs(dx) < HOUND.sight * 2 && a.grid.walkable(centreX(e), feetY(e), centreX(hero), feetY(hero));
+    const dx = centreX(hero2) - centreX(e);
+    const sameFloor = hero2.lastFloor === e.lastFloor || hero2.onGround && Math.abs(dx) < HOUND.sight * 2 && a.grid.walkable(centreX(e), feetY(e), centreX(hero2), feetY(hero2));
     if (e.stun > 0) e.vx *= Math.exp(-5 * dt);
     else switch (e.mode) {
       case "sit":
@@ -3114,7 +3197,7 @@
         const ahead = !e.onGround || a.grid.groundUnder(centreX(e) + e.facing * 14, feetY(e)) !== null;
         e.vx = ahead ? e.facing * HOUND.run : 0;
         const bite = sameFloor && Math.abs(dx) < HOUND.leapRange;
-        const over = !ahead && dx * e.facing > 0 && Math.abs(feetY(hero) - feetY(e)) < 48 && leapClears(e, a.grid);
+        const over = !ahead && dx * e.facing > 0 && Math.abs(feetY(hero2) - feetY(e)) < 48 && leapClears(e, a.grid);
         if (a.playing && e.onGround && (bite || over)) {
           e.vx = e.facing * HOUND.leapVx;
           e.vy = -HOUND.leapVy;
@@ -3135,8 +3218,8 @@
     e.vy = Math.min(TUNING.maxFall, e.vy + TUNING.gravity * dt);
     move(e, a.grid, dt, a.emit);
     e.animT += dt;
-    if (a.playing && (e.mode === "run" || e.mode === "leap") && e.stun <= 0 && e.invul <= 0 && overlap2(e, hero)) {
-      const outcome = a.hurt(sideOf(hero, e), HOUND.hurt, false);
+    if (a.playing && (e.mode === "run" || e.mode === "leap") && e.stun <= 0 && e.invul <= 0 && overlap2(e, hero2)) {
+      const outcome = a.hurt(sideOf(hero2, e), HOUND.hurt, false);
       if (outcome) {
         to3(e, "land");
         if (outcome === "blocked") {
@@ -3172,7 +3255,7 @@
     return false;
   }
   function stepGhost(e, a, dt) {
-    const hero = a.hero, hx = centreX(hero);
+    const hero2 = a.hero, hx = centreX(hero2);
     e.modeT += dt;
     e.animT += dt;
     switch (e.mode) {
@@ -3183,7 +3266,7 @@
           let x = hx + side * far;
           if (Math.abs(x - e.spawnX) > GHOST.haunt || x < TILE * 2 || x > a.width - TILE * 2) x = hx - side * far;
           e.x = x - e.w / 2;
-          e.y = hero.lastFloor * TILE - 2 - e.h;
+          e.y = hero2.lastFloor * TILE - 2 - e.h;
           e.facing = hx >= x ? 1 : -1;
           to3(e, "appear");
         }
@@ -3192,14 +3275,14 @@
         if (e.modeT >= GHOST.appear) to3(e, "idle");
         break;
       case "idle":
-        e.facing = sideOf(hero, e);
+        e.facing = sideOf(hero2, e);
         if (e.modeT >= GHOST.idle) to3(e, "shriek");
         break;
       case "shriek":
         if (!e.struck && e.modeT >= GHOST.windup) {
           e.struck = true;
           a.emit({ type: "sound", name: "shriek" });
-          if (a.playing && Math.abs(hx - centreX(e)) < GHOST.reach && Math.abs(feetY(hero) - feetY(e)) < 30) a.hurt(sideOf(hero, e), GHOST.hurt, false);
+          if (a.playing && Math.abs(hx - centreX(e)) < GHOST.reach && Math.abs(feetY(hero2) - feetY(e)) < 30) a.hurt(sideOf(hero2, e), GHOST.hurt, false);
         }
         if (e.modeT >= GHOST.windup + GHOST.scream) {
           e.cool = GHOST.away[e.look % 2];
@@ -3251,12 +3334,12 @@
       f.next = FALL.every;
       f.rocks.push({ x: 24 + chance(f) * (a.width - 48), y: f.y + FALL.ahead, vy: 30, size: 7 + Math.floor(chance(f) * 8) });
     }
-    const hero = a.hero;
+    const hero2 = a.hero;
     f.rocks = f.rocks.filter((r) => {
       r.vy += FALL.gravity * dt;
       r.y += r.vy * dt;
-      if (a.playing && touches(r, hero)) {
-        a.hurt(hero.x + hero.w / 2 >= r.x ? 1 : -1, FALL.rock, true);
+      if (a.playing && touches(r, hero2)) {
+        a.hurt(hero2.x + hero2.w / 2 >= r.x ? 1 : -1, FALL.rock, true);
         a.emit({ type: "debris", x: r.x, y: r.y, count: 8 });
         return false;
       }
@@ -3266,7 +3349,7 @@
       }
       return r.y < a.grid.rows * TILE + 40;
     });
-    if (a.playing && hero.y < f.y) crush();
+    if (a.playing && hero2.y < f.y) crush();
   }
 
   // src/sim/drowned.ts
@@ -3302,12 +3385,12 @@
   function stepDrowned(e, a, water, dt) {
     e.modeT += dt;
     e.invul = Math.max(0, e.invul - dt);
-    const hero = a.hero, dx = centreX(hero) - centreX(e);
+    const hero2 = a.hero, dx = centreX(hero2) - centreX(e);
     switch (e.mode) {
       case "sunk":
         e.vx = 0;
         if (e.modeT < e.cool || !a.playing) return;
-        if (Math.abs(dx) < DROWNED.wake && Math.abs(feetY(hero) - feetY(e)) < DROWNED.high) {
+        if (Math.abs(dx) < DROWNED.wake && Math.abs(feetY(hero2) - feetY(e)) < DROWNED.high) {
           to4(e, "rise");
           e.facing = dx >= 0 ? 1 : -1;
           a.emit({ type: "splash", x: centreX(e), y: water, size: 2 });
@@ -3362,7 +3445,7 @@
   var GHOUL_SPEED = 118;
   var RELIGHT_GRACE = 1.2;
   var LOOK_AHEAD = 10;
-  function stepGhoul(e, hero, grid, dt, playing, emit) {
+  function stepGhoul(e, hero2, grid, dt, playing, emit) {
     e.invul = Math.max(0, e.invul - dt);
     if (e.dead > 0) {
       e.dead -= dt;
@@ -3372,15 +3455,15 @@
         e.vx = 0;
         e.vy = 0;
         e.invul = RELIGHT_GRACE;
-        e.facing = hero.x + hero.w / 2 < e.spawnX ? -1 : 1;
+        e.facing = hero2.x + hero2.w / 2 < e.spawnX ? -1 : 1;
       }
       return;
     }
     let speed = 0;
     if (playing) {
       const middle = e.x + e.w / 2;
-      const hx = hero.x + hero.w / 2, feet = e.y + e.h;
-      const chasing = hero.onGround && (hero.lastFloor === e.lastFloor || Math.abs(hx - middle) < 700 && grid.walkable(middle, feet, hx, hero.y + hero.h));
+      const hx = hero2.x + hero2.w / 2, feet = e.y + e.h;
+      const chasing = hero2.onGround && (hero2.lastFloor === e.lastFloor || Math.abs(hx - middle) < 700 && grid.walkable(middle, feet, hx, hero2.y + hero2.h));
       if (chasing) {
         const d = hx - middle;
         if (d !== 0) e.facing = d > 0 ? 1 : -1;
@@ -3413,12 +3496,12 @@
   var STAND_OFF = 20;
   var LOOK_AHEAD2 = 10;
   var JUMPABLE = 5;
-  function thinkShade(e, hero, grid, playing) {
+  function thinkShade(e, hero2, grid, playing) {
     if (e.stun > 0 || e.ko > 0 || e.dazed > 0 || e.guardT > 0 || e.windup > 0 || e.strike > 0 || e.recover > 0 || !playing) return NO_CONTROLS;
     const out = { ...NO_CONTROLS, jump: true };
-    const ecx = e.x + e.w / 2, pcx = hero.x + hero.w / 2;
+    const ecx = e.x + e.w / 2, pcx = hero2.x + hero2.w / 2;
     if (e.climbing) {
-      const goal = hero.lastFloor * TILE, feet2 = e.y + e.h;
+      const goal = hero2.lastFloor * TILE, feet2 = e.y + e.h;
       if (e.climbDir < 0 && goal > feet2 + 24) e.climbDir = 1;
       else if (e.climbDir > 0 && goal < feet2 - 24) e.climbDir = -1;
       out.up = e.climbDir < 0;
@@ -3429,8 +3512,8 @@
       out.x = e.airDir;
       return out;
     }
-    const ef = e.lastFloor, pf = hero.lastFloor, feet = e.y + e.h;
-    const same = pf === ef || hero.onGround && Math.abs(pcx - ecx) < 700 && grid.walkable(ecx, feet, pcx, hero.y + hero.h);
+    const ef = e.lastFloor, pf = hero2.lastFloor, feet = e.y + e.h;
+    const same = pf === ef || hero2.onGround && Math.abs(pcx - ecx) < 700 && grid.walkable(ecx, feet, pcx, hero2.y + hero2.h);
     let target = pcx;
     let via = null;
     if (!same) {
@@ -3453,7 +3536,7 @@
       out.down = e.climbDir > 0;
       return out;
     }
-    if (!via && same && Math.abs(d) < STRIKE_RANGE && Math.abs(hero.y - e.y) < STRIKE_HEIGHT && e.cool <= 0 && hero.invul <= 0) {
+    if (!via && same && Math.abs(d) < STRIKE_RANGE && Math.abs(hero2.y - e.y) < STRIKE_HEIGHT && e.cool <= 0 && hero2.invul <= 0) {
       if (d !== 0) e.facing = d > 0 ? 1 : -1;
       e.windup = SHADE_WINDUP;
       e.vx = 0;
@@ -3520,13 +3603,13 @@
       this.level = level;
       this.grid = level.grid;
       this.grid.terrain = terrainOf(level.objects, level.width);
-      let hero = null;
+      let hero2 = null;
       for (const o of level.objects) {
         const kind = KINDS[o.kind];
         if (!kind) continue;
         if (kind.role === "spawn") {
           const actor = makeActor(kind.actor, o.x, o.y);
-          if (kind.actor === "hero") hero = actor;
+          if (kind.actor === "hero") hero2 = actor;
           else if (kind.actor === "demon") {
             actor.hp = DEMON.hp;
             const arch = level.objects.filter((a) => a.kind === "arch").sort((p, q) => Number(q.props.width ?? 80) - Number(p.props.width ?? 80))[0];
@@ -3551,19 +3634,19 @@
         else if (kind.role === "heal") this.candles.push({ x: o.x, y: o.y, lit: true });
         else if (kind.role === "hazard") this.hazards.push({ x: o.x, y: o.y, w: Number(o.props.width ?? 32), h: TILE });
       }
-      if (!hero) throw new Error(`level "${level.settings.name}" has no hero`);
-      this.hero = hero;
+      if (!hero2) throw new Error(`level "${level.settings.name}" has no hero`);
+      this.hero = hero2;
       this.wasOpen = this.doorOpen;
       const world = this;
       this.arena = {
-        hero,
+        hero: hero2,
         grid: this.grid,
         width: level.width,
         emit: this.emit,
         get playing() {
           return world.state === "play";
         },
-        hurt: (dir, damage, unblockable) => hero.invul > 0 || world.state !== "play" ? null : world.hurtHero(dir, damage, unblockable),
+        hurt: (dir, damage, unblockable) => hero2.invul > 0 || world.state !== "play" ? null : world.hurtHero(dir, damage, unblockable),
         shake: (seconds) => {
           world.shake = Math.max(world.shake, seconds);
         }
@@ -5027,8 +5110,8 @@
   };
 
   // src/render/lens.ts
-  var LENS_CAP = 60;
-  var FADE2 = 1.3;
+  var LENS_CAP = 260;
+  var FADE2 = 0.45;
   var Lens = class {
     constructor(width, height, random = Math.random) {
       this.width = width;
@@ -5038,35 +5121,52 @@
     width;
     height;
     random;
-    splats = [];
-    /** Throws `amount` splashes at the screen round (x, y), in screen pixels. */
-    splash(x, y, amount) {
+    specks = [];
+    /** Sprays `count` drops at the screen from (x, y), in screen pixels, the way the blow went (`dir` 1 right, -1 left). */
+    spray(x, y, dir, count) {
       const r = this.random;
-      for (let i = 0; i < amount; i++) {
-        const a = r() * Math.PI * 2, d = 20 + r() * 120;
-        this.splats.push({
-          x: Math.max(0, Math.min(this.width, x + Math.cos(a) * d)),
-          y: Math.max(0, Math.min(this.height, y + Math.sin(a) * d * 0.7)),
-          r: 3 + r() * 7,
-          len: 0,
-          reach: 10 + r() * 70,
-          speed: 30 + r() * 60,
+      for (let i = 0; i < count; i++) {
+        const back = r() < 0.12, a = (dir >= 0 ? 0 : Math.PI) + (back ? Math.PI : 0) + (r() - 0.56) * 2.1;
+        const speed = 220 + r() * r() * 1250, fly = 0.05 + r() * 0.12;
+        const big = r(), size = big < 0.42 ? 1 : big < 0.82 ? 2 : 3;
+        this.specks.push({
+          x,
+          y,
+          vx: Math.cos(a) * speed,
+          vy: Math.sin(a) * speed * 0.8,
+          fly,
+          ux: Math.cos(a),
+          uy: Math.sin(a) * 0.8,
+          streak: speed > 700 ? 3 + r() * 3 : r() < 0.45 ? 1 + r() * 3 : 0,
+          size,
+          slide: size === 3 ? 60 + r() * 80 : size === 2 && r() < 0.5 ? 30 + r() * 50 : 0,
+          rill: 0,
           age: 0,
-          life: 3 + r() * 2.2,
+          life: 0.9 + r() * 0.6,
           alpha: 1,
           shade: Math.floor(r() * 3)
         });
       }
-      if (this.splats.length > LENS_CAP) this.splats.splice(0, this.splats.length - LENS_CAP);
+      if (this.specks.length > LENS_CAP) this.specks.splice(0, this.specks.length - LENS_CAP);
     }
     update(dt) {
-      for (const s of this.splats) {
+      for (const s of this.specks) {
+        if (s.fly > 0) {
+          s.x += s.vx * dt;
+          s.y += s.vy * dt;
+          s.fly -= dt;
+          continue;
+        }
         s.age += dt;
-        s.len = Math.min(s.reach, s.len + s.speed * dt);
-        s.speed *= Math.max(0, 1 - 1.4 * dt);
+        if (s.slide > 1) {
+          const d = s.slide * dt;
+          s.y += d;
+          s.rill = Math.min(40, s.rill + d);
+          s.slide *= Math.max(0, 1 - 1.8 * dt);
+        }
         s.alpha = s.age < s.life - FADE2 ? 1 : Math.max(0, (s.life - s.age) / FADE2);
       }
-      this.splats = this.splats.filter((s) => s.age < s.life);
+      this.specks = this.specks.filter((s) => s.age < s.life && s.x > -8 && s.x < this.width + 8 && s.y > -8 && s.y < this.height + 8);
     }
   };
 
@@ -6496,7 +6596,7 @@
             continue;
           }
           this.blood.spurt(e.x, e.y, e.dir, e.amount, e.chunks);
-          if (e.amount >= 50) this.lens.splash(e.x - this.camera.x, e.y - this.camera.y, e.amount >= 100 ? 9 : 3);
+          if (e.amount >= 25) this.lens.spray(e.x - this.camera.x, e.y - this.camera.y - 18, e.dir, e.amount >= 100 ? 90 : e.amount >= 50 ? 36 : 10);
         } else if (e.type === "finisher") {
           this.punch = { x: e.x, y: e.y, t: 0 };
           this.hud.finisher();
@@ -7863,20 +7963,27 @@
       }
       g2.globalAlpha = 1;
     }
-    // Blood on the screen: a blot of pixels, the drip under it, a bead at its end.
+    // Blood on the screen: a fine spray. Each drop is a pixel or two, half seen through, drawn out a
+    // little the way it flew; a bigger one has a glint, and above it the thin rill it leaves as it runs down.
     drawLens(g2) {
-      for (const s of this.lens.splats) {
-        g2.globalAlpha = 0.88 * s.alpha;
-        g2.fillStyle = BLOOD_COLORS[s.shade];
-        const rad = Math.round(s.r), x = Math.round(s.x), y = Math.round(s.y);
-        for (let dy = -rad; dy <= rad; dy++) {
-          const half = Math.round(Math.sqrt(rad * rad - dy * dy));
-          g2.fillRect(x - half, y + dy, half * 2, 1);
+      for (const s of this.lens.specks) {
+        const x = Math.round(s.x), y = Math.round(s.y), w = s.size >= 2 ? 2 : 1, h = s.size === 3 ? 3 : w;
+        const flying = s.fly > 0;
+        g2.globalAlpha = (flying ? 0.7 : 0.95) * s.alpha;
+        if (s.rill > 1) {
+          g2.fillStyle = BLOOD_COLORS[1];
+          g2.globalAlpha = 0.6 * s.alpha;
+          g2.fillRect(x, y - Math.round(s.rill), 1, Math.round(s.rill));
+          g2.globalAlpha = 0.95 * s.alpha;
         }
-        const w = rad > 6 ? 3 : 2;
-        g2.fillRect(x - 1, y, w, Math.ceil(s.len) + rad);
         g2.fillStyle = BLOOD_COLORS[Math.min(3, s.shade + 1)];
-        g2.fillRect(x - 1, y + rad + Math.ceil(s.len), w, 2);
+        for (let i = Math.round(flying ? Math.max(s.streak, 3) : s.streak); i > 0; i--) g2.fillRect(Math.round(s.x - s.ux * i), Math.round(s.y - s.uy * i), 1, 1);
+        g2.fillRect(x, y, w, h);
+        if (s.size === 3 && !flying) {
+          g2.fillStyle = "#ff8f8f";
+          g2.globalAlpha = 0.8 * s.alpha;
+          g2.fillRect(x, y, 1, 1);
+        }
       }
       g2.globalAlpha = 1;
     }
@@ -8098,6 +8205,111 @@
     }
   };
 
+  // src/render/tube.ts
+  var VERTEX = `
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main() { v_uv = a_pos * 0.5 + 0.5; gl_Position = vec4(a_pos, 0.0, 1.0); }`;
+  var FRAGMENT = `
+precision mediump float;
+uniform sampler2D u_tex;
+uniform vec2 u_src;
+varying vec2 v_uv;
+// The bulge of the glass: the picture pushed out towards its corners.
+vec2 bulge(vec2 uv) {
+  uv = uv * 2.0 - 1.0;
+  vec2 off = abs(uv.yx) / vec2(6.5, 5.0);
+  uv += uv * off * off;
+  return uv * 0.5 + 0.5;
+}
+void main() {
+  vec2 uv = bulge(v_uv);
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+  // The colours part a little, more towards the edges.
+  vec2 part = (uv - 0.5) * 0.0016;
+  vec3 col = vec3(texture2D(u_tex, uv + part).r, texture2D(u_tex, uv).g, texture2D(u_tex, uv - part).b);
+  // What is bright bleeds onto what is next to it.
+  vec2 px = 1.0 / u_src;
+  vec3 glow = (texture2D(u_tex, uv + vec2(px.x, 0.0)).rgb + texture2D(u_tex, uv - vec2(px.x, 0.0)).rgb
+             + texture2D(u_tex, uv + vec2(0.0, px.y)).rgb + texture2D(u_tex, uv - vec2(0.0, px.y)).rgb) * 0.25;
+  col = mix(col, max(col, glow), 0.22);
+  // A scan line along every row of the game: dark between two rows, less so where it is bright.
+  float beam = 0.5 + 0.5 * cos(6.28318 * uv.y * u_src.y);
+  float lum = dot(col, vec3(0.3, 0.59, 0.11));
+  col *= 1.0 - (0.46 - 0.22 * lum) * (1.0 - beam);
+  // The phosphors: red, green, blue, side by side.
+  float m = mod(gl_FragCoord.x, 3.0);
+  col *= vec3(m < 1.0 ? 1.0 : 0.8, (m >= 1.0 && m < 2.0) ? 1.0 : 0.8, m >= 2.0 ? 1.0 : 0.8);
+  // The corners go dark.
+  vec2 v = uv * (1.0 - uv);
+  col *= pow(clamp(v.x * v.y * 18.0, 0.0, 1.0), 0.3);
+  gl_FragColor = vec4(col * 1.55, 1.0);
+}`;
+  var Tube = class {
+    constructor(glass2, source) {
+      this.glass = glass2;
+      this.source = source;
+      let gl = null;
+      try {
+        gl = glass2.getContext("webgl", { alpha: false, antialias: false });
+      } catch {
+        gl = null;
+      }
+      if (!gl) return;
+      const shader = (type, code) => {
+        const s = gl.createShader(type);
+        if (!s) return null;
+        gl.shaderSource(s, code);
+        gl.compileShader(s);
+        return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null;
+      };
+      const vs = shader(gl.VERTEX_SHADER, VERTEX), fs = shader(gl.FRAGMENT_SHADER, FRAGMENT), program = gl.createProgram();
+      if (!vs || !fs || !program) return;
+      gl.attachShader(program, vs);
+      gl.attachShader(program, fs);
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return;
+      gl.useProgram(program);
+      gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      const at = gl.getAttribLocation(program, "a_pos");
+      gl.enableVertexAttribArray(at);
+      gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
+      gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
+      gl.uniform2f(gl.getUniformLocation(program, "u_src"), source.width, source.height);
+      this.gl = gl;
+      this.ok = true;
+    }
+    glass;
+    source;
+    /** False once the browser has refused it (no WebGL, or a picture it may not read). */
+    ok = false;
+    gl = null;
+    /** The size of the glass on the screen, in its own pixels. */
+    resize(width, height) {
+      if (this.glass.width !== width) this.glass.width = width;
+      if (this.glass.height !== height) this.glass.height = height;
+    }
+    /** Draws the game's picture, as it is now, on the glass. */
+    draw() {
+      const gl = this.gl;
+      if (!gl || !this.ok) return;
+      try {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.source);
+      } catch {
+        this.ok = false;
+        return;
+      }
+      gl.viewport(0, 0, this.glass.width, this.glass.height);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+  };
+
   // src/sim/demo.ts
   function makeDemoMind() {
     return { t: 0, target: "", giveUp: /* @__PURE__ */ new Map(), lastX: 0, lastY: 0, still: 0, blowT: 0 };
@@ -8194,13 +8406,26 @@
   var wrap = document.getElementById("wrap");
   var status = document.getElementById("status");
   var g = canvas.getContext("2d");
+  var glass = document.getElementById("glass");
+  var tube = glass ? new Tube(glass, canvas) : null;
   var sound = new Sound();
+  function screenAs(old) {
+    wrap.classList.toggle("tube", old && !!tube?.ok);
+    wrap.classList.toggle("crt", old && !tube?.ok);
+  }
   var input = new Input(window, () => navigator.getGamepads ? navigator.getGamepads() : []);
   function fit() {
     const help = document.fullscreenElement ? 0 : document.getElementById("help").offsetHeight + 30;
     const scale = fitScale(window.innerWidth, window.innerHeight - help, window.devicePixelRatio || 1);
     canvas.style.width = VIEW_W * scale + "px";
     canvas.style.height = VIEW_H * scale + "px";
+    wrap.style.setProperty("--px", scale + "px");
+    const dpr = window.devicePixelRatio || 1;
+    if (glass) {
+      glass.style.width = canvas.style.width;
+      glass.style.height = canvas.style.height;
+    }
+    tube?.resize(Math.round(VIEW_W * scale * dpr), Math.round(VIEW_H * scale * dpr));
   }
   window.addEventListener("resize", fit);
   document.addEventListener("fullscreenchange", fit);
@@ -8260,6 +8485,7 @@
     let demoTurn = 0, demoT = 0, idleT = 0, mind = null;
     const ashen = () => settings.blood === "ash";
     sound.setLevels(settings.music, settings.sounds);
+    screenAs(settings.crt);
     scenery.ash = ashen();
     let reached = reachedFrom(store.get(REACHED_KEY), levels.length);
     let startAt = 0;
@@ -8269,6 +8495,7 @@
       saveOptions(store, settings);
       if (changed === "music" && !sound.musicOn) sound.toggleMusic();
       sound.setLevels(settings.music, settings.sounds);
+      screenAs(settings.crt);
       for (const st of [stage, scenery, ending]) if (st) st.ash = ashen();
       if (world) {
         world.mercy = settings.difficulty === "easy" ? 0.5 : 1;
@@ -8279,7 +8506,8 @@
       }
       if (changed === "sounds") sound.play("hit");
     };
-    const pages = [null, { title: "BEST RUNS", key: "run" }, ...levels.map((l) => ({ title: l.settings.title, key: l.settings.name }))];
+    const pages = [null, "controls", { title: "BEST RUNS", key: "run" }, ...levels.map((l) => ({ title: l.settings.title, key: l.settings.name }))];
+    const titleMonk = { idle: [1, 2, 3, 4].map((n) => assets.image("monk/idle" + n)), dark: [1, 2, 3, 4].map((n) => assets.image("shadow/idle" + n)) };
     const leave = () => {
       if (world) tally = addRun(tally, world);
       world = null;
@@ -8439,7 +8667,7 @@
       if (scene === "title") {
         const page = pages[titlePage(sceneT, pages.length)];
         const offer2 = startWords(reached, levels[reached].settings.title);
-        drawTitle(g, sceneT, page && { title: page.title, entries: board.table(page.key) }, options, sound.musicOn, offer2 && { lines: offer2, at: startAt });
+        drawTitle(g, sceneT, page === "controls" ? page : page && { title: page.title, entries: board.table(page.key) }, options, sound.musicOn, offer2 && { lines: offer2, at: startAt }, titleMonk);
       } else if (scene === "credits") drawCredits(g, sceneT);
       else drawEnd(g, sceneT, endLines, naming?.name ?? null, endNote);
       if (trial) text(g, "TEST  RECORDS APART", 8, 8, "#ff8a2a");
@@ -8501,6 +8729,11 @@
       st.draw(g, clock, paused && !options);
       if (options) drawOptions(g, clock, options, sound.musicOn);
       if (trial) text(g, "TEST  N WINS THE LEVEL", 16, VIEW_H - 20, "#ff8a2a");
+    };
+    const glaze = () => {
+      if (!settings.crt || !tube?.ok) return;
+      tube.draw();
+      if (!tube.ok) screenAs(true);
     };
     const frame = (now) => {
       const elapsed = (now - last) / 1e3 || 0;
@@ -8569,6 +8802,7 @@
           const bot = demoControls(world, mind, Math.min(MAX_FRAME, elapsed));
           play(world, stage, { ...c, ...bot, restartPressed: false, pausePressed: false, winPressed: false }, elapsed);
           if (demoT > DEMO_LENGTH || world.state !== "play") show("title");
+          glaze();
           requestAnimationFrame(frame);
           return;
         }
@@ -8580,6 +8814,7 @@
       }
       if (scene === "play" && world && stage) play(world, stage, c, elapsed);
       else showScene(c, elapsed);
+      glaze();
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);

@@ -59,6 +59,15 @@ check('the options are the same when the game is opened again', await game(() =>
 await keys('KeyO', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'KeyO');
 await page.waitForTimeout(150);
 check('O closes them too; the blood is red again', await game(() => !__game.options && __game.settings.blood === 'red'));
+// The screen as an old tube: scan lines over the picture, as wide as a row of the game.
+await keys('KeyO', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'KeyO');
+await page.waitForTimeout(200);
+const tube = await game(() => { const w = document.getElementById('wrap'), o = document.getElementById('crt'), c = document.getElementById('screen'); return { on: w.classList.contains('crt'), shown: getComputedStyle(o).display !== 'none', covers: Math.abs(o.getBoundingClientRect().width - c.getBoundingClientRect().width) < 1, px: getComputedStyle(w).getPropertyValue('--px').trim(), scale: c.getBoundingClientRect().width / 640 }; });
+check('the screen can be an old tube: scan lines laid over the picture, a row of the game high', tube.on && tube.shown && tube.covers && parseFloat(tube.px) === tube.scale, JSON.stringify(tube));
+await page.screenshot({ path: 'tests/e2e/out/crt.png' });
+await keys('KeyO', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'KeyO');
+await page.waitForTimeout(150);
+check('and sharp again', await game(() => !document.getElementById('wrap').classList.contains('crt') && !__game.settings.crt));
 
 await page.keyboard.press('Space');
 await page.waitForTimeout(400);
@@ -127,7 +136,7 @@ await page.waitForTimeout(100);
 check('O in the pause opens the options', await game(() => !!__game.options && __game.paused));
 const heard = await game(() => __game.sound.mixNow.music);
 check('the music is heard at its true level while it is set, not at the hush of the pause', heard === null || Math.abs(heard - 0.12) < 1e-3, String(heard));
-await keys('Space', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'Space');
+await keys('Space', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'Space');
 await page.waitForTimeout(200);
 const after = await game(() => ({ clock: __game.world.clock, y: __game.world.hero.y, paused: __game.paused, options: !!__game.options, ash: __game.stage.ash }));
 check('back in the pause, the music is hushed again', await game(() => { const m = __game.sound.mixNow.music; return m === null || Math.abs(m - 0.036) < 1e-3; }));
@@ -137,8 +146,10 @@ await page.waitForTimeout(100);
 // A shade struck with the blood turned to ash: no blood, ash in the air.
 await game(() => {
   const w = __game.world, h = w.hero, sh = w.foes.find(f => f.kind === 'shade');
-  w.invincible = true; sh.cool = 99;
-  Object.assign(h, { x: sh.x - 26, y: sh.y + sh.h - h.h, vx: 0, vy: 0, facing: 1, onGround: true, lastFloor: sh.lastFloor });
+  w.invincible = true;
+  // Both on the ground floor, the shade whole, standing a step in front of him, and unable to guard: the blows must land.
+  Object.assign(h, { x: 100, y: 432 - h.h, vx: 0, vy: 0, facing: 1, onGround: true, climbing: false, lastFloor: 27 });
+  Object.assign(sh, { x: 126, y: 432 - sh.h, vx: 0, vy: 0, onGround: true, climbing: false, lastFloor: 27, hp: 6, ko: 0, dazed: 0, stun: 0, invul: 0, windup: 0, strike: 0, recover: 0, cool: 99, guardCool: 99, guardT: 0 });
 });
 for (let i = 0; i < 4; i++) { await page.keyboard.press('KeyX'); await page.waitForTimeout(90); }
 const ashen = await game(() => ({ drops: __game.stage.blood.drops.length, ash: __game.stage.particles.filter(q => q.drag).length }));
@@ -268,9 +279,9 @@ await page.waitForTimeout(600);
 const cemetery = await game(() => ({ name: __game.world.level.settings.name, skyline: __game.world.level.settings.skyline }));
 check('out of the fallen belfry, the cemetery, under its own sky', cemetery.name === 'cimetiere' && cemetery.skyline === 'cemetery', JSON.stringify(cemetery));
 await game(() => { const w = __game.world, h = w.hero; w.invincible = true; Object.assign(h, { x: 1180, y: 320 - h.h, vx: 0, vy: 0, onGround: true, climbing: false, lastFloor: 20 }); });      // on firm ground, clear of the pits
-// Some 1.5 to 3 s of the game; up to 12 s of the clock, for a browser that runs slow a moment.
-await page.waitForFunction(() => __game.world.foes.some(f => f.kind === 'skeleton' && f.dead <= 0), null, { timeout: 12000 }).catch(() => {});
-check('the dead come up out of the ground as the hero goes', await game(() => __game.world.foes.some(f => f.kind === 'skeleton' && f.dead <= 0)), await game(() => { const w = __game.world, h = w.hero; return JSON.stringify({ x: Math.round(h.x), y: Math.round(h.y), ground: h.onGround, climbing: h.climbing, held: !!w.heldBy, restT: w.restT, restless: w.level.settings.restless, clock: w.clock.toFixed(1), state: w.state, paused: __game.paused, scene: __game.scene, skeletons: w.foes.filter(f => f.kind === 'skeleton').map(f => [Math.round(f.x), f.dead, f.rise]) }); }));
+// Near him: the one that came up at the entrance, before he was moved here, goes back under at once and does not count.
+await page.waitForFunction(() => __game.world.foes.some(f => f.kind === 'skeleton' && f.dead <= 0 && Math.abs(f.x - __game.world.hero.x) < 300), null, { timeout: 12000 }).catch(() => {});
+check('the dead come up out of the ground as the hero goes', await game(() => __game.world.foes.some(f => f.kind === 'skeleton' && f.dead <= 0 && Math.abs(f.x - __game.world.hero.x) < 300)), await game(() => { const w = __game.world, h = w.hero; return JSON.stringify({ x: Math.round(h.x), y: Math.round(h.y), ground: h.onGround, climbing: h.climbing, held: !!w.heldBy, restT: w.restT, restless: w.level.settings.restless, clock: w.clock.toFixed(1), state: w.state, paused: __game.paused, scene: __game.scene, skeletons: w.foes.filter(f => f.kind === 'skeleton').map(f => [Math.round(f.x), f.dead, f.rise]) }); }));
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/cemetery.png' });
 await game(() => {
   const w = __game.world;
@@ -366,6 +377,32 @@ await page.keyboard.type('try'); await page.keyboard.press('Enter');
 await page.waitForTimeout(200);
 const apartBoards = await game(() => ({ trial: JSON.parse(localStorage.getItem('trial.unextinguished.board') || '{}'), real: JSON.parse(localStorage.getItem('unextinguished.board') || '{}') }));
 check('and writes it on a board apart, the real one left alone', apartBoards.trial.tables?.salle3?.some(e => e.name === 'TRY') && !apartBoards.real.tables?.salle3?.some(e => e.name === 'TRY'));
+
+// Served by a site, as on the web, the browser lets a shader read the picture: the old tube is then the real
+// thing, drawn on a glass over the game. (Opened from the disk, above, the page's own lines did it.)
+{
+  const { createServer } = await import('node:http');
+  const { readFile } = await import('node:fs/promises');
+  const { extname, join, normalize } = await import('node:path');
+  const types = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png', '.ogg': 'audio/ogg' };
+  const server = createServer(async (req, res) => {
+    const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^[\\/]+/, '') || 'index.html';
+    try { const body = await readFile(join(process.cwd(), path)); res.writeHead(200, { 'content-type': types[extname(path)] ?? 'application/octet-stream' }); res.end(body); }
+    catch { res.writeHead(404); res.end(); }
+  });
+  await new Promise(done => server.listen(0, '127.0.0.1', done));
+  const site = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await site.goto('http://127.0.0.1:' + server.address().port + '/index.html');
+  await site.waitForFunction(() => window.__game, null, { timeout: 15000 });
+  await site.waitForTimeout(400);
+  for (const k of ['KeyO', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'KeyO']) { await site.keyboard.press(k); await site.waitForTimeout(50); }
+  await site.waitForTimeout(400);
+  const real = await site.evaluate(() => { const w = document.getElementById('wrap'), gl = document.getElementById('glass'); return { tube: w.classList.contains('tube'), lines: w.classList.contains('crt'), shown: getComputedStyle(gl).display !== 'none', size: [gl.width, gl.height] }; });
+  check('on a site, the old tube is drawn by the shader, on its glass', real.tube && !real.lines && real.shown && real.size[0] >= 640, JSON.stringify(real));
+  await site.screenshot({ path: 'tests/e2e/out/tube.png' });
+  await site.close();
+  server.close();
+}
 
 check('no error in the console, no file missing', errors.length === 0, errors.join(' | '));
 console.log(results.every(Boolean) ? `ALL ${results.length} CHECKS PASS` : `${results.filter(v => !v).length} of ${results.length} CHECKS FAIL`);

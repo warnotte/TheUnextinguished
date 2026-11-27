@@ -197,8 +197,8 @@ export class Stage {
       else if (e.type === 'blood') {
         if (this.ash) { this.particles.push(...ashFrom(e.x, e.y, e.dir, e.amount, Math.random)); continue; }
         this.blood.spurt(e.x, e.y, e.dir, e.amount, e.chunks);
-        // A heavy blow throws some of it at the screen; a finishing blow a lot.
-        if (e.amount >= 50) this.lens.splash(e.x - this.camera.x, e.y - this.camera.y, e.amount >= 100 ? 9 : 3);
+        // A blow sprays some of it at the screen, the way it was struck: a few drops, more for a heavy one, most for a finishing one.
+        if (e.amount >= 25) this.lens.spray(e.x - this.camera.x, e.y - this.camera.y - 18, e.dir, e.amount >= 100 ? 90 : e.amount >= 50 ? 36 : 10);
       }
       else if (e.type === 'finisher') {
         this.punch = { x: e.x, y: e.y, t: 0 }; this.hud.finisher();
@@ -1325,17 +1325,18 @@ export class Stage {
     g.globalAlpha = 1;
   }
 
-  // Blood on the screen: a blot of pixels, the drip under it, a bead at its end.
+  // Blood on the screen: a fine spray. Each drop is a pixel or two, half seen through, drawn out a
+  // little the way it flew; a bigger one has a glint, and above it the thin rill it leaves as it runs down.
   private drawLens(g: CanvasRenderingContext2D): void {
-    for (const s of this.lens.splats) {
-      g.globalAlpha = 0.88 * s.alpha;
-      g.fillStyle = BLOOD_COLORS[s.shade];
-      const rad = Math.round(s.r), x = Math.round(s.x), y = Math.round(s.y);
-      for (let dy = -rad; dy <= rad; dy++) { const half = Math.round(Math.sqrt(rad * rad - dy * dy)); g.fillRect(x - half, y + dy, half * 2, 1); }
-      const w = rad > 6 ? 3 : 2;
-      g.fillRect(x - 1, y, w, Math.ceil(s.len) + rad);
+    for (const s of this.lens.specks) {
+      const x = Math.round(s.x), y = Math.round(s.y), w = s.size >= 2 ? 2 : 1, h = s.size === 3 ? 3 : w;
+      const flying = s.fly > 0;
+      g.globalAlpha = (flying ? 0.7 : 0.95) * s.alpha;
+      if (s.rill > 1) { g.fillStyle = BLOOD_COLORS[1]; g.globalAlpha = 0.6 * s.alpha; g.fillRect(x, y - Math.round(s.rill), 1, Math.round(s.rill)); g.globalAlpha = 0.95 * s.alpha; }
       g.fillStyle = BLOOD_COLORS[Math.min(3, s.shade + 1)];
-      g.fillRect(x - 1, y + rad + Math.ceil(s.len), w, 2);
+      for (let i = Math.round(flying ? Math.max(s.streak, 3) : s.streak); i > 0; i--) g.fillRect(Math.round(s.x - s.ux * i), Math.round(s.y - s.uy * i), 1, 1);
+      g.fillRect(x, y, w, h);
+      if (s.size === 3 && !flying) { g.fillStyle = '#ff8f8f'; g.globalAlpha = 0.8 * s.alpha; g.fillRect(x, y, 1, 1); }
     }
     g.globalAlpha = 1;
   }

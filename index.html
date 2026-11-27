@@ -26,6 +26,18 @@
   html, body { margin:0; height:100%; background:#07080c; color:#8f96a6; font:13px/1.5 "Segoe UI", system-ui, sans-serif; overflow:hidden; }
   #wrap { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; }
   canvas { display:block; background:#000; image-rendering:pixelated; }
+  /* The screen as an old tube (an option): laid over the picture. --px is a row of the game on the screen. */
+  #tube { position:relative; }
+  #crt, #glass { display:none; position:absolute; inset:0; pointer-events:none; }
+  /* Where the browser lets a shader read the picture (the game on a site), the glass shows it as a tube did. */
+  #wrap.tube #glass { display:block; image-rendering:auto; }
+  #wrap.crt canvas { filter:saturate(1.18) contrast(1.05) brightness(1.22) blur(calc(var(--px, 2px) * 0.13)); border-radius:calc(var(--px, 2px) * 10); }
+  #wrap.crt #crt { display:block; border-radius:calc(var(--px, 2px) * 10); box-shadow:inset 0 0 calc(var(--px, 2px) * 12) rgba(0,0,0,0.6);
+    background:
+      radial-gradient(ellipse at center, rgba(0,0,0,0) 56%, rgba(0,0,0,0.4) 100%),
+      linear-gradient(to bottom, rgba(255,255,255,0.05), rgba(255,255,255,0) 16%),
+      repeating-linear-gradient(to right, rgba(255,50,50,0.07) 0 1px, rgba(50,255,50,0.07) 1px 2px, rgba(70,70,255,0.07) 2px 3px),
+      repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0, rgba(0,0,0,0) calc(var(--px, 2px) * 0.5), rgba(0,0,0,0.36) calc(var(--px, 2px) * 0.8), rgba(0,0,0,0.36) var(--px, 2px)); }
   #help { text-align:center; }
   kbd { display:inline-block; min-width:1.2em; padding:0 5px; border:1px solid #3a4152; border-radius:3px; background:#141821; color:#d5d8e0; font:12px/1.5 Consolas, monospace; }
   #status { color:#e8a33a; }
@@ -36,7 +48,7 @@
 </head>
 <body>
 <div id="wrap">
-  <canvas id="screen" width="640" height="360"></canvas>
+  <div id="tube"><canvas id="screen" width="640" height="360"></canvas><div id="crt"></div><canvas id="glass"></canvas></div>
   <div id="help">
     <div><b>Keyboard</b> — move <kbd>←</kbd><kbd>→</kbd> or <kbd>Q</kbd><kbd>D</kbd> · climb <kbd>↑</kbd><kbd>↓</kbd> or <kbd>Z</kbd><kbd>S</kbd> · jump <kbd>Space</kbd> · strike <kbd>X</kbd> or <kbd>Ctrl</kbd> · guard <kbd>C</kbd> or <kbd>↓</kbd> · charge <kbd>V</kbd> (costs an ember) · pause <kbd>P</kbd> · restart <kbd>R</kbd> · music <kbd>M</kbd> · full screen <kbd>F</kbd> or a double click · what collides <kbd>H</kbd></div>
     <div><b>Gamepad</b> — stick or d-pad · jump <kbd>A</kbd> · strike <kbd>X</kbd> or <kbd>B</kbd> · guard <kbd>LB</kbd> or <kbd>RB</kbd> · charge <kbd>Y</kbd>, or <kbd>↓</kbd><kbd>→</kbd> then strike · restart <kbd>Start</kbd> · <span id="status"></span></div>

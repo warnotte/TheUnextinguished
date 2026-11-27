@@ -39,20 +39,82 @@ function sparks(g: CanvasRenderingContext2D, t: number): void {
   g.restore();
 }
 
-// The name of the game, in letters of flame that breathe.
-function name(g: CanvasRenderingContext2D, t: number): void {
+// The name of the game, in letters of flame that breathe. `lit` true (the title): they catch fire one
+// after the other as the title comes, cold cinders before, a white flash as each takes.
+const CATCH = 0.5, EACH = 0.085;       // seconds before the first letter takes, and from one to the next
+function name(g: CanvasRenderingContext2D, t: number, lighting = false): void {
   const big = 7, word = 'UNEXTINGUISHED', y = 56, h = 5 * big;
+  const taken = lighting ? Math.max(0, Math.min(word.length, (t - CATCH) / EACH)) : word.length, share = taken / word.length;
   g.save(); g.globalCompositeOperation = 'lighter';
   const glow = g.createRadialGradient(VIEW_W / 2, y + h / 2, 10, VIEW_W / 2, y + h / 2, 260);
-  glow.addColorStop(0, `rgba(255,120,40,${0.32 + 0.06 * Math.sin(t * 4.3) + 0.04 * Math.sin(t * 11)})`); glow.addColorStop(1, 'rgba(255,120,40,0)');
+  glow.addColorStop(0, `rgba(255,120,40,${((0.32 + 0.06 * Math.sin(t * 4.3) + 0.04 * Math.sin(t * 11)) * share).toFixed(3)})`); glow.addColorStop(1, 'rgba(255,120,40,0)');
   g.fillStyle = glow; g.fillRect(0, y - 80, VIEW_W, h + 160);
   g.restore();
   centered(g, 'THE', 36, PALE, 3);
   const x = Math.round((VIEW_W - textWidth(word, big)) / 2);
-  text(g, word, x + 4, y + 4, '#4a0a0c', big);
   const flame = g.createLinearGradient(0, y, 0, y + h);
   flame.addColorStop(0, FIRE[0]); flame.addColorStop(0.45, FIRE[1]); flame.addColorStop(1, FIRE[3]);
-  text(g, word, x, y, flame, big);
+  for (let i = 0; i < word.length; i++) {
+    const lx = x + i * 4 * big, since = lighting ? t - CATCH - i * EACH : 9;
+    text(g, word[i], lx + 4, y + 4, since >= 0 ? '#4a0a0c' : '#120408', big);
+    if (since < 0) { text(g, word[i], lx, y, '#3a1410', big); continue; }                   // a cold cinder yet
+    text(g, word[i], lx, y, since < 0.1 ? '#ffffff' : flame, big);
+    if (since < 0.35) {
+      // It takes: a burst of light, and sparks flung up from it.
+      g.save(); g.globalCompositeOperation = 'lighter';
+      const burst = g.createRadialGradient(lx + 10, y + h / 2, 2, lx + 10, y + h / 2, 46);
+      burst.addColorStop(0, `rgba(255,220,150,${(0.7 * (1 - since / 0.35)).toFixed(3)})`); burst.addColorStop(1, 'rgba(255,150,60,0)');
+      g.fillStyle = burst; g.fillRect(lx - 40, y - 40, 100, h + 80);
+      for (let k = 0; k < 5; k++) {
+        const a = hash(i, k) * Math.PI - Math.PI, far = since * (90 + hash(k, i) * 140);
+        g.fillStyle = FIRE[k % 3]; g.fillRect(Math.round(lx + 10 + Math.cos(a) * far), Math.round(y + h / 2 + Math.sin(a) * far + since * since * 160), 2, 2);
+      }
+      g.restore();
+    }
+  }
+}
+
+/** The monk's pictures for the title: his frames standing, and their dark outline. */
+export interface TitleHero { idle: CanvasImageSource[]; dark: CanvasImageSource[] }
+
+// The monk, large, in the foreground, on a dark rise at the left: he looks at the place he must cross,
+// the ember he carries in his hand, its light on him and on the ground, its sparks going up.
+function hero(g: CanvasRenderingContext2D, t: number, h: TitleHero): void {
+  const BIG = 3, fx = 96, fy = 318;
+  // The rise he stands on, black against the place.
+  g.fillStyle = '#06040c';
+  g.beginPath(); g.moveTo(0, VIEW_H); g.lineTo(0, fy - 4);
+  for (let x = 0; x <= 300; x += 6) g.lineTo(x, fy - 4 + Math.pow(Math.max(0, x - 120) / 180, 2) * 46 + (hash(x, 9) < 0.3 ? -2 : 0));
+  g.lineTo(300, VIEW_H); g.closePath(); g.fill();
+  const n = Math.floor(t * 4) % h.idle.length, bob = Math.round(Math.sin(t * 1.6) * 1);
+  const draw = (pic: CanvasImageSource): void => {
+    const w = (pic as HTMLCanvasElement).width, hh = (pic as HTMLCanvasElement).height;
+    g.drawImage(pic, fx - 40 * BIG, fy - hh * BIG + bob, w * BIG, hh * BIG);
+  };
+  const smooth = g.imageSmoothingEnabled;
+  g.imageSmoothingEnabled = false;
+  draw(h.idle[n]);
+  g.globalAlpha = 0.28; draw(h.dark[n]); g.globalAlpha = 1;         // in the dark of the foreground
+  g.imageSmoothingEnabled = smooth;
+  // The ember in his hand: its light, its flame, its sparks.
+  const ex = fx + 34, ey = fy - 84 + bob, flick = 0.8 + 0.2 * Math.sin(t * 13) * Math.sin(t * 7.3);
+  g.save(); g.globalCompositeOperation = 'lighter';
+  const light = g.createRadialGradient(ex, ey, 2, ex, ey, 150);
+  light.addColorStop(0, `rgba(255,170,70,${(0.55 * flick).toFixed(3)})`); light.addColorStop(0.3, `rgba(255,110,40,${(0.2 * flick).toFixed(3)})`); light.addColorStop(1, 'rgba(255,90,30,0)');
+  g.fillStyle = light; g.fillRect(ex - 150, ey - 150, 300, 300);
+  g.restore();
+  // Drawn in his own large pixels (three of the screen each).
+  const tall = Math.round(5 + 2 * flick + Math.sin(t * 19)), P = 3;
+  const px = (x: number, y: number, w: number, hh: number, c: string): void => { g.fillStyle = c; g.fillRect(ex + x * P, ey + y * P, w * P, hh * P); };
+  px(-2, -tall + 1, 4, tall, FIRE[3]); px(-1, -tall, 2, 1, FIRE[3]);
+  px(-1, -tall + 2, 3, tall - 2, FIRE[2]); px(-1, -tall + 4, 2, tall - 4, FIRE[1]); px(0, -2, 1, 2, FIRE[0]);
+  g.save(); g.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 9; i++) {
+    const life = (t * (0.5 + hash(i, 21) * 0.5) + hash(i, 22)) % 1;
+    g.globalAlpha = 1 - life; g.fillStyle = FIRE[i % 3];
+    g.fillRect(Math.round(ex + Math.sin(t * 2 + i * 1.7) * (4 + life * 16)), Math.round(ey - 8 - life * 70), 2, 2);
+  }
+  g.restore();
 }
 
 function panel(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
@@ -71,18 +133,19 @@ const CONTROLS: [string, string, string][] = [
 ];
 
 /** The title: the controls, or a table of the board (`page`), in turn; or the options, while they are open. */
-export function drawTitle(g: CanvasRenderingContext2D, t: number, page: { title: string; entries: Entry[] } | null = null, menu: OptionsMenu | null = null, musicOn = true, start: { lines: string[]; at: number } | null = null): void {
+export function drawTitle(g: CanvasRenderingContext2D, t: number, page: { title: string; entries: Entry[] } | 'controls' | null = null, menu: OptionsMenu | null = null, musicOn = true, start: { lines: string[]; at: number } | null = null, monk: TitleHero | null = null): void {
   g.setTransform(1, 0, 0, 1, 0, 0);
-  veil(g);
+  veil(g, !page && !menu);                     // the first page shows the place: a lighter veil
   sparks(g, t);
-  name(g, t);
-  centered(g, 'A GOTHIC PLATFORM FIGHTER', 104, '#c9bfe0');
+  if (monk && !page && !menu) hero(g, t, monk);
+  name(g, t, true);
+  if (t > CATCH + 14 * EACH + 0.2) centered(g, 'A GOTHIC PLATFORM FIGHTER', 104, '#c9bfe0');
 
   const px = 160, pw = 320, py = 128;
   if (menu) { drawOptions(g, t, menu, musicOn); return; }
-  panel(g, px, py, pw, 136);
-  if (page) drawTable(g, page.title, page.entries, px, py, pw);
-  else {
+  if (page) panel(g, px, py, pw, 136);
+  if (page && page !== 'controls') drawTable(g, page.title, page.entries, px, py, pw);
+  else if (page === 'controls') {
   const col = [px + 24, px + 128, px + 228];
   text(g, 'KEYBOARD', col[1], py + 12, GOLD); text(g, 'GAMEPAD', col[2], py + 12, GOLD);
   CONTROLS.forEach(([what, key, pad], i) => {
@@ -109,7 +172,7 @@ export const OPTIONS_HINT = 'ARROWS CHOOSE AND CHANGE  O BACK';
  * squares, the blood red or ash, and how to work it under them.
  */
 export function drawOptions(g: CanvasRenderingContext2D, t: number, menu: OptionsMenu, musicOn: boolean): void {
-  const px = 150, pw = 340, py = 118, ph = 196;
+  const px = 150, pw = 340, py = 110, ph = 218;
   g.fillStyle = 'rgba(10,8,20,0.94)'; g.fillRect(px, py, pw, ph);
   g.strokeStyle = 'rgba(154,143,192,0.8)'; g.lineWidth = 2; g.strokeRect(px + 1, py + 1, pw - 2, ph - 2);
   centered(g, 'OPTIONS', py + 12, GOLD);
@@ -130,6 +193,7 @@ export function drawOptions(g: CanvasRenderingContext2D, t: number, menu: Option
     } else if (what === 'BLOOD') text(g, o.blood === 'red' ? 'RED' : 'ASH', vx, y, o.blood === 'red' ? '#ff6a5a' : '#b3aeb8');
     else if (what === 'DIFFICULTY') text(g, o.difficulty === 'easy' ? 'EASY' : 'NORMAL', vx, y, o.difficulty === 'easy' ? '#8ff0c0' : PALE);
     else if (what === 'HINTS') text(g, o.hints ? 'ON' : 'OFF', vx, y, o.hints ? PALE : DIM);
+    else if (what === 'SCREEN') text(g, o.crt ? 'OLD TUBE' : 'SHARP', vx, y, o.crt ? '#9fe0ff' : PALE);
   });
   centered(g, OPTIONS_HINT, py + ph - 22, DIM);
 }

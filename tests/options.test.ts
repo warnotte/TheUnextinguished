@@ -14,13 +14,13 @@ const NO_PAD: PadPresses = { up: false, down: false, left: false, right: false, 
 describe('the options, kept in the browser', () => {
   it('are the defaults in an empty store', () => {
     expect(loadOptions(store())).toEqual(DEFAULT_OPTIONS);
-    expect(DEFAULT_OPTIONS).toEqual({ music: 7, sounds: 7, blood: 'red', difficulty: 'normal', hints: true });
+    expect(DEFAULT_OPTIONS).toEqual({ music: 7, sounds: 7, blood: 'red', difficulty: 'normal', hints: true, crt: false });
   });
 
   it('come back as they were saved', () => {
     const s = store();
-    saveOptions(s, { music: 3, sounds: 10, blood: 'ash', difficulty: 'easy', hints: false });
-    expect(loadOptions(s)).toEqual({ music: 3, sounds: 10, blood: 'ash', difficulty: 'easy', hints: false });
+    saveOptions(s, { music: 3, sounds: 10, blood: 'ash', difficulty: 'easy', hints: false, crt: true });
+    expect(loadOptions(s)).toEqual({ music: 3, sounds: 10, blood: 'ash', difficulty: 'easy', hints: false, crt: true });
   });
 
   it('fall back to the defaults, value by value, when what was kept cannot be read', () => {
@@ -44,19 +44,19 @@ describe('the level of a sound', () => {
 describe('the options screen', () => {
   const menu = () => new OptionsMenu({ ...DEFAULT_OPTIONS });
 
-  it('moves between its six lines, and no further', () => {
+  it('moves between its seven lines, and no further', () => {
     const m = menu();
     expect(m.line).toBe(0);
-    m.down(); m.down(); m.down(); m.down(); m.down();
-    expect(m.line).toBe(5);
+    for (let i = 0; i < 6; i++) m.down();
+    expect(m.line).toBe(6);
     m.down();
-    expect(m.line).toBe(5);
-    m.up(); m.up(); m.up(); m.up(); m.up(); m.up();
+    expect(m.line).toBe(6);
+    for (let i = 0; i < 7; i++) m.up();
     expect(m.line).toBe(0);
   });
 
   it('turns the levels up and down, within 0 and 10, and says what changed', () => {
-    const m = new OptionsMenu({ music: 10, sounds: 7, blood: 'red', difficulty: 'normal', hints: true });
+    const m = new OptionsMenu({ music: 10, sounds: 7, blood: 'red', difficulty: 'normal', hints: true, crt: false });
     m.right();
     expect(m.options.music).toBe(10);
     expect(m.changed).toBeNull();
@@ -97,9 +97,20 @@ describe('the options screen', () => {
     expect(m.options.hints).toBe(true);
   });
 
+  it('turns the screen from sharp to an old tube and back', () => {
+    const m = menu();
+    for (let i = 0; i < 5; i++) m.down();
+    m.right();
+    expect(m.options.crt).toBe(true);
+    expect(m.changed).toBe('crt');
+    m.left();
+    expect(m.options.crt).toBe(false);
+  });
+
   it('closes on BACK, or from any line', () => {
     const m = menu();
-    m.down(); m.down(); m.down(); m.down(); m.down(); m.confirm();
+    for (let i = 0; i < 6; i++) m.down();
+    m.confirm();
     expect(m.done).toBe(true);
     const n = menu();
     n.back();
@@ -123,7 +134,7 @@ describe('the options screen', () => {
     feedOptions(e, [], { ...NO_PAD, back: true });
     expect(e.done).toBe(true);
     const f = menu();
-    feedOptions(f, ['ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'Enter'], NO_PAD);
+    feedOptions(f, ['ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'Enter'], NO_PAD);
     expect(f.done).toBe(true);
     expect(feedOptions(menu(), [], NO_PAD)).toBeNull();
     const g = menu();

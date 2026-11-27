@@ -8,12 +8,12 @@ import type { Store } from './records';
 
 export type Blood = 'red' | 'ash';
 export type Difficulty = 'normal' | 'easy';
-export interface Options { music: number; sounds: number; blood: Blood; difficulty: Difficulty; hints: boolean }
+export interface Options { music: number; sounds: number; blood: Blood; difficulty: Difficulty; hints: boolean; crt: boolean }
 
 /** The top of the music and the sounds; the middle level, 7, is the mix the game was made with. */
 export const LEVELS = 10;
 const MIDDLE = 7;
-export const DEFAULT_OPTIONS: Readonly<Options> = Object.freeze({ music: MIDDLE, sounds: MIDDLE, blood: 'red', difficulty: 'normal', hints: true });
+export const DEFAULT_OPTIONS: Readonly<Options> = Object.freeze({ music: MIDDLE, sounds: MIDDLE, blood: 'red', difficulty: 'normal', hints: true, crt: false });
 
 const KEY = 'unextinguished.options';
 
@@ -30,18 +30,19 @@ export function loadOptions(store: Store): Options {
     blood: o.blood === 'ash' || o.blood === 'red' ? o.blood : DEFAULT_OPTIONS.blood,
     difficulty: o.difficulty === 'easy' || o.difficulty === 'normal' ? o.difficulty : DEFAULT_OPTIONS.difficulty,
     hints: typeof o.hints === 'boolean' ? o.hints : DEFAULT_OPTIONS.hints,
+    crt: typeof o.crt === 'boolean' ? o.crt : DEFAULT_OPTIONS.crt,
   };
 }
 
 export function saveOptions(store: Store, o: Options): void {
-  store.set(KEY, JSON.stringify({ music: o.music, sounds: o.sounds, blood: o.blood, difficulty: o.difficulty, hints: o.hints }));
+  store.set(KEY, JSON.stringify({ music: o.music, sounds: o.sounds, blood: o.blood, difficulty: o.difficulty, hints: o.hints, crt: o.crt }));
 }
 
 /** What a level makes of the loudness the game was made with: 1 at the middle, nothing at 0. */
 export function levelGain(level: number): number { return (level / MIDDLE) ** 2; }
 
-export const OPTION_LINES = ['MUSIC', 'SOUNDS', 'BLOOD', 'DIFFICULTY', 'HINTS', 'BACK'] as const;
-export type Changed = 'music' | 'sounds' | 'blood' | 'difficulty' | 'hints' | null;
+export const OPTION_LINES = ['MUSIC', 'SOUNDS', 'BLOOD', 'DIFFICULTY', 'HINTS', 'SCREEN', 'BACK'] as const;
+export type Changed = 'music' | 'sounds' | 'blood' | 'difficulty' | 'hints' | 'crt' | null;
 
 /** The options screen: a line chosen, the options as they are being set, whether it is closed. */
 export class OptionsMenu {
@@ -60,7 +61,7 @@ export class OptionsMenu {
   /** Jump or A: the blood or the difficulty turns, BACK closes; on a level it does nothing. */
   confirm(): void {
     this.changed = null;
-    if (['BLOOD', 'DIFFICULTY', 'HINTS'].includes(OPTION_LINES[this.line])) this.turn(1);
+    if (['BLOOD', 'DIFFICULTY', 'HINTS', 'SCREEN'].includes(OPTION_LINES[this.line])) this.turn(1);
     else if (OPTION_LINES[this.line] === 'BACK') this.done = true;
   }
   back(): void { this.changed = null; this.done = true; }
@@ -81,6 +82,9 @@ export class OptionsMenu {
     } else if (what === 'HINTS') {
       o.hints = !o.hints;
       this.changed = 'hints';
+    } else if (what === 'SCREEN') {
+      o.crt = !o.crt;
+      this.changed = 'crt';
     }
   }
 }
