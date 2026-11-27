@@ -19,6 +19,8 @@ import { VIEW_H, VIEW_W } from './render/camera';
 import { Stage } from './render/frame';
 import { centered } from './render/text';
 import { Tube } from './render/tube';
+import { drawOverture, overtureSounds } from './render/overture';
+import { Storm } from './render/storm';
 import { drawCredits, drawEnd, drawOptions, drawTitle } from './render/title';
 import { apart, Board, browserStore, seedBoard } from './records';
 import { text } from './render/text';
@@ -136,6 +138,13 @@ function run(assets: Assets, levels: Level[]): void {
   const pages: (null | 'controls' | { title: string; key: string })[] = [null, 'controls', { title: 'BEST RUNS', key: 'run' }, ...levels.map(l => ({ title: l.settings.title, key: l.settings.name }))];
   // The monk of the title: his frames standing, and their dark outline.
   const titleMonk = { idle: [1, 2, 3, 4].map(n => assets.image('monk/idle' + n)), dark: [1, 2, 3, 4].map(n => assets.image('shadow/idle' + n)) };
+  // The overture, the picture behind the title, and its own storm: it begins anew each time the title comes.
+  const overture = {
+    monk: titleMonk, demon: [1, 2, 3, 4, 5, 6].map(n => assets.image('shadow-demon/idle/' + n)),
+    trees: [assets.image('cemetery/tree-3'), assets.image('cemetery/tree-1')],
+    stones: [1, 2, 3, 4].map(n => assets.image('cemetery/stone-' + n)),
+  };
+  let titleStorm = new Storm();
 
   // What the attempt now ending adds to the run: its time, its dead, its blood, his fall.
   const leave = (): void => { if (world) tally = addRun(tally, world); world = null; stage = null; };
@@ -165,6 +174,7 @@ function run(assets: Assets, levels: Level[]): void {
     leave();
     scene = s; sceneT = 0;
     naming = null; endNote = null;
+    if (s === 'title') titleStorm = new Storm();
     if (s === 'end') {
       // A whole run, from the title and without the cheat: its time goes on the board, if good enough.
       const counts = fromTitle && !runCheated && !runEased, at = counts ? board.place('run', tally.time) : null;
@@ -175,14 +185,14 @@ function run(assets: Assets, levels: Level[]): void {
     const where = s === 'end' ? endPlace : place, st = s === 'end' ? ending : scenery;
     st.look(...panAim(0, where.width, where.height), true);
     sound.setMusic(s === 'end' && endPlace.settings.ending ? endPlace.settings.ending : place.settings.music);
-    sound.setPlace({ rain: false, drips: false });
+    sound.setPlace({ rain: s === 'title', drips: false });        // the title stands in the rain
     sound.setUnder(false);
     sound.preload([place.settings.music, levels[0].settings.music, endPlace.settings.ending].filter(Boolean));     // the first level's, for jump; the end's
     paused = false; sound.hush(false);
   };
   const startDemo = (): void => { if (demoLevels.length) start(demoLevels[demoTurn++ % demoLevels.length], true); idleT = 0; };
   if (asked === null) show('title'); else { fromTitle = false; start(asked); }
-  (window as any).__game = { get hints() { return [...hintsSeen]; }, demo: startDemo, get pauseAt() { return pauseMenu.line; }, get reached() { return reached; }, get startAt() { return startAt; }, get options() { return options; }, get settings() { return settings; }, get world() { return world; }, get scene() { return scene; }, get paused() { return paused; }, get level() { return index; }, get run() { return tally; }, get stage() { return stage; }, get naming() { return naming; }, board, scenery, sound, start };
+  (window as any).__game = { get titleStorm() { return titleStorm; }, get hints() { return [...hintsSeen]; }, demo: startDemo, get pauseAt() { return pauseMenu.line; }, get reached() { return reached; }, get startAt() { return startAt; }, get options() { return options; }, get settings() { return settings; }, get world() { return world; }, get scene() { return scene; }, get paused() { return paused; }, get level() { return index; }, get run() { return tally; }, get stage() { return stage; }, get naming() { return naming; }, board, scenery, sound, start };
 
   // The title and the end: the place lives on, nobody plays in it.
   const showScene = (c: Frame, elapsed: number): void => {
@@ -206,11 +216,17 @@ function run(assets: Assets, levels: Level[]): void {
     if (scene === 'end' && go && sceneT > 1.5 && !naming) { show('credits'); return; }
     if (scene === 'credits' && ((go && sceneT > 1) || sceneT > creditsLength() + 8)) { show('title'); return; }
     const after = scene === 'end' || scene === 'credits';
-    const where = after ? endPlace : place, st = after ? ending : scenery;
-    st.look(...panAim(sceneT, where.width, where.height));
-    st.update(dt);
-    for (const name of st.heard()) sound.play(name);
-    st.draw(g, clock, false);
+    if (after) {
+      ending.look(...panAim(sceneT, endPlace.width, endPlace.height));
+      ending.update(dt);
+      for (const name of ending.heard()) sound.play(name);
+      ending.draw(g, clock, false);
+    } else {
+      // The title: its own picture, and the storm over it.
+      if (titleStorm.update(dt).thunder) sound.play('thunder');
+      for (const name of overtureSounds(sceneT - dt, sceneT)) sound.play(name);
+      drawOverture(g, sceneT, titleStorm, overture);
+    }
     if (scene === 'title') {
       const page = pages[titlePage(sceneT, pages.length)];
       const offer = startWords(reached, levels[reached].settings.title);

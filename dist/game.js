@@ -802,7 +802,7 @@
     const s = Math.floor(seconds);
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   }
-  var FIRST_PAGE = 9;
+  var FIRST_PAGE = 16;
   var PAGE = 5;
   function titlePage(t, count) {
     const round = FIRST_PAGE + PAGE * (count - 1), u = t % round;
@@ -1582,7 +1582,7 @@
     }
     g2.restore();
   }
-  var CATCH = 0.5;
+  var CATCH = 3.1;
   var EACH = 0.085;
   function name(g2, t, lighting = false) {
     const big = 7, word = "UNEXTINGUISHED", y = 56, h = 5 * big;
@@ -1593,7 +1593,7 @@
     glow.addColorStop(0, `rgba(255,120,40,${((0.32 + 0.06 * Math.sin(t * 4.3) + 0.04 * Math.sin(t * 11)) * share).toFixed(3)})`);
     glow.addColorStop(1, "rgba(255,120,40,0)");
     g2.fillStyle = glow;
-    g2.fillRect(0, y - 80, VIEW_W, h + 160);
+    g2.fillRect(0, y + h / 2 - 260, VIEW_W, 520);
     g2.restore();
     centered(g2, "THE", 36, PALE, 3);
     const x = Math.round((VIEW_W - textWidth(word, big)) / 2);
@@ -1609,6 +1609,21 @@
         continue;
       }
       text(g2, word[i], lx, y, since < 0.1 ? "#ffffff" : flame2, big);
+      if (lighting) {
+        g2.save();
+        g2.globalCompositeOperation = "lighter";
+        for (let k = 0; k < 3; k++) {
+          const tall = Math.round((2 + 7 * Math.abs(Math.sin(t * (5 + k * 1.7) + i * 1.9 + k * 2.3))) * Math.min(1, since / 0.5));
+          const fx = lx + 2 + k * 8 + Math.round(Math.sin(t * 3 + i + k) * 1.5);
+          g2.fillStyle = FIRE[2];
+          g2.globalAlpha = 0.55;
+          g2.fillRect(fx, y - tall, 4, tall);
+          g2.fillStyle = FIRE[1];
+          g2.globalAlpha = 0.5;
+          g2.fillRect(fx + 1, y - Math.round(tall * 0.6), 2, Math.round(tall * 0.6));
+        }
+        g2.restore();
+      }
       if (since < 0.35) {
         g2.save();
         g2.globalCompositeOperation = "lighter";
@@ -1626,14 +1641,14 @@
       }
     }
   }
-  function hero(g2, t, h) {
-    const BIG = 3, fx = 96, fy = 318;
+  function hero(g2, t, h, lit = 1, slide = 0) {
+    const BIG = 3, fx = 96 + slide, fy = 318;
     g2.fillStyle = "#06040c";
     g2.beginPath();
-    g2.moveTo(0, VIEW_H);
-    g2.lineTo(0, fy - 4);
-    for (let x = 0; x <= 300; x += 6) g2.lineTo(x, fy - 4 + Math.pow(Math.max(0, x - 120) / 180, 2) * 46 + (hash(x, 9) < 0.3 ? -2 : 0));
-    g2.lineTo(300, VIEW_H);
+    g2.moveTo(-80, VIEW_H);
+    g2.lineTo(-80, fy - 4);
+    for (let x = 0; x <= 300; x += 6) g2.lineTo(x + slide, fy - 4 + Math.pow(Math.max(0, x - 120) / 180, 2) * 46 + (hash(x, 9) < 0.3 ? -2 : 0));
+    g2.lineTo(300 + slide, VIEW_H);
     g2.closePath();
     g2.fill();
     const n = Math.floor(t * 4) % h.idle.length, bob = Math.round(Math.sin(t * 1.6) * 1);
@@ -1648,7 +1663,7 @@
     draw(h.dark[n]);
     g2.globalAlpha = 1;
     g2.imageSmoothingEnabled = smooth;
-    const ex = fx + 34, ey = fy - 84 + bob, flick = 0.8 + 0.2 * Math.sin(t * 13) * Math.sin(t * 7.3);
+    const ex = fx + 34, ey = fy - 84 + bob, flick = (0.8 + 0.2 * Math.sin(t * 13) * Math.sin(t * 7.3)) * lit;
     g2.save();
     g2.globalCompositeOperation = "lighter";
     const light = g2.createRadialGradient(ex, ey, 2, ex, ey, 150);
@@ -1674,7 +1689,7 @@
       const life = (t * (0.5 + hash(i, 21) * 0.5) + hash(i, 22)) % 1;
       g2.globalAlpha = 1 - life;
       g2.fillStyle = FIRE[i % 3];
-      g2.fillRect(Math.round(ex + Math.sin(t * 2 + i * 1.7) * (4 + life * 16)), Math.round(ey - 8 - life * 70), 2, 2);
+      g2.fillRect(Math.round(ex + Math.sin(t * 2 + i * 1.7) * (4 + life * 10) + life * life * 90), Math.round(ey - 8 - life * 60), 2, 2);
     }
     g2.restore();
   }
@@ -1695,9 +1710,16 @@
   ];
   function drawTitle(g2, t, page = null, menu = null, musicOn = true, start = null, monk = null) {
     g2.setTransform(1, 0, 0, 1, 0, 0);
-    veil(g2, !page && !menu);
+    if (page || menu) veil(g2);
+    else {
+      const top = g2.createLinearGradient(0, 0, 0, 120);
+      top.addColorStop(0, "rgba(4,4,10,0.6)");
+      top.addColorStop(1, "rgba(4,4,10,0)");
+      g2.fillStyle = top;
+      g2.fillRect(0, 0, VIEW_W, 120);
+    }
     sparks(g2, t);
-    if (monk && !page && !menu) hero(g2, t, monk);
+    void monk;
     name(g2, t, true);
     if (t > CATCH + 14 * EACH + 0.2) centered(g2, "A GOTHIC PLATFORM FIGHTER", 104, "#c9bfe0");
     const px = 160, pw = 320, py = 128;
@@ -1723,8 +1745,8 @@
       const here = i === start.at;
       centered(g2, here ? `> ${line} <` : line, 278 + i * 18, here ? GOLD : DIM);
     });
-    else if (blink(t)) centered(g2, "PRESS JUMP TO START", 286, GOLD, 3);
-    centered(g2, "F FULL SCREEN    M MUSIC    P PAUSE    H COLLISIONS    O OPTIONS", 334, DIM);
+    else if (t > CATCH + 2 && blink(t)) centered(g2, "PRESS JUMP TO START", 286, GOLD, 3);
+    if (t > CATCH + 1.6) centered(g2, "F FULL SCREEN    M MUSIC    P PAUSE    H COLLISIONS    O OPTIONS", 334, DIM);
   }
   var OPTIONS_HINT = "ARROWS CHOOSE AND CHANGE  O BACK";
   function drawOptions(g2, t, menu, musicOn) {
@@ -7473,40 +7495,40 @@
         g2.fillStyle = color;
         g2.fillRect(f > 0 ? cx + dx : cx - dx - w, feet + dy, w, h);
       };
-      const BLACK = "#0d0a12", DARK = "#241d33", SHEEN2 = "#3d3560", BEAK = "#6a6070", EYE = "#ff3a2a";
+      const BLACK2 = "#0d0a12", DARK = "#241d33", SHEEN2 = "#3d3560", BEAK = "#6a6070", EYE = "#ff3a2a";
       if (pose === "fallen") {
-        px(-5, -3, 10, 3, BLACK);
+        px(-5, -3, 10, 3, BLACK2);
         px(-3, -4, 5, 1, DARK);
         px(5, -3, 2, 1, BEAK);
         px(-7, -2, 3, 1, DARK);
         return;
       }
       if (pose === "perch") {
-        px(-4, -7, 8, 6, BLACK);
+        px(-4, -7, 8, 6, BLACK2);
         px(-3, -7, 5, 1, SHEEN2);
-        px(look > 0 ? 2 : -5, -10, 4, 4, BLACK);
+        px(look > 0 ? 2 : -5, -10, 4, 4, BLACK2);
         px(look > 0 ? 6 : -7, -9, 2, 1, BEAK);
         px(look > 0 ? 4 : -4, -9, 1, 1, EYE);
-        px(-7, -4, 4, 2, BLACK);
+        px(-7, -4, 4, 2, BLACK2);
         px(-1, -1, 1, 1, DARK);
         px(2, -1, 1, 1, DARK);
         return;
       }
       const b = -5;
-      px(-5, b, 10, 3, BLACK);
+      px(-5, b, 10, 3, BLACK2);
       px(-4, b, 7, 1, SHEEN2);
-      px(4, b - 1, 3, 3, BLACK);
+      px(4, b - 1, 3, 3, BLACK2);
       px(7, b, 2, 1, BEAK);
       px(5, b, 1, 1, EYE);
-      px(-8, b + 1, 3, 2, BLACK);
+      px(-8, b + 1, 3, 2, BLACK2);
       if (up) {
-        px(-3, b - 4, 2, 4, BLACK);
+        px(-3, b - 4, 2, 4, BLACK2);
         px(-5, b - 6, 2, 2, DARK);
-        px(0, b - 3, 2, 3, BLACK);
+        px(0, b - 3, 2, 3, BLACK2);
       } else {
-        px(-3, b + 3, 2, 3, BLACK);
+        px(-3, b + 3, 2, 3, BLACK2);
         px(-5, b + 5, 2, 2, DARK);
-        px(0, b + 3, 2, 3, BLACK);
+        px(0, b + 3, 2, 3, BLACK2);
       }
     }
     // Its entrance: out of the great opening, small and far, then growing as it comes, wings beating.
@@ -8310,6 +8332,369 @@ void main() {
     }
   };
 
+  // src/render/overture.ts
+  var FIRE4 = ["#fff3c4", "#ffc93c", "#ff8a2a", "#e0401c"];
+  var BLACK = "#06050d";
+  var RIM = "#23264f";
+  var hash5 = (a, b) => {
+    const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+    return s - Math.floor(s);
+  };
+  var clamp = (v, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
+  var FIRST = 2.45;
+  var LIFT = 0.7;
+  var TILT = 34;
+  var TILTING = 2.6;
+  var BREATH = { every: 12.5, lasts: 1.9, from: 8 };
+  var breathAt = (t) => {
+    if (t < BREATH.from) return 0;
+    const u = (t - BREATH.from) % BREATH.every;
+    return u < BREATH.lasts ? Math.sin(Math.PI * u / BREATH.lasts) : 0;
+  };
+  var CROWS = { burst: 11, every: 15, from: 14 };
+  function overtureSounds(before, now) {
+    const out = [], passed = (at) => before < at && now >= at;
+    if (passed(FIRST + 0.15)) out.push("caw");
+    if (passed(FIRST + 0.5)) out.push("caw");
+    if (passed(FIRST + 1.9)) out.push("bell");
+    for (let k = 0; k < 40; k++) {
+      if (passed(BREATH.from + k * BREATH.every + 0.1)) out.push("breath");
+      if (passed(CROWS.from + k * CROWS.every)) out.push("caw");
+    }
+    return out;
+  }
+  var blacks = /* @__PURE__ */ new WeakMap();
+  function black(pic) {
+    const made = blacks.get(pic);
+    if (made) return made;
+    const p = pic, c = Object.assign(document.createElement("canvas"), { width: p.width, height: p.height }), k = c.getContext("2d");
+    k.drawImage(pic, 0, 0);
+    k.globalCompositeOperation = "source-atop";
+    k.fillStyle = BLACK;
+    k.fillRect(0, 0, c.width, c.height);
+    blacks.set(pic, c);
+    return c;
+  }
+  function drawOverture(g2, t, storm, pics) {
+    g2.setTransform(1, 0, 0, 1, 0, 0);
+    const R = (x, y, w, h, c) => {
+      g2.fillStyle = c;
+      g2.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+    };
+    const cam = Math.sin(t * 0.15) * 56;
+    const SLIDE = { stars: 0.04, moon: 0.08, clouds: 0.16, demon: 0.3, church: 0.42, mist: 0.6, near: 1 };
+    const plane = (share) => -Math.round(cam * share);
+    const flash = storm.flash, glow = Math.max(storm.glow, flash);
+    const sky = g2.createLinearGradient(0, 0, 0, 300);
+    sky.addColorStop(0, "#04050d");
+    sky.addColorStop(0.55, "#0f1436");
+    sky.addColorStop(1, "#2b2350");
+    g2.fillStyle = sky;
+    g2.fillRect(0, 0, VIEW_W, VIEW_H);
+    for (let i = 0; i < 90; i++) {
+      const x = ((hash5(i, 1) * (VIEW_W + 20) + plane(SLIDE.stars)) % VIEW_W + VIEW_W) % VIEW_W, y = hash5(i, 2) * 230;
+      const tw = 0.4 + 0.6 * Math.sin(t * (0.8 + hash5(i, 3) * 2) + i);
+      R(x, y, hash5(i, 4) > 0.9 ? 2 : 1, 1, `rgba(215,225,255,${(0.25 + 0.6 * tw * hash5(i, 5)).toFixed(3)})`);
+    }
+    const up = clamp((t - FIRST) / TILTING), tilt = Math.round(TILT * (1 - up * up * (3 - 2 * up)));
+    g2.save();
+    g2.translate(0, tilt);
+    const breath = breathAt(t);
+    const mx = 316 + plane(SLIDE.moon), my = 172;
+    const halo = g2.createRadialGradient(mx, my, 20, mx, my, 150);
+    halo.addColorStop(0, "rgba(170,190,255,0.3)");
+    halo.addColorStop(1, "rgba(170,190,255,0)");
+    g2.fillStyle = halo;
+    g2.fillRect(mx - 150, my - 150, 300, 300);
+    for (let dy2 = -36; dy2 <= 36; dy2++) {
+      const half = Math.round(Math.sqrt(36 * 36 - dy2 * dy2));
+      R(mx - half, my + dy2, half * 2, 1, "#dfe6ff");
+    }
+    for (const [cx, cy, cr] of [[-12, -10, 7], [9, 6, 9], [-4, 16, 5], [14, -16, 4]]) for (let dy2 = -cr; dy2 <= cr; dy2++) {
+      const half = Math.round(Math.sqrt(cr * cr - dy2 * dy2));
+      R(mx + cx - half, my + cy + dy2, half * 2, 1, "#bcc6ee");
+    }
+    if (flash > 0.01) {
+      g2.fillStyle = `rgba(205,218,255,${(0.8 * flash).toFixed(3)})`;
+      g2.fillRect(0, -TILT, VIEW_W, VIEW_H + TILT);
+    }
+    if (breath > 0.01) {
+      g2.fillStyle = `rgba(70,160,255,${(0.2 * breath).toFixed(3)})`;
+      g2.fillRect(0, -TILT, VIEW_W, VIEW_H + TILT);
+    }
+    if (storm.bolt) {
+      g2.strokeStyle = "#ffffff";
+      g2.lineWidth = 2;
+      g2.beginPath();
+      storm.bolt.main.forEach(([x, y], i) => i ? g2.lineTo(x, y) : g2.moveTo(x, y));
+      g2.stroke();
+      g2.lineWidth = 1;
+      for (const b of storm.bolt.branches) {
+        g2.beginPath();
+        b.forEach(([x, y], i) => i ? g2.lineTo(x, y) : g2.moveTo(x, y));
+        g2.stroke();
+      }
+    }
+    for (let i = 0; i < 16; i++) {
+      const w = 120 + hash5(i, 11) * 160, x = (hash5(i, 12) * (VIEW_W + 400) + t * (4 + hash5(i, 13) * 6)) % (VIEW_W + 400) - 200 + plane(SLIDE.clouds * (0.7 + hash5(i, 17) * 0.6)), y = -10 + hash5(i, 14) * 120;
+      g2.fillStyle = `rgba(${Math.round(10 + 120 * glow + 20 * breath)},${Math.round(12 + 130 * glow + 70 * breath)},${Math.round(30 + 150 * glow + 120 * breath)},0.55)`;
+      g2.beginPath();
+      g2.ellipse(x, y, w / 2, 14 + hash5(i, 15) * 16, 0, 0, Math.PI * 2);
+      g2.fill();
+      g2.fillStyle = "rgba(5,6,14,0.6)";
+      g2.beginPath();
+      g2.ellipse(x + 10, y - 8, w / 2.2, 12 + hash5(i, 16) * 10, 0, 0, Math.PI * 2);
+      g2.fill();
+    }
+    const turn = t * 0.32, depth = Math.sin(turn), dx = 470 + Math.cos(turn) * 190 + plane(SLIDE.demon), dy = 222 + depth * 10;
+    const FOOT = [61, 126], EYES = [59, 48];
+    const demon = () => {
+      const pic = pics.demon[Math.floor(t * 8) % pics.demon.length], s = 1.25 + depth * 0.15;
+      g2.save();
+      g2.translate(Math.round(dx), Math.round(dy));
+      g2.scale(Math.sin(turn) < 0 ? -s : s, s);
+      g2.globalAlpha = clamp(0.3 + glow * 0.9);
+      g2.drawImage(pic, -FOOT[0], -FOOT[1]);
+      const ex = EYES[0] - FOOT[0], ey = EYES[1] - FOOT[1], burn = 0.75 + 0.25 * Math.sin(t * 5);
+      g2.globalAlpha = 1;
+      g2.globalCompositeOperation = "lighter";
+      const eye = g2.createRadialGradient(ex, ey, 0, ex, ey, 10);
+      eye.addColorStop(0, `rgba(120,230,255,${(0.6 * burn).toFixed(3)})`);
+      eye.addColorStop(1, "rgba(120,230,255,0)");
+      g2.fillStyle = eye;
+      g2.fillRect(ex - 10, ey - 10, 20, 20);
+      g2.globalCompositeOperation = "source-over";
+      g2.fillStyle = "#c8f6ff";
+      g2.fillRect(ex - 3, ey - 1, 2, 1);
+      g2.fillRect(ex + 1, ey - 1, 2, 1);
+      if (breath > 0.01) {
+        g2.globalCompositeOperation = "lighter";
+        const bx = ex - 4, by = ey + 9, len = 150 * breath;
+        for (let k = 0; k < 9; k++) {
+          const along = len * (0.15 + 0.85 * ((k / 9 + t * 2.7) % 1)), wide = 4 + along * 0.2, wob = Math.sin(t * 23 + k * 2.1) * along * 0.07;
+          const fire = g2.createRadialGradient(bx - along, by + along * 0.22 + wob, 0, bx - along, by + along * 0.22 + wob, wide);
+          fire.addColorStop(0, `rgba(210,250,255,${(0.75 * breath).toFixed(3)})`);
+          fire.addColorStop(0.4, `rgba(90,200,255,${(0.45 * breath).toFixed(3)})`);
+          fire.addColorStop(1, "rgba(40,120,255,0)");
+          g2.fillStyle = fire;
+          g2.fillRect(bx - along - wide, by + along * 0.22 + wob - wide, wide * 2, wide * 2);
+        }
+        g2.globalCompositeOperation = "source-over";
+      }
+      g2.restore();
+    };
+    demon();
+    const cx0 = plane(SLIDE.church), B = 300;
+    g2.fillStyle = BLACK;
+    g2.beginPath();
+    g2.moveTo(0, VIEW_H);
+    g2.lineTo(0, 318);
+    for (let x = 0; x <= VIEW_W; x += 8) g2.lineTo(x, B + 20 - 22 * Math.exp(-Math.pow((x - cx0 - 470) / 230, 2)));
+    g2.lineTo(VIEW_W, VIEW_H);
+    g2.closePath();
+    g2.fill();
+    const X = (x) => x + cx0;
+    const spire = (x, foot, w, h) => {
+      for (let i = 0; i < h; i++) {
+        const half = w / 2 * (1 - i / h);
+        R(X(x) - half, foot - i - 1, Math.max(1, half * 2), 1, BLACK);
+      }
+      R(X(x) - 1, foot - h - 9, 2, 9, BLACK);
+      R(X(x) - 3, foot - h - 6, 6, 2, BLACK);
+    };
+    const lancet = (x, y, w, h, colour, alpha) => {
+      g2.globalAlpha = alpha;
+      R(X(x) - w / 2, y - h + w / 2, w, h - w / 2, colour);
+      for (let i = 0; i < w / 2; i++) R(X(x) - w / 2 + i, y - h + w / 2 - i - 1, w - i * 2, 1, colour);
+      g2.globalAlpha = 1;
+      R(X(x), y - h + 2, 1, h - 2, BLACK);
+    };
+    R(X(350), 232, 242, B - 232, BLACK);
+    for (let i = 0; i < 26; i++) R(X(346 + i * 0.4), 232 - i - 1, 250 - i * 0.8, 1, BLACK);
+    for (let b = 0; b < 7; b++) {
+      R(X(356 + b * 34), 252, 6, B - 252, BLACK);
+      R(X(354 + b * 34), 272, 10, B - 272, BLACK);
+    }
+    R(X(442), 128, 56, 110, BLACK);
+    R(X(438), 124, 64, 6, BLACK);
+    R(X(440), 176, 60, 3, BLACK);
+    spire(470, 124, 60, 28);
+    for (const sx of [446, 494]) spire(sx, 124, 10, 14);
+    for (let p = 0; p < 9; p++) {
+      const px = 512 + p * 9;
+      if (px < 590) {
+        R(X(px), 200, 2, 8, BLACK);
+        R(X(px) - 1, 203, 4, 1, BLACK);
+      }
+    }
+    R(X(384), 212, 50, B - 212, BLACK);
+    for (let i = 0; i < 26; i++) R(X(384 + i), 212 - i - 1, 50 - i * 2, 1, BLACK);
+    R(X(408), 176, 2, 10, BLACK);
+    R(X(405), 179, 8, 2, BLACK);
+    R(X(382), 212, 3, B - 212, BLACK);
+    R(X(433), 212, 3, B - 212, BLACK);
+    R(X(350), 180, 34, 60, BLACK);
+    R(X(347), 177, 40, 5, BLACK);
+    spire(367, 177, 36, 44);
+    R(X(572), 204, 20, 40, BLACK);
+    spire(582, 204, 22, 28);
+    for (const [x, y, h] of [[442, 130, 106], [350, 182, 56], [572, 206, 36], [384, 214, 80]]) R(X(x), y, 1, h, RIM);
+    const rose = 0.75 + 0.25 * Math.sin(t * 1.3);
+    g2.save();
+    g2.globalCompositeOperation = "lighter";
+    const rx = X(409), ry0 = 240, rr = 13;
+    const rg = g2.createRadialGradient(rx, ry0, 2, rx, ry0, 46);
+    rg.addColorStop(0, `rgba(255,150,90,${(0.55 * rose).toFixed(3)})`);
+    rg.addColorStop(1, "rgba(255,120,80,0)");
+    g2.fillStyle = rg;
+    g2.fillRect(rx - 46, ry0 - 46, 92, 92);
+    g2.restore();
+    for (let ry = -rr; ry <= rr; ry++) {
+      const half = Math.round(Math.sqrt(rr * rr - ry * ry));
+      R(rx - half, ry0 + ry, half * 2, 1, ry < -4 ? "#ffc27a" : ry < 4 ? "#ff8f4a" : "#d85a3a");
+    }
+    R(rx - rr, ry0, rr * 2, 1, BLACK);
+    R(rx, ry0 - rr, 1, rr * 2, BLACK);
+    for (let k = -8; k <= 8; k++) {
+      R(rx + k, ry0 + k, 1, 1, BLACK);
+      R(rx + k, ry0 - k, 1, 1, BLACK);
+    }
+    for (let a = 0; a < 24; a++) R(rx + Math.round(Math.cos(a * Math.PI / 12) * 6), ry0 + Math.round(Math.sin(a * Math.PI / 12) * 6), 1, 1, BLACK);
+    lancet(367, 226, 8, 24, "#ffb46a", 0.5 + 0.2 * Math.sin(t * 1.7));
+    for (const bx of [458, 482]) {
+      lancet(bx, 170, 12, 30, "#b0462a", 0.55 + 0.2 * Math.sin(t * 2.3 + bx));
+      R(X(bx) - 3, 152, 6, 7, BLACK);
+    }
+    for (let i = 0; i < 6; i++) {
+      const wx = [520, 540, 560, 580, 600, 620][i] - 6, awake = clamp((t - 4.5 - i * 1.6 - hash5(i, 41) * 2) / 1.5), green = i % 3 !== 1;
+      if (wx > 590) continue;
+      if (green && awake > 0) {
+        const pulse = awake * (0.55 + 0.45 * Math.sin(t * (1.6 + hash5(i, 43)) + i * 2));
+        g2.save();
+        g2.globalCompositeOperation = "lighter";
+        const gg = g2.createRadialGradient(X(wx), 262, 1, X(wx), 262, 26);
+        gg.addColorStop(0, `rgba(90,255,150,${(0.4 * pulse).toFixed(3)})`);
+        gg.addColorStop(1, "rgba(90,255,150,0)");
+        g2.fillStyle = gg;
+        g2.fillRect(X(wx) - 26, 236, 52, 52);
+        g2.restore();
+        lancet(wx, 280, 8, 30, "#5aff96", 0.35 + 0.6 * pulse);
+      } else lancet(wx, 280, 8, 30, "#3a4a8a", 0.5);
+    }
+    const door = 0.7 + 0.3 * Math.sin(t * 2.1) * Math.sin(t * 0.7);
+    g2.save();
+    g2.globalCompositeOperation = "lighter";
+    const dg = g2.createRadialGradient(X(366), 294, 1, X(366), 294, 40);
+    dg.addColorStop(0, `rgba(255,170,80,${(0.45 * door).toFixed(3)})`);
+    dg.addColorStop(1, "rgba(255,140,60,0)");
+    g2.fillStyle = dg;
+    g2.fillRect(X(366) - 40, 254, 80, 80);
+    g2.restore();
+    lancet(366, 300, 8, 20, "#ffc27a", 0.6 + 0.3 * door);
+    R(X(366) - 4, 282, 3, 18, BLACK);
+    g2.globalAlpha = 0.25 * door;
+    g2.fillStyle = "#ffb46a";
+    g2.beginPath();
+    g2.moveTo(X(363), 300);
+    g2.lineTo(X(370), 300);
+    g2.lineTo(X(352), 318);
+    g2.lineTo(X(318), 318);
+    g2.closePath();
+    g2.fill();
+    g2.globalAlpha = 1;
+    for (let i = 0; i < 9; i++) {
+      const wx = 196 + i * 17 + hash5(i, 81) * 8, x = wx + cx0, y = B + 22 - 22 * Math.exp(-Math.pow((wx - 470) / 230, 2)) + 3 + hash5(i, 82) * 6;
+      const fl = 0.6 + 0.4 * Math.sin(t * (7 + hash5(i, 83) * 5) + i * 3);
+      g2.save();
+      g2.globalCompositeOperation = "lighter";
+      const cg = g2.createRadialGradient(x, y - 3, 0, x, y - 3, 9);
+      cg.addColorStop(0, `rgba(255,180,90,${(0.45 * fl).toFixed(3)})`);
+      cg.addColorStop(1, "rgba(255,150,70,0)");
+      g2.fillStyle = cg;
+      g2.fillRect(x - 9, y - 12, 18, 18);
+      g2.restore();
+      R(x, y - 3, 2, 3, "#d8cfc0");
+      R(x, y - 6, 2, 3, fl > 0.75 ? "#fff3c4" : "#ffc93c");
+    }
+    for (let i = 0; i < 26; i++) {
+      const wx = 150 + hash5(i, 51) * 540, x = wx + cx0, y = B + 22 - 22 * Math.exp(-Math.pow((wx - 470) / 230, 2)) + 2, tall = 5 + Math.floor(hash5(i, 52) * 6);
+      if (wx > 330 && wx < 600 && hash5(i, 53) < 0.6) continue;
+      R(x, y - tall, 2, tall, BLACK);
+      if (hash5(i, 54) < 0.6) R(x - 2, y - tall + 2, 6, 2, BLACK);
+      else R(x - 1, y - tall, 4, 2, BLACK);
+    }
+    for (let i = 0; i < 5; i++) {
+      const mxx = (hash5(i, 61) * 900 + t * (5 + i * 2)) % 900 - 130 + plane(SLIDE.mist), mist = g2.createRadialGradient(mxx, 304, 4, mxx, 304, 130);
+      mist.addColorStop(0, `rgba(150,165,225,${(0.1 + 0.25 * glow).toFixed(3)})`);
+      mist.addColorStop(1, "rgba(150,165,225,0)");
+      g2.save();
+      g2.translate(0, 304);
+      g2.scale(1, 0.22);
+      g2.translate(0, -304);
+      g2.fillStyle = mist;
+      g2.fillRect(mxx - 130, 174, 260, 260);
+      g2.restore();
+    }
+    const crow = (x, y, beat, big) => {
+      const upw = Math.sin(beat) > 0, w = big ? 4 : 3;
+      R(x - 1, y, 3, 2, BLACK);
+      R(x + 2, y, 1, 1, BLACK);
+      R(x - w - 1, y + (upw ? -2 : 1), w, 1, BLACK);
+      R(x + 2, y + (upw ? -2 : 1), w, 1, BLACK);
+      R(x - w + 1, y + (upw ? -1 : 0), 2, 1, BLACK);
+      R(x + 1, y + (upw ? -1 : 0), 2, 1, BLACK);
+    };
+    for (let i = 0; i < CROWS.burst; i++) {
+      const u = (t - FIRST - hash5(i, 91) * 0.5) / (3.4 + hash5(i, 92) * 2.2);
+      if (u <= 0 || u >= 1) continue;
+      const x = 70 + hash5(i, 93) * 90 + u * (470 + hash5(i, 94) * 260) + plane(0.5), y = 150 + hash5(i, 95) * 60 - Math.sin(u * 2.2) * (70 + hash5(i, 96) * 50);
+      crow(Math.round(x), Math.round(y), t * 16 + i * 2, hash5(i, 97) > 0.5);
+    }
+    for (let k = 0; k < 3; k++) {
+      const since = (t - CROWS.from) % CROWS.every, u = (since - k * 0.5) / 6.5;
+      if (t < CROWS.from || u <= 0 || u >= 1) continue;
+      crow(Math.round(-20 + u * (VIEW_W + 40) + plane(0.5)), Math.round(120 + k * 14 + Math.sin(u * 5 + k) * 18), t * 14 + k * 2, k === 0);
+    }
+    g2.restore();
+    const unseen = (t < FIRST ? 1 : clamp(1 - (t - FIRST) / LIFT)) * (1 - clamp(glow * 1.6));
+    if (unseen > 0.01) {
+      g2.fillStyle = `rgba(3,3,9,${(0.93 * unseen).toFixed(3)})`;
+      g2.fillRect(0, 0, VIEW_W, VIEW_H);
+    }
+    const near = plane(SLIDE.near), smooth = g2.imageSmoothingEnabled;
+    g2.imageSmoothingEnabled = false;
+    const tree0 = black(pics.trees[0]), tree1 = black(pics.trees[1]);
+    g2.drawImage(tree0, -70 + near, 360 - tree0.height * 2 + 26, tree0.width * 2, tree0.height * 2);
+    g2.drawImage(tree1, 500 + near, 360 - tree1.height * 2 + 40, tree1.width * 2, tree1.height * 2);
+    pics.stones.forEach((s, i) => {
+      const pic = black(s), x = [214, 262, 560, 318][i % 4] + near, y = [344, 352, 350, 356][i % 4];
+      g2.drawImage(pic, x, y - pic.height * 2 + 8, pic.width * 2, pic.height * 2);
+    });
+    g2.imageSmoothingEnabled = smooth;
+    hero(g2, t, pics.monk, clamp(t / 0.9), near);
+    for (let i = 0; i < 12; i++) {
+      const speed = 150 + hash5(i, 101) * 190, span = VIEW_W + 240, x = (t * speed + hash5(i, 102) * span) % span - 120 + plane(1.6);
+      const y = 180 + hash5(i, 103) * 170 + Math.sin(t * (1.3 + hash5(i, 104)) + i) * 26, turnOver = Math.floor(t * 9 + i) % 3;
+      g2.fillStyle = hash5(i, 105) > 0.5 ? "#3a1c0c" : "#5a2e12";
+      if (turnOver === 0) g2.fillRect(Math.round(x), Math.round(y), 4, 2);
+      else if (turnOver === 1) g2.fillRect(Math.round(x), Math.round(y), 3, 3);
+      else g2.fillRect(Math.round(x + 1), Math.round(y - 1), 2, 4);
+    }
+    if (flash > 0.01) {
+      g2.save();
+      g2.globalCompositeOperation = "lighter";
+      g2.fillStyle = `rgba(110,130,200,${(0.12 * flash).toFixed(3)})`;
+      g2.fillRect(0, 0, VIEW_W, VIEW_H);
+      g2.restore();
+    }
+    g2.fillStyle = `rgba(190,205,255,${(0.16 + 0.3 * glow).toFixed(3)})`;
+    for (let i = 0; i < 110; i++) {
+      const speed = 620 + hash5(i, 71) * 260, span = VIEW_H + 60, y = (t * speed + hash5(i, 72) * span) % span - 30, x = (hash5(i, 73) * (VIEW_W + 160) + y * 0.32 + t * 40) % (VIEW_W + 160) - 80;
+      for (let k = 0; k < 4; k++) g2.fillRect(Math.round(x + k), Math.round(y + k * 3), 1, 3);
+    }
+    void FIRE4;
+  }
+
   // src/sim/demo.ts
   function makeDemoMind() {
     return { t: 0, target: "", giveUp: /* @__PURE__ */ new Map(), lastX: 0, lastY: 0, still: 0, blowT: 0 };
@@ -8508,6 +8893,13 @@ void main() {
     };
     const pages = [null, "controls", { title: "BEST RUNS", key: "run" }, ...levels.map((l) => ({ title: l.settings.title, key: l.settings.name }))];
     const titleMonk = { idle: [1, 2, 3, 4].map((n) => assets.image("monk/idle" + n)), dark: [1, 2, 3, 4].map((n) => assets.image("shadow/idle" + n)) };
+    const overture = {
+      monk: titleMonk,
+      demon: [1, 2, 3, 4, 5, 6].map((n) => assets.image("shadow-demon/idle/" + n)),
+      trees: [assets.image("cemetery/tree-3"), assets.image("cemetery/tree-1")],
+      stones: [1, 2, 3, 4].map((n) => assets.image("cemetery/stone-" + n))
+    };
+    let titleStorm = new Storm();
     const leave = () => {
       if (world) tally = addRun(tally, world);
       world = null;
@@ -8560,6 +8952,7 @@ void main() {
       sceneT = 0;
       naming = null;
       endNote = null;
+      if (s === "title") titleStorm = new Storm();
       if (s === "end") {
         const counts = fromTitle && !runCheated && !runEased, at = counts ? board.place("run", tally.time) : null;
         endLines = endWords(tally, counts ? { best: board.best("run") ?? tally.time, isNew: at === 0 } : void 0, !ashen());
@@ -8573,7 +8966,7 @@ void main() {
       const where = s === "end" ? endPlace : place, st = s === "end" ? ending : scenery;
       st.look(...panAim(0, where.width, where.height), true);
       sound.setMusic(s === "end" && endPlace.settings.ending ? endPlace.settings.ending : place.settings.music);
-      sound.setPlace({ rain: false, drips: false });
+      sound.setPlace({ rain: s === "title", drips: false });
       sound.setUnder(false);
       sound.preload([place.settings.music, levels[0].settings.music, endPlace.settings.ending].filter(Boolean));
       paused = false;
@@ -8588,7 +8981,9 @@ void main() {
       fromTitle = false;
       start(asked);
     }
-    window.__game = { get hints() {
+    window.__game = { get titleStorm() {
+      return titleStorm;
+    }, get hints() {
       return [...hintsSeen];
     }, demo: startDemo, get pauseAt() {
       return pauseMenu.line;
@@ -8659,11 +9054,16 @@ void main() {
         return;
       }
       const after = scene === "end" || scene === "credits";
-      const where = after ? endPlace : place, st = after ? ending : scenery;
-      st.look(...panAim(sceneT, where.width, where.height));
-      st.update(dt);
-      for (const name2 of st.heard()) sound.play(name2);
-      st.draw(g, clock, false);
+      if (after) {
+        ending.look(...panAim(sceneT, endPlace.width, endPlace.height));
+        ending.update(dt);
+        for (const name2 of ending.heard()) sound.play(name2);
+        ending.draw(g, clock, false);
+      } else {
+        if (titleStorm.update(dt).thunder) sound.play("thunder");
+        for (const name2 of overtureSounds(sceneT - dt, sceneT)) sound.play(name2);
+        drawOverture(g, sceneT, titleStorm, overture);
+      }
       if (scene === "title") {
         const page = pages[titlePage(sceneT, pages.length)];
         const offer2 = startWords(reached, levels[reached].settings.title);

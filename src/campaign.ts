@@ -86,7 +86,7 @@ export function clockText(seconds: number): string {
 
 // ---- the board of the best times ----------------------------------------------------------------
 
-const FIRST_PAGE = 9, PAGE = 5;       // seconds: the controls, then each table of the board
+const FIRST_PAGE = 16, PAGE = 5;      // seconds: the overture alone, then the controls and each table of the board
 
 /** Which of `count` pages the title shows at time t: the first longer, then each in turn, round again. */
 export function titlePage(t: number, count: number): number {

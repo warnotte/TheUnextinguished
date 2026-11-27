@@ -41,14 +41,14 @@ function sparks(g: CanvasRenderingContext2D, t: number): void {
 
 // The name of the game, in letters of flame that breathe. `lit` true (the title): they catch fire one
 // after the other as the title comes, cold cinders before, a white flash as each takes.
-const CATCH = 0.5, EACH = 0.085;       // seconds before the first letter takes, and from one to the next
+const CATCH = 3.1, EACH = 0.085;       // seconds before the first letter takes (after the first lightning), and from one to the next
 function name(g: CanvasRenderingContext2D, t: number, lighting = false): void {
   const big = 7, word = 'UNEXTINGUISHED', y = 56, h = 5 * big;
   const taken = lighting ? Math.max(0, Math.min(word.length, (t - CATCH) / EACH)) : word.length, share = taken / word.length;
   g.save(); g.globalCompositeOperation = 'lighter';
   const glow = g.createRadialGradient(VIEW_W / 2, y + h / 2, 10, VIEW_W / 2, y + h / 2, 260);
   glow.addColorStop(0, `rgba(255,120,40,${((0.32 + 0.06 * Math.sin(t * 4.3) + 0.04 * Math.sin(t * 11)) * share).toFixed(3)})`); glow.addColorStop(1, 'rgba(255,120,40,0)');
-  g.fillStyle = glow; g.fillRect(0, y - 80, VIEW_W, h + 160);
+  g.fillStyle = glow; g.fillRect(0, y + h / 2 - 260, VIEW_W, 520);
   g.restore();
   centered(g, 'THE', 36, PALE, 3);
   const x = Math.round((VIEW_W - textWidth(word, big)) / 2);
@@ -59,6 +59,17 @@ function name(g: CanvasRenderingContext2D, t: number, lighting = false): void {
     text(g, word[i], lx + 4, y + 4, since >= 0 ? '#4a0a0c' : '#120408', big);
     if (since < 0) { text(g, word[i], lx, y, '#3a1410', big); continue; }                   // a cold cinder yet
     text(g, word[i], lx, y, since < 0.1 ? '#ffffff' : flame, big);
+    if (lighting) {
+      // Its fire is alive: tongues of flame lick up from the top of each letter.
+      g.save(); g.globalCompositeOperation = 'lighter';
+      for (let k = 0; k < 3; k++) {
+        const tall = Math.round((2 + 7 * Math.abs(Math.sin(t * (5 + k * 1.7) + i * 1.9 + k * 2.3))) * Math.min(1, since / 0.5));
+        const fx = lx + 2 + k * 8 + Math.round(Math.sin(t * 3 + i + k) * 1.5);
+        g.fillStyle = FIRE[2]; g.globalAlpha = 0.55; g.fillRect(fx, y - tall, 4, tall);
+        g.fillStyle = FIRE[1]; g.globalAlpha = 0.5; g.fillRect(fx + 1, y - Math.round(tall * 0.6), 2, Math.round(tall * 0.6));
+      }
+      g.restore();
+    }
     if (since < 0.35) {
       // It takes: a burst of light, and sparks flung up from it.
       g.save(); g.globalCompositeOperation = 'lighter';
@@ -79,13 +90,14 @@ export interface TitleHero { idle: CanvasImageSource[]; dark: CanvasImageSource[
 
 // The monk, large, in the foreground, on a dark rise at the left: he looks at the place he must cross,
 // the ember he carries in his hand, its light on him and on the ground, its sparks going up.
-function hero(g: CanvasRenderingContext2D, t: number, h: TitleHero): void {
-  const BIG = 3, fx = 96, fy = 318;
+/** `lit`: how far his ember has come out of the dark, 0 to 1; `slide`: how far the foreground has slid (px). */
+export function hero(g: CanvasRenderingContext2D, t: number, h: TitleHero, lit = 1, slide = 0): void {
+  const BIG = 3, fx = 96 + slide, fy = 318;
   // The rise he stands on, black against the place.
   g.fillStyle = '#06040c';
-  g.beginPath(); g.moveTo(0, VIEW_H); g.lineTo(0, fy - 4);
-  for (let x = 0; x <= 300; x += 6) g.lineTo(x, fy - 4 + Math.pow(Math.max(0, x - 120) / 180, 2) * 46 + (hash(x, 9) < 0.3 ? -2 : 0));
-  g.lineTo(300, VIEW_H); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(-80, VIEW_H); g.lineTo(-80, fy - 4);
+  for (let x = 0; x <= 300; x += 6) g.lineTo(x + slide, fy - 4 + Math.pow(Math.max(0, x - 120) / 180, 2) * 46 + (hash(x, 9) < 0.3 ? -2 : 0));
+  g.lineTo(300 + slide, VIEW_H); g.closePath(); g.fill();
   const n = Math.floor(t * 4) % h.idle.length, bob = Math.round(Math.sin(t * 1.6) * 1);
   const draw = (pic: CanvasImageSource): void => {
     const w = (pic as HTMLCanvasElement).width, hh = (pic as HTMLCanvasElement).height;
@@ -97,7 +109,7 @@ function hero(g: CanvasRenderingContext2D, t: number, h: TitleHero): void {
   g.globalAlpha = 0.28; draw(h.dark[n]); g.globalAlpha = 1;         // in the dark of the foreground
   g.imageSmoothingEnabled = smooth;
   // The ember in his hand: its light, its flame, its sparks.
-  const ex = fx + 34, ey = fy - 84 + bob, flick = 0.8 + 0.2 * Math.sin(t * 13) * Math.sin(t * 7.3);
+  const ex = fx + 34, ey = fy - 84 + bob, flick = (0.8 + 0.2 * Math.sin(t * 13) * Math.sin(t * 7.3)) * lit;
   g.save(); g.globalCompositeOperation = 'lighter';
   const light = g.createRadialGradient(ex, ey, 2, ex, ey, 150);
   light.addColorStop(0, `rgba(255,170,70,${(0.55 * flick).toFixed(3)})`); light.addColorStop(0.3, `rgba(255,110,40,${(0.2 * flick).toFixed(3)})`); light.addColorStop(1, 'rgba(255,90,30,0)');
@@ -112,7 +124,7 @@ function hero(g: CanvasRenderingContext2D, t: number, h: TitleHero): void {
   for (let i = 0; i < 9; i++) {
     const life = (t * (0.5 + hash(i, 21) * 0.5) + hash(i, 22)) % 1;
     g.globalAlpha = 1 - life; g.fillStyle = FIRE[i % 3];
-    g.fillRect(Math.round(ex + Math.sin(t * 2 + i * 1.7) * (4 + life * 16)), Math.round(ey - 8 - life * 70), 2, 2);
+    g.fillRect(Math.round(ex + Math.sin(t * 2 + i * 1.7) * (4 + life * 10) + life * life * 90), Math.round(ey - 8 - life * 60), 2, 2);      // going off on the wind
   }
   g.restore();
 }
@@ -135,9 +147,14 @@ const CONTROLS: [string, string, string][] = [
 /** The title: the controls, or a table of the board (`page`), in turn; or the options, while they are open. */
 export function drawTitle(g: CanvasRenderingContext2D, t: number, page: { title: string; entries: Entry[] } | 'controls' | null = null, menu: OptionsMenu | null = null, musicOn = true, start: { lines: string[]; at: number } | null = null, monk: TitleHero | null = null): void {
   g.setTransform(1, 0, 0, 1, 0, 0);
-  veil(g, !page && !menu);                     // the first page shows the place: a lighter veil
+  if (page || menu) veil(g);                   // the first page shows the picture as it is
+  else {
+    const top = g.createLinearGradient(0, 0, 0, 120);
+    top.addColorStop(0, 'rgba(4,4,10,0.6)'); top.addColorStop(1, 'rgba(4,4,10,0)');
+    g.fillStyle = top; g.fillRect(0, 0, VIEW_W, 120);
+  }
   sparks(g, t);
-  if (monk && !page && !menu) hero(g, t, monk);
+  void monk;
   name(g, t, true);
   if (t > CATCH + 14 * EACH + 0.2) centered(g, 'A GOTHIC PLATFORM FIGHTER', 104, '#c9bfe0');
 
@@ -160,8 +177,8 @@ export function drawTitle(g: CanvasRenderingContext2D, t: number, page: { title:
     const here = i === start.at;
     centered(g, here ? `> ${line} <` : line, 278 + i * 18, here ? GOLD : DIM);
   });
-  else if (blink(t)) centered(g, 'PRESS JUMP TO START', 286, GOLD, 3);
-  centered(g, 'F FULL SCREEN    M MUSIC    P PAUSE    H COLLISIONS    O OPTIONS', 334, DIM);
+  else if (t > CATCH + 2 && blink(t)) centered(g, 'PRESS JUMP TO START', 286, GOLD, 3);
+  if (t > CATCH + 1.6) centered(g, 'F FULL SCREEN    M MUSIC    P PAUSE    H COLLISIONS    O OPTIONS', 334, DIM);
 }
 
 /** How the options are worked. Not Escape: in full screen the browser takes it for itself. */

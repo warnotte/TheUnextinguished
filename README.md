@@ -172,11 +172,18 @@ which tells the run: its time, the foes snuffed out, the blood spilt, how often 
 out; then the credits roll over the place at dawn. Then back to the title. To go straight to a level, without the title, add `?level=1` to
 `?level=8` to the address of the page.
 
-The title stands in front of the first level open on the sky (the belfry), climbing it slowly under
-a storm: now and then lightning flashes through the arches and the thunder follows. Its name catches fire letter
-by letter as it comes; the monk stands large in the foreground, on a dark rise, the ember he carries in
-his hand. Its first page shows only that, and what starts the game; the controls come after it, in turn
-with the tables of the board.
+The title has a picture of its own, the overture (`src/render/overture.ts`): the whole of what is to come,
+seen from outside, by night, in a storm. It begins in the dark, with only the monk on his rise in the
+foreground and the ember he carries; the first lightning shows the rest at once: the church black against
+the sky, its belfry, its spires, the rose window of its transept still alight, the graves on the hill, a
+dead tree; the giant demon turns round the belfry, only its eyes seen until lightning cuts it out; green
+lights wake at the windows one after the other, the shades that wait. The view, which looked down, tilts up
+to the church as it is shown; crows burst out of the dead tree and cross the moon; the door under the west
+tower stands ajar on a warm light, and candles burn on the graves between the monk and it; now and then the
+demon breathes its blue fire across the sky; dead leaves fly past on the wind. The view slides slowly to and
+fro, each plane at its own pace. It is heard too: the rain, the thunder, a toll of the bell, the crows, the
+breath. Then the name catches fire letter by letter, and flames lick up from it. The first page shows only that and what starts the game; the controls
+come after it, in turn with the tables of the board.
 
 ## Build and test
 

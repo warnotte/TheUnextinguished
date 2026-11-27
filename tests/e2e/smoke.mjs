@@ -28,7 +28,7 @@ await page.waitForFunction(() => window.__game, null, { timeout: 15000 }).catch(
 check('the game starts', await game(() => !!window.__game), await page.locator('#status').textContent());
 await page.waitForTimeout(400);
 check('it opens on the title', await game(() => __game.scene === 'title' && __game.world === null));
-await game(() => { __game.scenery.storm.wait = 0; });          // a strike of lightning, at once
+await game(() => { __game.titleStorm.wait = 0; });             // a strike of lightning, at once
 await page.waitForTimeout(1600);                                // and its thunder
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/title.png' });
 await page.keyboard.press('KeyF');
