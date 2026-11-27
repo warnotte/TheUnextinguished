@@ -173,6 +173,10 @@
     get musicOn() {
       return this.on;
     }
+    /** The name of the tune that plays, or is to play. */
+    get tuneName() {
+      return this.tune;
+    }
     get musicLevel() {
       return this.musicLv;
     }
@@ -494,9 +498,9 @@
       this.tone("sine", freq * 3.02, freq * 3.02, { at, dur: 0.14, vol: vol * 0.3, hall: 0.4 });
     }
     // Something wet hitting something hard, a few times over.
-    splatter(count, over, vol) {
+    splatter(count, over2, vol) {
       for (let i = 0; i < count; i++) {
-        const at = Math.random() * over, f = 300 + Math.random() * 700;
+        const at = Math.random() * over2, f = 300 + Math.random() * 700;
         this.hiss("bandpass", f, f * 0.4, { at, dur: 0.05 + Math.random() * 0.06, vol: vol * (0.5 + Math.random() * 0.5), hall: 0.25 }, 2.5);
       }
     }
@@ -782,6 +786,7 @@
     { text: "" },
     { text: "THANK YOU FOR PLAYING", head: true }
   ];
+  var TITLE_TUNE = "overture";
   var CREDITS_SPEED = 24;
   var CREDITS_STEP = 18;
   function creditsLength(view = 360) {
@@ -1541,9 +1546,104 @@
       x += 4 * scale;
     }
   }
+  function inkTop(ch) {
+    const bits = FONT[ch] ?? FONT[" "];
+    const top = (col) => {
+      for (let row = 0; row < 5; row++) if (bits[row * 3 + col] === "1") return row;
+      return 5;
+    };
+    return [top(0), top(1), top(2)];
+  }
   var textWidth = (str, scale = 2) => str.length * 4 * scale - scale;
   function centered(g2, str, y, color, scale = 2) {
     text(g2, str, Math.round((VIEW_W - textWidth(str, scale)) / 2), y, color, scale);
+  }
+
+  // src/render/flames.ts
+  var CELL = 2;
+  var UP3 = 34;
+  var SIDE = 14;
+  var RAMP = [[255, 243, 196, 255], [255, 201, 60, 255], [255, 138, 42, 255], [224, 64, 28, 255], [122, 20, 8, 200]];
+  var hash = (a, b) => {
+    const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+    return s - Math.floor(s);
+  };
+  function noise(x, y) {
+    const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi;
+    const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+    const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+  }
+  var sheet = null;
+  var pixels = null;
+  var over = new Int16Array(0);
+  var ink = new Int16Array(0);
+  var laidFor = "";
+  function drawFlames(g2, t, word, x, y, big, grown) {
+    const wide = Math.ceil((word.length * 4 * big - big + SIDE * 2) / CELL), high = Math.ceil((UP3 + 5 * big) / CELL);
+    const x0 = x - SIDE, y0 = y - UP3;
+    if (!sheet || sheet.width !== wide || sheet.height !== high) {
+      sheet = document.createElement("canvas");
+      sheet.width = wide;
+      sheet.height = high;
+      pixels = new ImageData(wide, high);
+      laidFor = "";
+    }
+    const key = `${word}|${x}|${y}|${big}`;
+    if (laidFor !== key) {
+      laidFor = key;
+      over = new Int16Array(wide);
+      ink = new Int16Array(wide);
+      for (let cx = 0; cx < wide; cx++) {
+        const px = x0 + cx * CELL + CELL / 2 - x, letter = Math.floor(px / (4 * big)), within = px - letter * 4 * big;
+        const row = px < 0 || letter >= word.length || within >= 3 * big ? 5 : inkTop(word[letter])[Math.floor(within / big)];
+        over[cx] = row === 5 ? -1 : letter;
+        ink[cx] = y + row * big;
+      }
+    }
+    const data = pixels.data;
+    data.fill(0);
+    const growth = Array.from(word, (_, i) => Math.max(0, Math.min(1, grown(i))));
+    const tall = new Float32Array(wide);
+    for (let cx = 0; cx < wide; cx++) {
+      if (over[cx] < 0) continue;
+      const n = 0.6 * noise(cx * 0.13, t * 1.2) + 0.4 * noise(cx * 0.47 + 40, t * 3.4);
+      tall[cx] = (3 + 14 * n * n) * growth[over[cx]];
+    }
+    for (let cy = 0; cy < high; cy++) {
+      const py = y0 + cy * CELL, above = Math.max(0, (y - py) / CELL);
+      for (let cx = 0; cx < wide; cx++) {
+        const from = Math.round(cx - above * 0.3 - Math.sin(t * 2.3 + above * 0.45 + cx * 0.07) * 0.6 * Math.min(1, above / 5));
+        if (from < 0 || from >= wide || over[from] < 0 || tall[from] <= 0) continue;
+        const h = (ink[from] - py) / CELL;
+        if (h <= 0) continue;
+        const heat = 1 - h / tall[from] + (noise(cx * 0.55, cy * 0.4 + t * 6) - 0.5) * 0.65;
+        if (heat <= 0) continue;
+        const c = RAMP[heat > 0.8 ? 0 : heat > 0.56 ? 1 : heat > 0.33 ? 2 : heat > 0.14 ? 3 : 4], at = (cy * wide + cx) * 4;
+        data[at] = c[0];
+        data[at + 1] = c[1];
+        data[at + 2] = c[2];
+        data[at + 3] = c[3];
+      }
+    }
+    sheet.getContext("2d").putImageData(pixels, 0, 0);
+    const smooth = g2.imageSmoothingEnabled;
+    g2.imageSmoothingEnabled = false;
+    g2.drawImage(sheet, x0, y0, wide * CELL, high * CELL);
+    g2.imageSmoothingEnabled = smooth;
+    g2.save();
+    g2.globalCompositeOperation = "lighter";
+    const span = word.length * 4 * big - big;
+    for (let k = 0; k < 44; k++) {
+      const life = 1.1 + hash(k, 71) * 1.5, u = (t + hash(k, 72) * life) % life / life, ox = hash(k, 73) * span;
+      const letter = Math.min(word.length - 1, Math.floor(ox / (4 * big)));
+      if (growth[letter] < 0.6) continue;
+      const ex = x + ox + u * (16 + hash(k, 74) * 46) + Math.sin(t * 5 + k) * 2 * u, ey = y - 2 - u * (22 + hash(k, 75) * 44) + u * u * 8;
+      g2.globalAlpha = (1 - u) * (0.6 + 0.4 * hash(k, 76));
+      g2.fillStyle = u < 0.35 ? "#fff3c4" : u < 0.7 ? "#ffc93c" : "#ff8a2a";
+      g2.fillRect(Math.round(ex), Math.round(ey), k % 6 === 0 ? 2 : 1, k % 6 === 0 ? 2 : 1);
+    }
+    g2.restore();
   }
 
   // src/render/title.ts
@@ -1551,7 +1651,7 @@
   var PALE = "#e2d8f0";
   var DIM = "#9d93b8";
   var GOLD = "#ffe27a";
-  var hash = (a, b) => {
+  var hash2 = (a, b) => {
     const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
     return s - Math.floor(s);
   };
@@ -1573,9 +1673,9 @@
     g2.save();
     g2.globalCompositeOperation = "lighter";
     for (let i = 0; i < 46; i++) {
-      const speed = 14 + hash(i, 1) * 30, life = VIEW_H + 60;
-      const y = VIEW_H + 20 - (t * speed + hash(i, 2) * life) % life;
-      const x = hash(i, 3) * VIEW_W + Math.sin(t * (0.6 + hash(i, 4)) + i) * 10;
+      const speed = 14 + hash2(i, 1) * 30, life = VIEW_H + 60;
+      const y = VIEW_H + 20 - (t * speed + hash2(i, 2) * life) % life;
+      const x = hash2(i, 3) * VIEW_W + Math.sin(t * (0.6 + hash2(i, 4)) + i) * 10;
       g2.fillStyle = FIRE[i % 3];
       g2.globalAlpha = 0.35 + 0.65 * Math.min(1, (y + 40) / VIEW_H);
       g2.fillRect(Math.round(x), Math.round(y), i % 5 === 0 ? 2 : 1, i % 5 === 0 ? 2 : 1);
@@ -1595,47 +1695,35 @@
     g2.fillStyle = glow;
     g2.fillRect(0, y + h / 2 - 260, VIEW_W, 520);
     g2.restore();
-    centered(g2, "THE", 36, PALE, 3);
     const x = Math.round((VIEW_W - textWidth(word, big)) / 2);
     const flame2 = g2.createLinearGradient(0, y, 0, y + h);
     flame2.addColorStop(0, FIRE[0]);
     flame2.addColorStop(0.45, FIRE[1]);
     flame2.addColorStop(1, FIRE[3]);
+    const since = (i) => lighting ? t - CATCH - i * EACH : 9;
+    for (let i = 0; i < word.length; i++) text(g2, word[i], x + i * 4 * big + 4, y + 4, since(i) >= 0 ? "#4a0a0c" : "#120408", big);
+    if (lighting) drawFlames(g2, t, word, x, y, big, (i) => since(i) / 0.7);
+    text(g2, "THE", Math.round((VIEW_W - textWidth("THE", 3)) / 2) + 1, 33, "#1a0608", 3);
+    centered(g2, "THE", 32, PALE, 3);
     for (let i = 0; i < word.length; i++) {
-      const lx = x + i * 4 * big, since = lighting ? t - CATCH - i * EACH : 9;
-      text(g2, word[i], lx + 4, y + 4, since >= 0 ? "#4a0a0c" : "#120408", big);
-      if (since < 0) {
+      const lx = x + i * 4 * big, at = since(i);
+      if (at < 0) {
         text(g2, word[i], lx, y, "#3a1410", big);
         continue;
       }
-      text(g2, word[i], lx, y, since < 0.1 ? "#ffffff" : flame2, big);
-      if (lighting) {
-        g2.save();
-        g2.globalCompositeOperation = "lighter";
-        for (let k = 0; k < 3; k++) {
-          const tall = Math.round((2 + 7 * Math.abs(Math.sin(t * (5 + k * 1.7) + i * 1.9 + k * 2.3))) * Math.min(1, since / 0.5));
-          const fx = lx + 2 + k * 8 + Math.round(Math.sin(t * 3 + i + k) * 1.5);
-          g2.fillStyle = FIRE[2];
-          g2.globalAlpha = 0.55;
-          g2.fillRect(fx, y - tall, 4, tall);
-          g2.fillStyle = FIRE[1];
-          g2.globalAlpha = 0.5;
-          g2.fillRect(fx + 1, y - Math.round(tall * 0.6), 2, Math.round(tall * 0.6));
-        }
-        g2.restore();
-      }
-      if (since < 0.35) {
+      text(g2, word[i], lx, y, at < 0.1 ? "#ffffff" : flame2, big);
+      if (at < 0.35) {
         g2.save();
         g2.globalCompositeOperation = "lighter";
         const burst = g2.createRadialGradient(lx + 10, y + h / 2, 2, lx + 10, y + h / 2, 46);
-        burst.addColorStop(0, `rgba(255,220,150,${(0.7 * (1 - since / 0.35)).toFixed(3)})`);
+        burst.addColorStop(0, `rgba(255,220,150,${(0.7 * (1 - at / 0.35)).toFixed(3)})`);
         burst.addColorStop(1, "rgba(255,150,60,0)");
         g2.fillStyle = burst;
         g2.fillRect(lx - 40, y - 40, 100, h + 80);
         for (let k = 0; k < 5; k++) {
-          const a = hash(i, k) * Math.PI - Math.PI, far = since * (90 + hash(k, i) * 140);
+          const a = hash2(i, k) * Math.PI - Math.PI, far = at * (90 + hash2(k, i) * 140);
           g2.fillStyle = FIRE[k % 3];
-          g2.fillRect(Math.round(lx + 10 + Math.cos(a) * far), Math.round(y + h / 2 + Math.sin(a) * far + since * since * 160), 2, 2);
+          g2.fillRect(Math.round(lx + 10 + Math.cos(a) * far), Math.round(y + h / 2 + Math.sin(a) * far + at * at * 160), 2, 2);
         }
         g2.restore();
       }
@@ -1647,7 +1735,7 @@
     g2.beginPath();
     g2.moveTo(-80, VIEW_H);
     g2.lineTo(-80, fy - 4);
-    for (let x = 0; x <= 300; x += 6) g2.lineTo(x + slide, fy - 4 + Math.pow(Math.max(0, x - 120) / 180, 2) * 46 + (hash(x, 9) < 0.3 ? -2 : 0));
+    for (let x = 0; x <= 300; x += 6) g2.lineTo(x + slide, fy - 4 + Math.pow(Math.max(0, x - 120) / 180, 2) * 46 + (hash2(x, 9) < 0.3 ? -2 : 0));
     g2.lineTo(300 + slide, VIEW_H);
     g2.closePath();
     g2.fill();
@@ -1686,7 +1774,7 @@
     g2.save();
     g2.globalCompositeOperation = "lighter";
     for (let i = 0; i < 9; i++) {
-      const life = (t * (0.5 + hash(i, 21) * 0.5) + hash(i, 22)) % 1;
+      const life = (t * (0.5 + hash2(i, 21) * 0.5) + hash2(i, 22)) % 1;
       g2.globalAlpha = 1 - life;
       g2.fillStyle = FIRE[i % 3];
       g2.fillRect(Math.round(ex + Math.sin(t * 2 + i * 1.7) * (4 + life * 10) + life * life * 90), Math.round(ey - 8 - life * 60), 2, 2);
@@ -2405,9 +2493,9 @@
         text(g2, label, VIEW_W - MARGIN - textWidth(label), BAR_Y + BAR_H + 5, dazed && Math.floor(t * 6) % 2 ? "#ff5a3a" : "#e2d8f0");
       }
       const got = w.carried;
-      const need = w.embers.length, over = got > need ? `  +${got - need}` : "";
+      const need = w.embers.length, over2 = got > need ? `  +${got - need}` : "";
       if (w.beast) centered(g2, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? "#ffe27a" : "#e2d8f0");
-      else if (need) centered(g2, `EMBERS ${Math.min(got, need)}/${need}${over}`, VIEW_H - 20, w.doorOpen ? "#ffe27a" : "#e2d8f0");
+      else if (need) centered(g2, `EMBERS ${Math.min(got, need)}/${need}${over2}`, VIEW_H - 20, w.doorOpen ? "#ffe27a" : "#e2d8f0");
       else if (w.boss) centered(g2, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? "#ffe27a" : "#e2d8f0");
       const clock = clockText(w.clock);
       text(g2, clock, VIEW_W - MARGIN - textWidth(clock), VIEW_H - 20, "#e2d8f0");
@@ -2720,16 +2808,16 @@
     "ghost/shriek": { file: "gothicvania-patreon/ghost/ghost-shriek.png", w: 64, h: 80, frames: 4, footX: 31, footY: 58 },
     "ghost/vanish": { file: "gothicvania-patreon/ghost/ghost-vanish.png", w: 64, h: 64, frames: 7, footX: 32, footY: 61 }
   };
-  var sheet = (name2, frames, w, h, px, py, cols) => ({ file: `pixelfx/${name2}.png`, fps: 30, frames, w, h, px, py, cols });
+  var sheet2 = (name2, frames, w, h, px, py, cols) => ({ file: `pixelfx/${name2}.png`, fps: 30, frames, w, h, px, py, cols });
   var SHEETS = {
-    "hit-spark": sheet("hit-spark", 16, 136, 80, 44, 64, 4),
-    "crit-hit": sheet("crit-hit", 28, 216, 136, 84, 106, 5),
-    "blunt-hit": sheet("blunt-hit", 28, 128, 88, 64, 72, 5),
-    "collect-burst": sheet("collect-burst", 42, 112, 108, 56, 94, 7),
-    "poof-green": sheet("poof-green", 49, 112, 92, 56, 80, 7),
-    "heavy-landing": sheet("heavy-landing", 49, 176, 80, 88, 60, 5),
-    torch: sheet("torch", 60, 72, 120, 36, 94, 10),
-    bat: sheet("bat", 72, 112, 80, 56, 40, 8)
+    "hit-spark": sheet2("hit-spark", 16, 136, 80, 44, 64, 4),
+    "crit-hit": sheet2("crit-hit", 28, 216, 136, 84, 106, 5),
+    "blunt-hit": sheet2("blunt-hit", 28, 128, 88, 64, 72, 5),
+    "collect-burst": sheet2("collect-burst", 42, 112, 108, 56, 94, 7),
+    "poof-green": sheet2("poof-green", 49, 112, 92, 56, 80, 7),
+    "heavy-landing": sheet2("heavy-landing", 49, 176, 80, 88, 60, 5),
+    torch: sheet2("torch", 60, 72, 120, 36, 94, 10),
+    bat: sheet2("bat", 72, 112, 80, 56, 40, 8)
   };
   var EFFECTS = {
     "hit-spark": { sheet: "hit-spark" },
@@ -3219,8 +3307,8 @@
         const ahead = !e.onGround || a.grid.groundUnder(centreX(e) + e.facing * 14, feetY(e)) !== null;
         e.vx = ahead ? e.facing * HOUND.run : 0;
         const bite = sameFloor && Math.abs(dx) < HOUND.leapRange;
-        const over = !ahead && dx * e.facing > 0 && Math.abs(feetY(hero2) - feetY(e)) < 48 && leapClears(e, a.grid);
-        if (a.playing && e.onGround && (bite || over)) {
+        const over2 = !ahead && dx * e.facing > 0 && Math.abs(feetY(hero2) - feetY(e)) < 48 && leapClears(e, a.grid);
+        if (a.playing && e.onGround && (bite || over2)) {
           e.vx = e.facing * HOUND.leapVx;
           e.vy = -HOUND.leapVy;
           e.onGround = false;
@@ -5263,7 +5351,7 @@
 
   // src/render/scene.ts
   var isSlab = (g2, c, r) => g2.solidAt(c, r) && !g2.solidAt(c, r - 1) && !g2.solidAt(c, r + 1);
-  var hash2 = (a, b) => {
+  var hash3 = (a, b) => {
     const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
     return s - Math.floor(s);
   };
@@ -5321,7 +5409,7 @@
     c.width = w;
     c.height = h;
     const k = c.getContext("2d");
-    for (let y = 0; y < h; y += TILE) for (let x = 0; x < w; x += TILE) k.drawImage(tiles, 320 + Math.floor(hash2(x, y) * 5) % 5 * TILE, 104, TILE, TILE, x, y, TILE, TILE);
+    for (let y = 0; y < h; y += TILE) for (let x = 0; x < w; x += TILE) k.drawImage(tiles, 320 + Math.floor(hash3(x, y) * 5) % 5 * TILE, 104, TILE, TILE, x, y, TILE, TILE);
     const shade = k.createLinearGradient(0, 0, 0, h);
     shade.addColorStop(0, "rgba(10,6,24,0.15)");
     shade.addColorStop(1, "rgba(10,6,24,0.55)");
@@ -5330,11 +5418,11 @@
     k.globalCompositeOperation = "destination-out";
     k.fillStyle = "#000";
     for (let x = 0; x < w; x += 4) {
-      const bite = Math.floor(hash2(Math.floor((x0 + x) / 4), 7) * 26 + hash2(Math.floor((x0 + x) / 24), 8) * 70 * (0.4 + 0.6 * Math.abs(Math.sin(x / w * Math.PI * 1.6))));
+      const bite = Math.floor(hash3(Math.floor((x0 + x) / 4), 7) * 26 + hash3(Math.floor((x0 + x) / 24), 8) * 70 * (0.4 + 0.6 * Math.abs(Math.sin(x / w * Math.PI * 1.6))));
       k.fillRect(x, 0, 4, bite);
     }
     for (let y = 0; y < h; y += 4) {
-      const edge = Math.floor(hash2(Math.floor((top + y) / 4), x0) * 10 * (1 - y / h) + 2);
+      const edge = Math.floor(hash3(Math.floor((top + y) / 4), x0) * 10 * (1 - y / h) + 2);
       k.fillRect(0, y, edge, 4);
       k.fillRect(w - edge, y, edge, 4);
     }
@@ -5379,16 +5467,16 @@
       b.drawImage(tiles, 224, 96, 32, 16, x, ground - TILE, 32, 16);
     }
     for (let x = x0; x < x0 + w; x += TILE) {
-      const piece = 64 + Math.floor(hash2(x, 5) * 4) % 4 * TILE;
+      const piece = 64 + Math.floor(hash3(x, 5) * 4) % 4 * TILE;
       b.drawImage(tiles, piece, 48, TILE, 32, x, top - TILE, TILE, 32);
       b.drawImage(tiles, piece, 80, TILE, 16, x, top + TILE, TILE, 16);
     }
     b.fillStyle = "#1c0f16";
     b.fillRect(x0, under, w, 2);
     for (let x = x0 + 2; x < x0 + w - 2; x += 3) {
-      const len = Math.floor(hash2(x, 9) * 7);
+      const len = Math.floor(hash3(x, 9) * 7);
       if (len < 2) continue;
-      b.fillStyle = hash2(x, 10) > 0.8 ? "#d8cbb0" : "#3a2418";
+      b.fillStyle = hash3(x, 10) > 0.8 ? "#d8cbb0" : "#3a2418";
       b.fillRect(x, under + 2, 1, len);
     }
   }
@@ -5413,7 +5501,7 @@
   function paintBreach(b, o) {
     const w = Number(o.props.width ?? 160), h = Number(o.props.height ?? 96);
     const half = (y, grow) => {
-      const k = y / h, ragged = (hash2(Math.floor(y / 3), o.x) - 0.5) * 14 + (hash2(Math.floor(y / 7), o.x + 1) - 0.5) * 10;
+      const k = y / h, ragged = (hash3(Math.floor(y / 3), o.x) - 0.5) * 14 + (hash3(Math.floor(y / 7), o.x + 1) - 0.5) * 10;
       return Math.max(0, w / 2 * (1 - k * k) + ragged * (1 - k * 0.5) + grow);
     };
     const rows = (grow, color) => {
@@ -5432,7 +5520,7 @@
     rows(0, "#000");
     b.restore();
     for (let i = 0; i < 9; i++) {
-      const y = Math.floor(hash2(i, o.x + 3) * h * 0.8), side = i % 2 ? 1 : -1, x = o.x + side * (half(y, 2) + 1);
+      const y = Math.floor(hash3(i, o.x + 3) * h * 0.8), side = i % 2 ? 1 : -1, x = o.x + side * (half(y, 2) + 1);
       b.fillStyle = "#4a416e";
       b.fillRect(Math.round(x - (side > 0 ? 0 : 5)), y, 5, 3);
       b.fillStyle = "#221f36";
@@ -5490,7 +5578,7 @@
     r(0, 0, W, H, "rgb(39,38,56)");
     b.globalAlpha = 0.7;
     for (let y = 0; y < H; y += 48) for (let x = 0; x < W; x += TILE) {
-      if (hash2(x, y) > 0.5) {
+      if (hash3(x, y) > 0.5) {
         b.save();
         b.translate(x + TILE, 0);
         b.scale(-1, 1);
@@ -5501,7 +5589,7 @@
     b.globalAlpha = 1;
     for (let y = 0; y < H; y += 4) r(0, y, W, 4, `rgba(8,6,22,${(0.3 * (1 - y / H)).toFixed(3)})`);
     for (let i = 0, n = Math.ceil(W * H / 3e4); i < n; i++) {
-      const x = hash2(i, 11) * W, y = hash2(i, 12) * H, rad = 60 + hash2(i, 13) * 90;
+      const x = hash3(i, 11) * W, y = hash3(i, 12) * H, rad = 60 + hash3(i, 13) * 90;
       const stain = b.createRadialGradient(x, y, 0, x, y, rad);
       stain.addColorStop(0, "rgba(6,5,18,0.34)");
       stain.addColorStop(1, "rgba(6,5,18,0)");
@@ -5560,7 +5648,7 @@
         else if (!grid.solidAt(c, row - 2)) {
         } else b.drawImage(earth, piece, grid.solidAt(c, row - 3) ? 120 : 104, TILE, 16, x, y, TILE, 16);
       } else {
-        const piece = 64 + Math.floor(hash2(c, 3) * 4) % 4 * TILE;
+        const piece = 64 + Math.floor(hash3(c, 3) * 4) % 4 * TILE;
         if (open2) b.drawImage(earth, piece, 48, TILE, 32, x, y - TILE, TILE, 32);
         else if (!grid.solidAt(c, row - 2)) b.drawImage(earth, piece, 80, TILE, 16, x, y, TILE, 16);
         else r(x, y, TILE, TILE, "#000022");
@@ -6060,7 +6148,7 @@
   };
 
   // src/render/sky.ts
-  var hash3 = (a, b) => {
+  var hash4 = (a, b) => {
     const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
     return s - Math.floor(s);
   };
@@ -6191,9 +6279,9 @@
     k.fillRect(0, 0, VIEW_W, VIEW_H);
     const [sx, sy] = planeShift(DEPTH.stars, camX, rise);
     for (let i = 0; i < 150; i++) {
-      const x = mod(hash3(i, 1) * (VIEW_W + 40) + sx, VIEW_W + 40) - 20, y = hash3(i, 2) * 300 + sy;
-      const twinkle = 0.45 + 0.55 * Math.sin(t * (1 + hash3(i, 3) * 2.5) + i);
-      r(x, y, hash3(i, 4) > 0.88 ? 2 : 1, 1, `rgba(220,230,255,${(0.35 + 0.65 * twinkle * hash3(i, 5)).toFixed(3)})`);
+      const x = mod(hash4(i, 1) * (VIEW_W + 40) + sx, VIEW_W + 40) - 20, y = hash4(i, 2) * 300 + sy;
+      const twinkle = 0.45 + 0.55 * Math.sin(t * (1 + hash4(i, 3) * 2.5) + i);
+      r(x, y, hash4(i, 4) > 0.88 ? 2 : 1, 1, `rgba(220,230,255,${(0.35 + 0.65 * twinkle * hash4(i, 5)).toFixed(3)})`);
     }
     const [mx, my] = planeShift(DEPTH.moon, camX, rise);
     const moonX = 455 + mx, moonY = 70 + my;
@@ -6214,9 +6302,9 @@
     }
     const [cx, cy] = planeShift(DEPTH.clouds, camX, rise);
     for (let i = 0; i < 7; i++) {
-      const w = 70 + hash3(i, 60) * 90, x = mod(hash3(i, 61) * (VIEW_W + 300) + t * (3 + hash3(i, 62) * 4) + cx, VIEW_W + 300) - 150, y = 40 + hash3(i, 63) * 150 + cy;
+      const w = 70 + hash4(i, 60) * 90, x = mod(hash4(i, 61) * (VIEW_W + 300) + t * (3 + hash4(i, 62) * 4) + cx, VIEW_W + 300) - 150, y = 40 + hash4(i, 63) * 150 + cy;
       for (let j = 0; j < 5; j++) {
-        const part = w * (0.35 + hash3(i * 5 + j, 64) * 0.4), px = x + (j - 2) * w * 0.2, py = y + (hash3(i * 5 + j, 65) - 0.5) * 8;
+        const part = w * (0.35 + hash4(i * 5 + j, 64) * 0.4), px = x + (j - 2) * w * 0.2, py = y + (hash4(i * 5 + j, 65) - 0.5) * 8;
         r(px - part / 2, py, Math.round(part), 6, "#262e6a");
         r(px - part / 2 + 3, py - 2, Math.round(part) - 6, 2, "#4a56a0");
       }
@@ -6230,8 +6318,8 @@
     const [tx, ty] = planeShift(DEPTH.town, camX, rise);
     const BLOCK = 30, ground = 262 + ty;
     for (let b = Math.floor(-tx / BLOCK) - 1; b * BLOCK + tx < VIEW_W; b++) {
-      const x = b * BLOCK + tx, tall = hash3(b, 7) > 0.84, w = tall ? 14 : 20 + Math.floor(hash3(b, 8) * 10), h = tall ? 70 + hash3(b, 9) * 40 : 26 + hash3(b, 9) * 30;
-      const left = x + (BLOCK - w) / 2, top = ground - h, roof = tall ? 34 : 9 + Math.floor(hash3(b, 10) * 8);
+      const x = b * BLOCK + tx, tall = hash4(b, 7) > 0.84, w = tall ? 14 : 20 + Math.floor(hash4(b, 8) * 10), h = tall ? 70 + hash4(b, 9) * 40 : 26 + hash4(b, 9) * 30;
+      const left = x + (BLOCK - w) / 2, top = ground - h, roof = tall ? 34 : 9 + Math.floor(hash4(b, 10) * 8);
       r(left, top, w, VIEW_H - top, "#0c0e2a");
       for (let i = 0; i < roof; i++) {
         const half = (w / 2 + 2) * (1 - i / roof);
@@ -6239,14 +6327,14 @@
         r(left + w / 2 - half, top - i, 2, 1, "#aab4e6");
       }
       r(left - 2, top, w + 4, 1, "#aab4e6");
-      for (let i = 0; i < 3; i++) if (hash3(b * 3 + i, 11) > 0.55) r(left + 3 + i * 6, top + 8 + Math.floor(hash3(b, 12 + i) * (h - 20)), 2, 3, hash3(b, 20 + i) > 0.5 ? "#ffc56a" : "#ff9a4a");
+      for (let i = 0; i < 3; i++) if (hash4(b * 3 + i, 11) > 0.55) r(left + 3 + i * 6, top + 8 + Math.floor(hash4(b, 12 + i) * (h - 20)), 2, 3, hash4(b, 20 + i) > 0.5 ? "#ffc56a" : "#ff9a4a");
     }
     r(0, ground, VIEW_W, VIEW_H - ground + 1, "#0c0e2a");
     if (snow) {
       const [fx, fy] = planeShift(DEPTH.snow, camX, rise);
       for (let i = 0; i < 70; i++) {
-        const x = mod(hash3(i, 30) * VIEW_W + t * (9 + hash3(i, 31) * 9) + 6 * Math.sin(t * 0.6 + i) + fx, VIEW_W);
-        const y = mod(hash3(i, 32) * VIEW_H + t * (16 + hash3(i, 33) * 12) + fy, VIEW_H);
+        const x = mod(hash4(i, 30) * VIEW_W + t * (9 + hash4(i, 31) * 9) + 6 * Math.sin(t * 0.6 + i) + fx, VIEW_W);
+        const y = mod(hash4(i, 32) * VIEW_H + t * (16 + hash4(i, 33) * 12) + fy, VIEW_H);
         r(x, y, 1, 1, "rgba(200,210,245,0.55)");
       }
     }
@@ -6255,8 +6343,8 @@
     const depths = [0.7, 1, 1.5];
     depths.forEach((d, layer) => {
       for (let i = 0; i < 46; i++) {
-        const x = mod(hash3(i, 40 + layer) * (VIEW_W + 40) + t * 22 * d + 9 * Math.sin(t * 0.9 + i * 1.3) - camX * d * 0.7, VIEW_W + 40) - 20;
-        const y = mod(hash3(i, 50 + layer) * VIEW_H + t * 38 * d - camY * d * 0.7, VIEW_H);
+        const x = mod(hash4(i, 40 + layer) * (VIEW_W + 40) + t * 22 * d + 9 * Math.sin(t * 0.9 + i * 1.3) - camX * d * 0.7, VIEW_W + 40) - 20;
+        const y = mod(hash4(i, 50 + layer) * VIEW_H + t * 38 * d - camY * d * 0.7, VIEW_H);
         const size = layer === 2 ? 2 : 1;
         g2.fillStyle = `rgba(232,238,255,${(0.35 + layer * 0.22).toFixed(2)})`;
         g2.fillRect(Math.round(x), Math.round(y), size, size);
@@ -6362,7 +6450,7 @@
       this.thunderIn = s1 - near * (s1 - s0);
     }
   };
-  function pixels(k, a, b, size) {
+  function pixels2(k, a, b, size) {
     const n = Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]), 1);
     for (let i = 0; i <= n; i++) k.fillRect(Math.round(a[0] + (b[0] - a[0]) * i / n), Math.round(a[1] + (b[1] - a[1]) * i / n), size, size);
   }
@@ -6380,7 +6468,7 @@
     };
     const core = (pts, size, color) => {
       k.fillStyle = color;
-      for (let i = 1; i < pts.length; i++) pixels(k, pts[i - 1], pts[i], size);
+      for (let i = 1; i < pts.length; i++) pixels2(k, pts[i - 1], pts[i], size);
     };
     for (const b of bolt.branches) {
       halo(b, 4, `rgba(120,140,255,${0.25 * alpha})`);
@@ -6426,7 +6514,7 @@
     // over the finished picture, bodies and all
     color: [205, 218, 255]
   };
-  var hash4 = (a, b) => {
+  var hash5 = (a, b) => {
     const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
     return s - Math.floor(s);
   };
@@ -6490,7 +6578,7 @@
         if (kind && kind.role === "bell") this.bells.push({ x: o.x, y: o.y });
         if (o.kind === "flock") {
           const n = Math.max(1, Number(o.props.count ?? 5));
-          this.flocks.push({ x: o.x, y: o.y, t: -1, birds: Array.from({ length: n }, (_, k) => ({ dx: (k - (n - 1) / 2) * 9 + (hash4(k, i) - 0.5) * 4, dy: (hash4(k, i + 1) - 0.5) * 6, vx: 0, vy: 0, flap: hash4(k, i + 2) * 6 })) });
+          this.flocks.push({ x: o.x, y: o.y, t: -1, birds: Array.from({ length: n }, (_, k) => ({ dx: (k - (n - 1) / 2) * 9 + (hash5(k, i) - 0.5) * 4, dy: (hash5(k, i + 1) - 0.5) * 6, vx: 0, vy: 0, flap: hash5(k, i + 2) * 6 })) });
         }
         if (kind && kind.role === "decor" && "sheet" in kind) this.loops.push({ sheet: kind.sheet, x: o.x, y: o.y, phase: i * 17, front: kind.plane === "front" });
       });
@@ -7642,7 +7730,7 @@
         g2.fillStyle = dust;
         g2.fillRect(0, line - 50, VIEW_W, 110);
         for (let x = -8; x < VIEW_W + 8; x += 7) {
-          const wx = Math.floor((x + cx) / 7), jag = hash4(wx, Math.floor(t * 5)), size = 5 + Math.floor(jag * 12);
+          const wx = Math.floor((x + cx) / 7), jag = hash5(wx, Math.floor(t * 5)), size = 5 + Math.floor(jag * 12);
           const y = line - size / 2 + Math.round(Math.sin(wx * 1.7 + t * 3) * 3);
           g2.fillStyle = jag > 0.66 ? "#6d5f80" : jag > 0.33 ? "#4b3f5c" : "#2e263a";
           g2.fillRect(x - (cx % 7 + 7) % 7, Math.round(y), size, size);
@@ -7807,11 +7895,11 @@
         const bottom = this.rain[c];
         if (bottom === null) continue;
         for (let i = 0; i < 7; i++) {
-          const n = c * 7 + i, speed = 430 + hash4(n, 5) * 170, span = bottom + 40;
-          const y = (t * speed + hash4(n, 6) * span) % span - 40, x = c * TILE + Math.floor(hash4(n, 7) * TILE);
+          const n = c * 7 + i, speed = 430 + hash5(n, 5) * 170, span = bottom + 40;
+          const y = (t * speed + hash5(n, 6) * span) % span - 40, x = c * TILE + Math.floor(hash5(n, 7) * TILE);
           const len = Math.min(9, bottom - y);
           if (len <= 0) continue;
-          g2.fillStyle = `rgba(160,185,230,${(0.22 + hash4(n, 8) * 0.2).toFixed(2)})`;
+          g2.fillStyle = `rgba(160,185,230,${(0.22 + hash5(n, 8) * 0.2).toFixed(2)})`;
           g2.fillRect(Math.round(x - cx), Math.round(y - cy), 1, Math.round(len));
         }
       }
@@ -7940,8 +8028,8 @@
       f.t = 0;
       this.heardNow.push("caw");
       f.birds.forEach((b, k) => {
-        b.vx = away * (50 + hash4(k, f.x) * 90) + (hash4(k, f.y) - 0.5) * 60;
-        b.vy = -70 - hash4(k, f.x + 1) * 80;
+        b.vx = away * (50 + hash5(k, f.x) * 90) + (hash5(k, f.y) - 0.5) * 60;
+        b.vy = -70 - hash5(k, f.x + 1) * 80;
         b.flap = -k * 0.07;
       });
     }
@@ -8205,7 +8293,7 @@
         shaftPath(g2, b.x, b.y);
         g2.fill();
         for (let i = 0; i < 22; i++) {
-          const u = (hash4(i, w + 1) + t * (0.012 + 0.01 * hash4(w + 2, i))) % 1, v = hash4(i + 7, w + 3);
+          const u = (hash5(i, w + 1) + t * (0.012 + 0.01 * hash5(w + 2, i))) % 1, v = hash5(i + 7, w + 3);
           const x = b.x + 56 + v * 48 + u * 130 + 5 * Math.sin(t * 0.7 + i), y = b.y + 64 + u * 232;
           const twinkle = 0.5 + 0.5 * Math.sin(t * 2.3 + i * 1.7);
           g2.fillStyle = `rgba(205,218,255,${(0.75 * (1 - u) * twinkle).toFixed(3)})`;
@@ -8336,7 +8424,7 @@ void main() {
   var FIRE4 = ["#fff3c4", "#ffc93c", "#ff8a2a", "#e0401c"];
   var BLACK = "#06050d";
   var RIM = "#23264f";
-  var hash5 = (a, b) => {
+  var hash6 = (a, b) => {
     const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
     return s - Math.floor(s);
   };
@@ -8392,9 +8480,9 @@ void main() {
     g2.fillStyle = sky;
     g2.fillRect(0, 0, VIEW_W, VIEW_H);
     for (let i = 0; i < 90; i++) {
-      const x = ((hash5(i, 1) * (VIEW_W + 20) + plane(SLIDE.stars)) % VIEW_W + VIEW_W) % VIEW_W, y = hash5(i, 2) * 230;
-      const tw = 0.4 + 0.6 * Math.sin(t * (0.8 + hash5(i, 3) * 2) + i);
-      R(x, y, hash5(i, 4) > 0.9 ? 2 : 1, 1, `rgba(215,225,255,${(0.25 + 0.6 * tw * hash5(i, 5)).toFixed(3)})`);
+      const x = ((hash6(i, 1) * (VIEW_W + 20) + plane(SLIDE.stars)) % VIEW_W + VIEW_W) % VIEW_W, y = hash6(i, 2) * 230;
+      const tw = 0.4 + 0.6 * Math.sin(t * (0.8 + hash6(i, 3) * 2) + i);
+      R(x, y, hash6(i, 4) > 0.9 ? 2 : 1, 1, `rgba(215,225,255,${(0.25 + 0.6 * tw * hash6(i, 5)).toFixed(3)})`);
     }
     const up = clamp((t - FIRST) / TILTING), tilt = Math.round(TILT * (1 - up * up * (3 - 2 * up)));
     g2.save();
@@ -8436,14 +8524,14 @@ void main() {
       }
     }
     for (let i = 0; i < 16; i++) {
-      const w = 120 + hash5(i, 11) * 160, x = (hash5(i, 12) * (VIEW_W + 400) + t * (4 + hash5(i, 13) * 6)) % (VIEW_W + 400) - 200 + plane(SLIDE.clouds * (0.7 + hash5(i, 17) * 0.6)), y = -10 + hash5(i, 14) * 120;
+      const w = 120 + hash6(i, 11) * 160, x = (hash6(i, 12) * (VIEW_W + 400) + t * (4 + hash6(i, 13) * 6)) % (VIEW_W + 400) - 200 + plane(SLIDE.clouds * (0.7 + hash6(i, 17) * 0.6)), y = -10 + hash6(i, 14) * 120;
       g2.fillStyle = `rgba(${Math.round(10 + 120 * glow + 20 * breath)},${Math.round(12 + 130 * glow + 70 * breath)},${Math.round(30 + 150 * glow + 120 * breath)},0.55)`;
       g2.beginPath();
-      g2.ellipse(x, y, w / 2, 14 + hash5(i, 15) * 16, 0, 0, Math.PI * 2);
+      g2.ellipse(x, y, w / 2, 14 + hash6(i, 15) * 16, 0, 0, Math.PI * 2);
       g2.fill();
       g2.fillStyle = "rgba(5,6,14,0.6)";
       g2.beginPath();
-      g2.ellipse(x + 10, y - 8, w / 2.2, 12 + hash5(i, 16) * 10, 0, 0, Math.PI * 2);
+      g2.ellipse(x + 10, y - 8, w / 2.2, 12 + hash6(i, 16) * 10, 0, 0, Math.PI * 2);
       g2.fill();
     }
     const turn = t * 0.32, depth = Math.sin(turn), dx = 470 + Math.cos(turn) * 190 + plane(SLIDE.demon), dy = 222 + depth * 10;
@@ -8566,10 +8654,10 @@ void main() {
       R(X(bx) - 3, 152, 6, 7, BLACK);
     }
     for (let i = 0; i < 6; i++) {
-      const wx = [520, 540, 560, 580, 600, 620][i] - 6, awake = clamp((t - 4.5 - i * 1.6 - hash5(i, 41) * 2) / 1.5), green = i % 3 !== 1;
+      const wx = [520, 540, 560, 580, 600, 620][i] - 6, awake = clamp((t - 4.5 - i * 1.6 - hash6(i, 41) * 2) / 1.5), green = i % 3 !== 1;
       if (wx > 590) continue;
       if (green && awake > 0) {
-        const pulse = awake * (0.55 + 0.45 * Math.sin(t * (1.6 + hash5(i, 43)) + i * 2));
+        const pulse = awake * (0.55 + 0.45 * Math.sin(t * (1.6 + hash6(i, 43)) + i * 2));
         g2.save();
         g2.globalCompositeOperation = "lighter";
         const gg = g2.createRadialGradient(X(wx), 262, 1, X(wx), 262, 26);
@@ -8603,8 +8691,8 @@ void main() {
     g2.fill();
     g2.globalAlpha = 1;
     for (let i = 0; i < 9; i++) {
-      const wx = 196 + i * 17 + hash5(i, 81) * 8, x = wx + cx0, y = B + 22 - 22 * Math.exp(-Math.pow((wx - 470) / 230, 2)) + 3 + hash5(i, 82) * 6;
-      const fl = 0.6 + 0.4 * Math.sin(t * (7 + hash5(i, 83) * 5) + i * 3);
+      const wx = 196 + i * 17 + hash6(i, 81) * 8, x = wx + cx0, y = B + 22 - 22 * Math.exp(-Math.pow((wx - 470) / 230, 2)) + 3 + hash6(i, 82) * 6;
+      const fl = 0.6 + 0.4 * Math.sin(t * (7 + hash6(i, 83) * 5) + i * 3);
       g2.save();
       g2.globalCompositeOperation = "lighter";
       const cg = g2.createRadialGradient(x, y - 3, 0, x, y - 3, 9);
@@ -8617,14 +8705,14 @@ void main() {
       R(x, y - 6, 2, 3, fl > 0.75 ? "#fff3c4" : "#ffc93c");
     }
     for (let i = 0; i < 26; i++) {
-      const wx = 150 + hash5(i, 51) * 540, x = wx + cx0, y = B + 22 - 22 * Math.exp(-Math.pow((wx - 470) / 230, 2)) + 2, tall = 5 + Math.floor(hash5(i, 52) * 6);
-      if (wx > 330 && wx < 600 && hash5(i, 53) < 0.6) continue;
+      const wx = 150 + hash6(i, 51) * 540, x = wx + cx0, y = B + 22 - 22 * Math.exp(-Math.pow((wx - 470) / 230, 2)) + 2, tall = 5 + Math.floor(hash6(i, 52) * 6);
+      if (wx > 330 && wx < 600 && hash6(i, 53) < 0.6) continue;
       R(x, y - tall, 2, tall, BLACK);
-      if (hash5(i, 54) < 0.6) R(x - 2, y - tall + 2, 6, 2, BLACK);
+      if (hash6(i, 54) < 0.6) R(x - 2, y - tall + 2, 6, 2, BLACK);
       else R(x - 1, y - tall, 4, 2, BLACK);
     }
     for (let i = 0; i < 5; i++) {
-      const mxx = (hash5(i, 61) * 900 + t * (5 + i * 2)) % 900 - 130 + plane(SLIDE.mist), mist = g2.createRadialGradient(mxx, 304, 4, mxx, 304, 130);
+      const mxx = (hash6(i, 61) * 900 + t * (5 + i * 2)) % 900 - 130 + plane(SLIDE.mist), mist = g2.createRadialGradient(mxx, 304, 4, mxx, 304, 130);
       mist.addColorStop(0, `rgba(150,165,225,${(0.1 + 0.25 * glow).toFixed(3)})`);
       mist.addColorStop(1, "rgba(150,165,225,0)");
       g2.save();
@@ -8645,10 +8733,10 @@ void main() {
       R(x + 1, y + (upw ? -1 : 0), 2, 1, BLACK);
     };
     for (let i = 0; i < CROWS.burst; i++) {
-      const u = (t - FIRST - hash5(i, 91) * 0.5) / (3.4 + hash5(i, 92) * 2.2);
+      const u = (t - FIRST - hash6(i, 91) * 0.5) / (3.4 + hash6(i, 92) * 2.2);
       if (u <= 0 || u >= 1) continue;
-      const x = 70 + hash5(i, 93) * 90 + u * (470 + hash5(i, 94) * 260) + plane(0.5), y = 150 + hash5(i, 95) * 60 - Math.sin(u * 2.2) * (70 + hash5(i, 96) * 50);
-      crow(Math.round(x), Math.round(y), t * 16 + i * 2, hash5(i, 97) > 0.5);
+      const x = 70 + hash6(i, 93) * 90 + u * (470 + hash6(i, 94) * 260) + plane(0.5), y = 150 + hash6(i, 95) * 60 - Math.sin(u * 2.2) * (70 + hash6(i, 96) * 50);
+      crow(Math.round(x), Math.round(y), t * 16 + i * 2, hash6(i, 97) > 0.5);
     }
     for (let k = 0; k < 3; k++) {
       const since = (t - CROWS.from) % CROWS.every, u = (since - k * 0.5) / 6.5;
@@ -8673,9 +8761,9 @@ void main() {
     g2.imageSmoothingEnabled = smooth;
     hero(g2, t, pics.monk, clamp(t / 0.9), near);
     for (let i = 0; i < 12; i++) {
-      const speed = 150 + hash5(i, 101) * 190, span = VIEW_W + 240, x = (t * speed + hash5(i, 102) * span) % span - 120 + plane(1.6);
-      const y = 180 + hash5(i, 103) * 170 + Math.sin(t * (1.3 + hash5(i, 104)) + i) * 26, turnOver = Math.floor(t * 9 + i) % 3;
-      g2.fillStyle = hash5(i, 105) > 0.5 ? "#3a1c0c" : "#5a2e12";
+      const speed = 150 + hash6(i, 101) * 190, span = VIEW_W + 240, x = (t * speed + hash6(i, 102) * span) % span - 120 + plane(1.6);
+      const y = 180 + hash6(i, 103) * 170 + Math.sin(t * (1.3 + hash6(i, 104)) + i) * 26, turnOver = Math.floor(t * 9 + i) % 3;
+      g2.fillStyle = hash6(i, 105) > 0.5 ? "#3a1c0c" : "#5a2e12";
       if (turnOver === 0) g2.fillRect(Math.round(x), Math.round(y), 4, 2);
       else if (turnOver === 1) g2.fillRect(Math.round(x), Math.round(y), 3, 3);
       else g2.fillRect(Math.round(x + 1), Math.round(y - 1), 2, 4);
@@ -8689,7 +8777,7 @@ void main() {
     }
     g2.fillStyle = `rgba(190,205,255,${(0.16 + 0.3 * glow).toFixed(3)})`;
     for (let i = 0; i < 110; i++) {
-      const speed = 620 + hash5(i, 71) * 260, span = VIEW_H + 60, y = (t * speed + hash5(i, 72) * span) % span - 30, x = (hash5(i, 73) * (VIEW_W + 160) + y * 0.32 + t * 40) % (VIEW_W + 160) - 80;
+      const speed = 620 + hash6(i, 71) * 260, span = VIEW_H + 60, y = (t * speed + hash6(i, 72) * span) % span - 30, x = (hash6(i, 73) * (VIEW_W + 160) + y * 0.32 + t * 40) % (VIEW_W + 160) - 80;
       for (let k = 0; k < 4; k++) g2.fillRect(Math.round(x + k), Math.round(y + k * 3), 1, 3);
     }
     void FIRE4;
@@ -8965,10 +9053,10 @@ void main() {
       }
       const where = s === "end" ? endPlace : place, st = s === "end" ? ending : scenery;
       st.look(...panAim(0, where.width, where.height), true);
-      sound.setMusic(s === "end" && endPlace.settings.ending ? endPlace.settings.ending : place.settings.music);
+      sound.setMusic(s === "end" ? endPlace.settings.ending || place.settings.music : TITLE_TUNE);
       sound.setPlace({ rain: s === "title", drips: false });
       sound.setUnder(false);
-      sound.preload([place.settings.music, levels[0].settings.music, endPlace.settings.ending].filter(Boolean));
+      sound.preload([TITLE_TUNE, levels[0].settings.music, endPlace.settings.ending].filter(Boolean));
       paused = false;
       sound.hush(false);
     };

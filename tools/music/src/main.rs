@@ -4,10 +4,12 @@
 //!
 //! usage: music <out dir>            renders every tune to <out dir>/<tune>.wav
 //!        music stems <out dir>      the same, and every stem as <out dir>/<tune>-<stem>.wav
+//!        music only <tune> <out dir>  one tune and its stems
 //!        music pack <music dir>     wraps <music dir>/<tune>.ogg into <music dir>/<tune>.js
 //!        music measure <file.wav>   prints the level and the seam of a 16-bit stereo WAV
 
 mod arrival;
+mod ay;
 mod collapse;
 mod dawn;
 mod dirge;
@@ -18,6 +20,7 @@ mod crypte;
 mod demon;
 mod mix;
 mod nef;
+mod overture;
 mod score;
 mod sid;
 mod voices;
@@ -50,6 +53,7 @@ fn tunes() -> Vec<Tune> {
         Tune { name: dirge::NAME, about: dirge::ABOUT, time: dirge::time(), sections: dirge::SECTIONS, mix: dirge::mix, once: true },
         Tune { name: furnace::NAME, about: furnace::ABOUT, time: furnace::time(), sections: furnace::SECTIONS, mix: furnace::mix, once: false },
         Tune { name: graves::NAME, about: graves::ABOUT, time: graves::time(), sections: graves::SECTIONS, mix: graves::mix, once: false },
+        Tune { name: overture::NAME, about: overture::ABOUT, time: overture::time(), sections: overture::SECTIONS, mix: overture::mix, once: false },
     ]
 }
 
@@ -138,6 +142,13 @@ fn main() -> std::io::Result<()> {
     match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["pack", dir] => pack(Path::new(dir)),
         ["measure", file] => measure(Path::new(file)),
+        ["only", name, out] => {
+            let out = PathBuf::from(out);
+            std::fs::create_dir_all(&out)?;
+            mix::STEMS.set(out.clone()).expect("set once");
+            let tune = tunes().into_iter().find(|t| t.name == *name).unwrap_or_else(|| panic!("no tune named {name}"));
+            render(&tune, &out)
+        }
         [out] | ["stems", out] => {
             let out = PathBuf::from(out);
             std::fs::create_dir_all(&out)?;
@@ -150,7 +161,7 @@ fn main() -> std::io::Result<()> {
             Ok(())
         }
         _ => {
-            eprintln!("usage: music <out dir> | music stems <out dir> | music pack <music dir> | music measure <file.wav>");
+            eprintln!("usage: music <out dir> | music stems <out dir> | music only <tune> <out dir> | music pack <music dir> | music measure <file.wav>");
             std::process::exit(2);
         }
     }

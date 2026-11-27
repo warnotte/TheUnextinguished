@@ -5,6 +5,7 @@ NoobSynth3's `dsp-core` (taken by path, read only: `E:/CODEX/NoobSynth3/crates/d
 
 | Tune | Level | What plays it |
 |---|---|---|
+| `overture` | the title | four machines at once, D minor, 150 beats a minute, 51 seconds: two SIDs (the bass under the filter, the chords run through, the theme, the drums and kettledrums), the NES (two pulses under the theme, the triangle, the noise), the SNES (strings, organ, a bell), the AY of the Amstrad CPC (broken chords from side to side, its own voice in the middle part, the buzzer) |
 | `nef` | 1, the Nave | FM (`FmMatrix` lead, stabs, pad, pluck; `FmOperator` bass), TR-909 drums |
 | `crypte` | 2, the Crypt | `NesOsc` pulses, triangle and noise, `SnesOsc` strings and bass, `PipeOrgan`, an `FmMatrix` bell, `Kick808` and `Tom909` |
 | `furnace` | 3, the Furnace | two SIDs: C in the Phrygian dominant mode, 150 beats a minute; a bass pumping in octaves through the filter, the chords run through, the theme; drums, an anvil as in a forge; in the middle, half time, the theme in long notes over the anvil |
@@ -37,6 +38,7 @@ ffmpeg -y -i <tmp dir>/dawn.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/
 ffmpeg -y -i <tmp dir>/dirge.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/dirge.ogg
 ffmpeg -y -i <tmp dir>/graves.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/graves.ogg
 ffmpeg -y -i <tmp dir>/furnace.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/furnace.ogg
+ffmpeg -y -i <tmp dir>/overture.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/overture.ogg
 cd tools/music
 cargo run --release -- pack ../../assets/music
 ```
@@ -52,12 +54,15 @@ ffmpeg -y -i assets/music/nef.ogg -c:a pcm_s16le <tmp dir>/nef-decoded.wav
 cargo run --release -- measure <tmp dir>/nef-decoded.wav
 ```
 
-`cargo run --release -- stems <tmp dir>` also writes every stem as `<tune>-<stem>.wav`.
+`cargo run --release -- stems <tmp dir>` also writes every stem as `<tune>-<stem>.wav`;
+`cargo run --release -- only <tune> <tmp dir>` renders one tune and its stems.
 
 ## How a tune is written
 
-- `src/nef.rs`, `src/crypte.rs`, `src/demon.rs`, `src/arrival.rs`, `src/collapse.rs`, `src/flood.rs`, `src/dirge.rs`, `src/graves.rs`, `src/dawn.rs`: the tunes. A tune
+- `src/nef.rs`, `src/crypte.rs`, `src/demon.rs`, `src/arrival.rs`, `src/collapse.rs`, `src/flood.rs`, `src/dirge.rs`, `src/graves.rs`, `src/dawn.rs`, `src/furnace.rs`, `src/overture.rs`: the tunes. A tune
   played once (`arrival`) keeps its tail after it; its script says when the next tune comes in.
+- `src/ay.rs`: the AY-3-8912 of the Amstrad CPC (dsp-core's `Ay3_8910`), fifty times a second: its three
+  square waves on sixteen levels, its noise, and the buzzer, its envelope generator run as a sawtooth bass.
 - `src/sid.rs`: the SID, its instruments, arpeggios, drum tables and filter, fifty times a second. Notes are text on a grid of sixteenths
   (`"e5:2 g5:3 -:1"`, bars separated by `|`), drums are one character per sixteenth
   (`"X.....x.X.x....."`), chords and bass figures are lists. Patches and the mix are below the notes.

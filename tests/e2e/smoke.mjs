@@ -68,10 +68,14 @@ await page.screenshot({ path: 'tests/e2e/out/crt.png' });
 await keys('KeyO', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'KeyO');
 await page.waitForTimeout(150);
 check('and sharp again', await game(() => !document.getElementById('wrap').classList.contains('crt') && !__game.settings.crt));
+// The title has a tune of its own, which plays as soon as a key allowed sound.
+await page.waitForFunction(() => __game.sound.musicPlaying, null, { timeout: 8000 }).catch(() => {});
+check('the title plays a tune of its own, the overture', await game(() => __game.sound.tuneName === 'overture' && typeof MUSIC.overture === 'string' && __game.sound.musicPlaying), String(await game(() => __game.sound.tuneName)));
 
 await page.keyboard.press('Space');
 await page.waitForTimeout(400);
 check('jump on the title starts the first level', await game(() => __game.scene === 'play' && __game.level === 0 && __game.world.state === 'play'));
+check('and the level its own tune', await game(() => __game.sound.tuneName === __game.world.level.settings.music && __game.sound.tuneName !== 'overture'), String(await game(() => __game.sound.tuneName)));
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/start.png' });
 
 // The levels of the music and of the sounds: kept, and laid on the mix at once.

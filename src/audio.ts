@@ -52,6 +52,8 @@ export class Sound {
 
   get musicPlaying(): boolean { return this.gain !== null && this.ac !== null && this.ac.state === 'running'; }
   get musicOn(): boolean { return this.on; }
+  /** The name of the tune that plays, or is to play. */
+  get tuneName(): string { return this.tune; }
   get musicLevel(): number { return this.musicLv; }
   get soundsLevel(): number { return this.soundsLv; }
   /** The gains in the mix now: the music's (null while no tune plays) and the effects'; how open the ear is (Hz). */

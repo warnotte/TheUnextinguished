@@ -182,7 +182,9 @@ to the church as it is shown; crows burst out of the dead tree and cross the moo
 tower stands ajar on a warm light, and candles burn on the graves between the monk and it; now and then the
 demon breathes its blue fire across the sky; dead leaves fly past on the wind. The view slides slowly to and
 fro, each plane at its own pace. It is heard too: the rain, the thunder, a toll of the bell, the crows, the
-breath. Then the name catches fire letter by letter, and flames lick up from it. The first page shows only that and what starts the game; the controls
+breath. Then the name catches fire letter by letter: flames rise from the ink of each, from its top and
+from inside its hollows, lean with the wind and throw embers. The title has a tune of its own, played on four
+machines at once (see the credits below). The first page shows only that and what starts the game; the controls
 come after it, in turn with the tables of the board.
 
 ## Build and test
@@ -304,7 +306,8 @@ level. Behaviour that is new goes into `src/sim/`, never into a level.
 - Music: ours, played on the emulated sound chips of NoobSynth (FM operators and drum machines for
   the nave; NES and SNES oscillators, a pipe organ and an FM bell for the crypt; the NES chip, an
   808 kick and an FM bell for the bell chamber and the entrance of the demon; two SIDs of the
-  Commodore 64, emulated by reSID, for the furnace, the flooded crypt, the cemetery and the fall) by the program in
+  Commodore 64, emulated by reSID, for the furnace, the flooded crypt, the cemetery and the fall; and for the
+  title all of them at once, two SIDs, the NES, the SNES and the AY-3-8910 of the Amstrad CPC) by the program in
   `tools/music` (see its README to render them again). The belfry plays `assets/music/poursuite.*`,
   an earlier tune on the AY-3-8910, made by `essais/ay-essai`.
 - Sound effects: made on the spot by `src/audio.ts`, no samples; each a little higher or lower, louder or

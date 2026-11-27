@@ -3,7 +3,7 @@
 // first level comes the title, after the last the end; both are written over a level nobody plays.
 
 import { Sound } from './audio';
-import { addRun, afterWin, creditsLength, endWords, firstLevel, type LevelResult, NO_RUN, openingWords, panAim, REACHED_KEY, reachedFrom, type Run, startWords, testMode, titleLevel, titlePage, wonWords } from './campaign';
+import { addRun, afterWin, creditsLength, endWords, firstLevel, type LevelResult, NO_RUN, openingWords, panAim, REACHED_KEY, reachedFrom, type Run, startWords, testMode, TITLE_TUNE, titleLevel, titlePage, wonWords } from './campaign';
 import { feedName, Initials } from './initials';
 import { feedOptions, loadOptions, type Changed, type Options, OptionsMenu, saveOptions } from './options';
 import { feedPause, PauseMenu } from './pause';
@@ -184,10 +184,10 @@ function run(assets: Assets, levels: Level[]): void {
     if (s === 'end' && endPlace !== place) { ending = new Stage(new World(endPlace), assets, [], { title: '', lines: [] }, true); ending.dawn(); ending.ash = ashen(); }
     const where = s === 'end' ? endPlace : place, st = s === 'end' ? ending : scenery;
     st.look(...panAim(0, where.width, where.height), true);
-    sound.setMusic(s === 'end' && endPlace.settings.ending ? endPlace.settings.ending : place.settings.music);
+    sound.setMusic(s === 'end' ? endPlace.settings.ending || place.settings.music : TITLE_TUNE);
     sound.setPlace({ rain: s === 'title', drips: false });        // the title stands in the rain
     sound.setUnder(false);
-    sound.preload([place.settings.music, levels[0].settings.music, endPlace.settings.ending].filter(Boolean));     // the first level's, for jump; the end's
+    sound.preload([TITLE_TUNE, levels[0].settings.music, endPlace.settings.ending].filter(Boolean));     // the title's; the first level's, for jump; the end's
     paused = false; sound.hush(false);
   };
   const startDemo = (): void => { if (demoLevels.length) start(demoLevels[demoTurn++ % demoLevels.length], true); idleT = 0; };

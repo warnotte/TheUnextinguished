@@ -23,6 +23,13 @@ export function text(g: CanvasRenderingContext2D, str: string, x: number, y: num
   }
 }
 
+/** For each of the three columns of a letter, the row (0 to 4) where its ink begins; 5 where it has none. */
+export function inkTop(ch: string): [number, number, number] {
+  const bits = FONT[ch] ?? FONT[' '];
+  const top = (col: number): number => { for (let row = 0; row < 5; row++) if (bits[row * 3 + col] === '1') return row; return 5; };
+  return [top(0), top(1), top(2)];
+}
+
 /** Whether the font of the game can write every letter of it. */
 export const writable = (str: string): boolean => [...str].every(ch => FONT[ch] !== undefined);
 

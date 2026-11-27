@@ -7,6 +7,7 @@ import { type Initials, NAME_LENGTH } from '../initials';
 import { LEVELS, OPTION_LINES, type OptionsMenu } from '../options';
 import type { Entry } from '../records';
 import { PLACES } from '../records';
+import { drawFlames } from './flames';
 import { centered, text, textWidth } from './text';
 
 const FIRE = ['#fff3c4', '#ffc93c', '#ff8a2a', '#e0401c'];
@@ -50,35 +51,28 @@ function name(g: CanvasRenderingContext2D, t: number, lighting = false): void {
   glow.addColorStop(0, `rgba(255,120,40,${((0.32 + 0.06 * Math.sin(t * 4.3) + 0.04 * Math.sin(t * 11)) * share).toFixed(3)})`); glow.addColorStop(1, 'rgba(255,120,40,0)');
   g.fillStyle = glow; g.fillRect(0, y + h / 2 - 260, VIEW_W, 520);
   g.restore();
-  centered(g, 'THE', 36, PALE, 3);
   const x = Math.round((VIEW_W - textWidth(word, big)) / 2);
   const flame = g.createLinearGradient(0, y, 0, y + h);
   flame.addColorStop(0, FIRE[0]); flame.addColorStop(0.45, FIRE[1]); flame.addColorStop(1, FIRE[3]);
+  const since = (i: number): number => (lighting ? t - CATCH - i * EACH : 9);
+  // Their shadows; over them the fire, which rises from the ink of every letter that has taken; then their faces.
+  for (let i = 0; i < word.length; i++) text(g, word[i], x + i * 4 * big + 4, y + 4, since(i) >= 0 ? '#4a0a0c' : '#120408', big);
+  if (lighting) drawFlames(g, t, word, x, y, big, i => since(i) / 0.7);
+  text(g, 'THE', Math.round((VIEW_W - textWidth('THE', 3)) / 2) + 1, 33, '#1a0608', 3);
+  centered(g, 'THE', 32, PALE, 3);
   for (let i = 0; i < word.length; i++) {
-    const lx = x + i * 4 * big, since = lighting ? t - CATCH - i * EACH : 9;
-    text(g, word[i], lx + 4, y + 4, since >= 0 ? '#4a0a0c' : '#120408', big);
-    if (since < 0) { text(g, word[i], lx, y, '#3a1410', big); continue; }                   // a cold cinder yet
-    text(g, word[i], lx, y, since < 0.1 ? '#ffffff' : flame, big);
-    if (lighting) {
-      // Its fire is alive: tongues of flame lick up from the top of each letter.
-      g.save(); g.globalCompositeOperation = 'lighter';
-      for (let k = 0; k < 3; k++) {
-        const tall = Math.round((2 + 7 * Math.abs(Math.sin(t * (5 + k * 1.7) + i * 1.9 + k * 2.3))) * Math.min(1, since / 0.5));
-        const fx = lx + 2 + k * 8 + Math.round(Math.sin(t * 3 + i + k) * 1.5);
-        g.fillStyle = FIRE[2]; g.globalAlpha = 0.55; g.fillRect(fx, y - tall, 4, tall);
-        g.fillStyle = FIRE[1]; g.globalAlpha = 0.5; g.fillRect(fx + 1, y - Math.round(tall * 0.6), 2, Math.round(tall * 0.6));
-      }
-      g.restore();
-    }
-    if (since < 0.35) {
+    const lx = x + i * 4 * big, at = since(i);
+    if (at < 0) { text(g, word[i], lx, y, '#3a1410', big); continue; }                      // a cold cinder yet
+    text(g, word[i], lx, y, at < 0.1 ? '#ffffff' : flame, big);
+    if (at < 0.35) {
       // It takes: a burst of light, and sparks flung up from it.
       g.save(); g.globalCompositeOperation = 'lighter';
       const burst = g.createRadialGradient(lx + 10, y + h / 2, 2, lx + 10, y + h / 2, 46);
-      burst.addColorStop(0, `rgba(255,220,150,${(0.7 * (1 - since / 0.35)).toFixed(3)})`); burst.addColorStop(1, 'rgba(255,150,60,0)');
+      burst.addColorStop(0, `rgba(255,220,150,${(0.7 * (1 - at / 0.35)).toFixed(3)})`); burst.addColorStop(1, 'rgba(255,150,60,0)');
       g.fillStyle = burst; g.fillRect(lx - 40, y - 40, 100, h + 80);
       for (let k = 0; k < 5; k++) {
-        const a = hash(i, k) * Math.PI - Math.PI, far = since * (90 + hash(k, i) * 140);
-        g.fillStyle = FIRE[k % 3]; g.fillRect(Math.round(lx + 10 + Math.cos(a) * far), Math.round(y + h / 2 + Math.sin(a) * far + since * since * 160), 2, 2);
+        const a = hash(i, k) * Math.PI - Math.PI, far = at * (90 + hash(k, i) * 140);
+        g.fillStyle = FIRE[k % 3]; g.fillRect(Math.round(lx + 10 + Math.cos(a) * far), Math.round(y + h / 2 + Math.sin(a) * far + at * at * 160), 2, 2);
       }
       g.restore();
     }

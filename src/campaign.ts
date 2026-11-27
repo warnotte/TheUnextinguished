@@ -49,6 +49,9 @@ export const CREDITS: readonly Credit[] = [
   { text: 'THANK YOU FOR PLAYING', head: true },
 ];
 
+/** The tune of the title. */
+export const TITLE_TUNE = 'overture';
+
 /** px a second the credits roll up; px between two lines. */
 export const CREDITS_SPEED = 24, CREDITS_STEP = 18;
 
