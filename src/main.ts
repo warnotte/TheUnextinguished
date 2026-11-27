@@ -7,6 +7,8 @@ import { addRun, afterWin, creditsLength, endWords, firstLevel, type LevelResult
 import { feedName, Initials } from './initials';
 import { feedOptions, loadOptions, type Changed, type Options, OptionsMenu, saveOptions } from './options';
 import { feedPause, PauseMenu } from './pause';
+import { hintFor } from './hints';
+import { HINT_TIME } from './render/hud';
 import { type Frame, Input } from './input';
 import { KIND_NAMES } from './level/kinds';
 import { type Level, parseLevel } from './level/tiled';
@@ -91,6 +93,9 @@ function run(assets: Assets, levels: Level[]): void {
   let settings: Options = loadOptions(store);
   let options: OptionsMenu | null = null;
   const pauseMenu = new PauseMenu();
+  // The hints: each once in a run, one at a time.
+  const hintsSeen = new Set<string>();
+  let hint: { text: string; t: number } | null = null;
   // The demo: the levels it shows, in turn; what plays it; how long it has been on.
   const demoLevels = levels.map((l, i) => (l.settings.demo ? i : -1)).filter(i => i >= 0);       // the levels say it
   let demoTurn = 0, demoT = 0, idleT = 0, mind: DemoMind | null = null;
@@ -160,7 +165,7 @@ function run(assets: Assets, levels: Level[]): void {
   };
   const startDemo = (): void => { if (demoLevels.length) start(demoLevels[demoTurn++ % demoLevels.length], true); idleT = 0; };
   if (asked === null) show('title'); else { fromTitle = false; start(asked); }
-  (window as any).__game = { demo: startDemo, get pauseAt() { return pauseMenu.line; }, get reached() { return reached; }, get startAt() { return startAt; }, get options() { return options; }, get settings() { return settings; }, get world() { return world; }, get scene() { return scene; }, get paused() { return paused; }, get level() { return index; }, get run() { return tally; }, get stage() { return stage; }, get naming() { return naming; }, board, scenery, sound, start };
+  (window as any).__game = { get hints() { return [...hintsSeen]; }, demo: startDemo, get pauseAt() { return pauseMenu.line; }, get reached() { return reached; }, get startAt() { return startAt; }, get options() { return options; }, get settings() { return settings; }, get world() { return world; }, get scene() { return scene; }, get paused() { return paused; }, get level() { return index; }, get run() { return tally; }, get stage() { return stage; }, get naming() { return naming; }, board, scenery, sound, start };
 
   // The title and the end: the place lives on, nobody plays in it.
   const showScene = (c: Frame, elapsed: number): void => {
@@ -176,7 +181,7 @@ function run(assets: Assets, levels: Level[]): void {
     // Nobody at the controls a while: the demo.
     if (scene === 'title') { idleT = c.any || options ? 0 : idleT + dt; if (idleT > IDLE && !trial) { startDemo(); return; } }
     if (scene === 'title' && go) {
-      tally = NO_RUN; runCheated = cheat; runEased = false;
+      tally = NO_RUN; runCheated = cheat; runEased = false; hintsSeen.clear();
       // Going on from where he got to is not a whole run: its time does not go on the board of the runs.
       if (offer && startAt === 0) { fromTitle = false; start(reached); } else { fromTitle = true; start(0); }
       return;
@@ -235,6 +240,13 @@ function run(assets: Assets, levels: Level[]): void {
     }
     st.collisions = collisions;
     st.pauseAt = pauseMenu.line;
+    // A hint for a beginner, when the moment comes; not in the demo, nor when they are silenced.
+    if (hint && !paused) { hint.t += elapsed; if (hint.t > HINT_TIME) hint = null; }
+    if (!hint && !paused && scene === 'play' && settings.hints) {
+      const h = hintFor(w, hintsSeen, input.usingPad);
+      if (h) { hintsSeen.add(h.key); hint = { text: h.text, t: 0 }; }
+    }
+    st.hint = scene === 'play' && !options ? hint : null;
     st.draw(g, clock, paused && !options);
     if (options) drawOptions(g, clock, options, sound.musicOn);
     if (trial) text(g, 'TEST  N WINS THE LEVEL', 16, VIEW_H - 20, '#ff8a2a');

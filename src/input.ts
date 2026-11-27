@@ -31,6 +31,9 @@ export class Input {
   private readonly taps = new Set<string>();       // pressed since the last read: a tap shorter than a frame still counts
   private readonly held: Record<(typeof PRESSES)[number], boolean> = { jump: false, attack: false, special: false, restart: false, music: false, pause: false, full: false, cheat: false, win: false, view: false, options: false };
   private typed: string[] = [];
+  private pad = false;                    // the gamepad was the last thing touched, not the keyboard
+  /** Whether the gamepad, rather than the keyboard, was used last: the hints speak of its buttons. */
+  get usingPad(): boolean { return this.pad; }
   private padHeld: PadPresses = { up: false, down: false, left: false, right: false, confirm: false, back: false, finish: false, options: false, select: false };
   private readonly heldSince: Record<(typeof DIRECTIONS)[number], number> = { up: 0, down: 0, left: 0, right: 0 };
   private readonly lastRepeat: Record<(typeof DIRECTIONS)[number], number> = { up: 0, down: 0, left: 0, right: 0 };
@@ -72,6 +75,8 @@ export class Input {
       typed: this.typed,
       pad: Object.fromEntries(Object.entries(padNow).map(([k, v]) => [k, v && !this.padHeld[k as keyof PadPresses]])) as unknown as PadPresses,
     };
+    if (Object.values(padNow).some(Boolean)) this.pad = true;
+    if (this.keys.size > 0) this.pad = false;
     const t = this.now();
     for (const d of DIRECTIONS) {
       if (!padNow[d]) continue;

@@ -95,6 +95,8 @@ export class Stage {
   pauseAt = 0;
   /** The game plays itself: the demo. */
   demo = false;
+  /** A hint for a beginner, and how long it has been shown. */
+  hint: { text: string; t: number } | null = null;
   /** The blood turned to ash (an option, for the younger players): blows throw ash, and no blood is drawn. */
   ash = false;
   private readonly flocks: { x: number; y: number; t: number; birds: { dx: number; dy: number; vx: number; vy: number; flap: number }[] }[] = [];     // t: seconds since they flew, -1 perched
@@ -178,7 +180,7 @@ export class Stage {
 
   /** The night ends over the place: the storm is gone, the sky warms, the sun comes up, the crows fly off. */
   dawn(): void { this.dawnT = 0; this.storm = null; }
-  private dawnLight(): number { return this.dawnT < 0 ? 0 : Math.min(1, this.dawnT / 14); }
+  private dawnLight(): number { return this.dawnT < 0 ? 0 : Math.min(1, this.dawnT / 8); }
 
   /** The level won, against the board, and the name being given for it if its time is good enough. */
   setResult(result: LevelResult, naming: Initials | null): void { this.hud.result = result; this.hud.naming = naming; }
@@ -406,7 +408,7 @@ export class Stage {
     this.grade.vignette(g);
     if (!this.ash) this.drawLens(g);
     if (this.collisions) this.drawCollisions(g, cx, cy);
-    if (!this.scenery) this.hud.draw(g, t, paused, this.won, this.pauseAt, this.demo);
+    if (!this.scenery) this.hud.draw(g, t, paused, this.won, this.pauseAt, this.demo, this.hint);
   }
 
   // Closes in on a finishing blow: the picture drawn so far is enlarged round the place of the blow.

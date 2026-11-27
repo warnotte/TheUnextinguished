@@ -28,14 +28,53 @@ export interface CemeteryPictures { moon: CanvasImageSource; mountains: CanvasIm
  * The moon stays where it is; the view being wider than the pack's, the sky is mirrored on either side
  * of it. The rocks slide a little, the far graves more.
  */
+// The pack's sky is narrower than the view. Mirrored on each side it showed two seams where the clouds
+// turned back on themselves; instead the whole picture, drawn out and blurred, fills the view behind, a few faint wisps of its clouds float there (not mirrored, at other heights), and the
+// picture melts into them over its edges. Made once, and kept.
+const widened = new WeakMap<object, HTMLCanvasElement>();
+function wideSky(moon: CanvasImageSource & { width: number; height: number }): HTMLCanvasElement {
+  const made = widened.get(moon);
+  if (made) return made;
+  const PW = moon.width, PH = moon.height, mid = Math.round((VIEW_W - PW) / 2);
+  const c = Object.assign(document.createElement('canvas'), { width: VIEW_W, height: PH }), k = c.getContext('2d')!;
+  k.imageSmoothingEnabled = true;
+  // Behind all: the whole picture drawn out to the width of the view and blurred, so that the sides
+  // keep its colours where they are: the glow of the moon, the band of clouds, the dark of its corners.
+  k.filter = 'blur(7px)';
+  k.drawImage(moon, 0, 0, PW, PH, -12, -6, VIEW_W + 24, PH + 12);
+  k.filter = 'none';
+  // Faint wisps: pieces of its clouds, feathered all round.
+  const wisp = (sx: number, sy: number, sw: number, sh: number, dx: number, dy: number, alpha: number): void => {
+    const p = Object.assign(document.createElement('canvas'), { width: sw, height: sh }), q = p.getContext('2d')!;
+    q.drawImage(moon, sx, sy, sw, sh, 0, 0, sw, sh);
+    q.globalCompositeOperation = 'destination-in';
+    const r = q.createRadialGradient(sw / 2, sh / 2, Math.min(sw, sh) * 0.15, sw / 2, sh / 2, Math.max(sw, sh) / 2);
+    r.addColorStop(0, 'rgba(0,0,0,1)'); r.addColorStop(1, 'rgba(0,0,0,0)');
+    q.save(); q.translate(sw / 2, sh / 2); q.scale(1, sh / sw); q.translate(-sw / 2, -sh / 2);
+    q.fillStyle = r; q.fillRect(-sw, -sh, sw * 3, sh * 3); q.restore();
+    k.globalAlpha = alpha; k.drawImage(p, dx, dy); k.globalAlpha = 1;
+  };
+  wisp(250, 66, 110, 58, mid - 104, 88, 0.5);
+  wisp(30, 76, 100, 52, mid + PW - 4, 64, 0.45);
+  wisp(150, 30, 90, 40, mid - 80, 30, 0.3);
+  // The picture, its edges melting into the sides.
+  const pic = Object.assign(document.createElement('canvas'), { width: PW, height: PH }), pk = pic.getContext('2d')!;
+  pk.drawImage(moon, 0, 0);
+  pk.globalCompositeOperation = 'destination-in';
+  const edge = pk.createLinearGradient(0, 0, PW, 0), soft = 80 / PW;
+  edge.addColorStop(0, 'rgba(0,0,0,0)'); edge.addColorStop(soft, 'rgba(0,0,0,1)'); edge.addColorStop(1 - soft, 'rgba(0,0,0,1)'); edge.addColorStop(1, 'rgba(0,0,0,0)');
+  pk.fillStyle = edge; pk.fillRect(0, 0, PW, PH);
+  k.drawImage(pic, mid, 0);
+  widened.set(moon, c);
+  return c;
+}
+
 export function paintCemetery(k: CanvasRenderingContext2D, camX: number, ground: number, t: number, p: CemeteryPictures, dawn = 0): void {
   const PW = 384, PH = 224, top = Math.round(ground + 48 - PH), mid = Math.round((VIEW_W - PW) / 2);
   k.fillStyle = '#000022'; k.fillRect(0, 0, VIEW_W, VIEW_H);
   // The view is taller than the pack's screen: the sky hangs from the top of the view, the rest stands on the ground.
   const sky = Math.min(0, top);
-  k.drawImage(p.moon, mid, sky);
-  k.save(); k.translate(mid, 0); k.scale(-1, 1); k.drawImage(p.moon, 0, sky); k.restore();
-  k.save(); k.translate(mid + PW * 2, 0); k.scale(-1, 1); k.drawImage(p.moon, 0, sky); k.restore();
+  k.drawImage(wideSky(p.moon as HTMLCanvasElement), 0, sky);
   const glow = k.createRadialGradient(VIEW_W / 2, sky + 70, 10, VIEW_W / 2, sky + 70, 120);
   glow.addColorStop(0, `rgba(255,40,140,${(0.06 + 0.04 * Math.sin(t * 0.7)).toFixed(3)})`); glow.addColorStop(1, 'rgba(255,40,140,0)');
   k.fillStyle = glow; k.fillRect(0, 0, VIEW_W, VIEW_H);
@@ -44,12 +83,35 @@ export function paintCemetery(k: CanvasRenderingContext2D, camX: number, ground:
     const warm = k.createLinearGradient(0, 0, 0, top + PH);
     warm.addColorStop(0, `rgba(90,100,170,${(0.7 * dawn).toFixed(3)})`); warm.addColorStop(0.5, `rgba(255,140,120,${(0.78 * dawn).toFixed(3)})`); warm.addColorStop(1, `rgba(255,210,140,${(0.95 * dawn).toFixed(3)})`);
     k.fillStyle = warm; k.fillRect(0, 0, VIEW_W, VIEW_H);
-    const sx = VIEW_W * 0.86, sy = top + 190 - 90 * dawn;
+    const sx = VIEW_W * 0.8, sy = top + 50 - 70 * dawn;            // it clears the peaks of the rocks as the dawn comes
     const sun = k.createRadialGradient(sx, sy, 8, sx, sy, 230);
     sun.addColorStop(0, `rgba(255,235,170,${(0.85 * dawn).toFixed(3)})`); sun.addColorStop(0.25, `rgba(255,190,120,${(0.45 * dawn).toFixed(3)})`); sun.addColorStop(1, 'rgba(255,170,110,0)');
     k.fillStyle = sun; k.fillRect(0, 0, VIEW_W, VIEW_H);
+    // Its rays, fanning up and out across the sky, each breathing at its own pace.
+    k.save(); k.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 7; i++) {
+      const a = Math.PI * (0.62 + i * 0.075) + 0.03 * Math.sin(t * 0.3 + i), len = 520, spread = 0.035;
+      const breath = (0.1 + 0.07 * Math.sin(t * (0.5 + i * 0.13) + i * 1.7)) * dawn;
+      const ray = k.createLinearGradient(sx, sy, sx + Math.cos(a) * len, sy + Math.sin(a) * len);
+      ray.addColorStop(0, `rgba(255,220,160,${breath.toFixed(3)})`); ray.addColorStop(1, 'rgba(255,200,150,0)');
+      k.fillStyle = ray;
+      k.beginPath(); k.moveTo(sx, sy);
+      k.lineTo(sx + Math.cos(a - spread) * len, sy + Math.sin(a - spread) * len);
+      k.lineTo(sx + Math.cos(a + spread) * len, sy + Math.sin(a + spread) * len);
+      k.closePath(); k.fill();
+    }
+    k.restore();
     k.fillStyle = `rgba(255,246,214,${dawn.toFixed(3)})`;
     for (let dy = -20; dy <= 20; dy++) { const half = Math.round(Math.sqrt(400 - dy * dy)); k.fillRect(Math.round(sx - half), Math.round(sy + dy), half * 2, 1); }
+    // Far birds crossing the morning sky, in small skeins, their wings beating.
+    k.fillStyle = `rgba(40,24,40,${(0.75 * dawn).toFixed(3)})`;
+    for (let f = 0; f < 3; f++) {
+      const span = VIEW_W + 160, speed = 14 + f * 6, x0 = ((t * speed + f * 260) % span) - 80, y0 = top + 40 + f * 26 + 6 * Math.sin(t * 0.4 + f);
+      for (let b = 0; b < 4 + f; b++) {
+        const bx = Math.round(x0 - b * 11), by = Math.round(y0 + Math.abs(b - 2) * 5 + (b % 2) * 2), up = Math.floor(t * 6 + b + f) % 2;
+        k.fillRect(bx - 2, by - up, 2, 1); k.fillRect(bx, by, 1, 1); k.fillRect(bx + 1, by - up, 2, 1);
+      }
+    }
   }
   // The rocks stand higher than the pack sets them, to rise into the taller view; the far graves stay on the ground.
   for (const [picture, depth, lift] of [[p.mountains, 0.07, 56], [p.graveyard, 0.25, 0]] as const) {

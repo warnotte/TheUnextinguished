@@ -3,7 +3,7 @@
   // src/options.ts
   var LEVELS = 10;
   var MIDDLE = 7;
-  var DEFAULT_OPTIONS = Object.freeze({ music: MIDDLE, sounds: MIDDLE, blood: "red", difficulty: "normal" });
+  var DEFAULT_OPTIONS = Object.freeze({ music: MIDDLE, sounds: MIDDLE, blood: "red", difficulty: "normal", hints: true });
   var KEY = "unextinguished.options";
   function loadOptions(store) {
     let kept = null;
@@ -18,16 +18,17 @@
       music: level(o.music, DEFAULT_OPTIONS.music),
       sounds: level(o.sounds, DEFAULT_OPTIONS.sounds),
       blood: o.blood === "ash" || o.blood === "red" ? o.blood : DEFAULT_OPTIONS.blood,
-      difficulty: o.difficulty === "easy" || o.difficulty === "normal" ? o.difficulty : DEFAULT_OPTIONS.difficulty
+      difficulty: o.difficulty === "easy" || o.difficulty === "normal" ? o.difficulty : DEFAULT_OPTIONS.difficulty,
+      hints: typeof o.hints === "boolean" ? o.hints : DEFAULT_OPTIONS.hints
     };
   }
   function saveOptions(store, o) {
-    store.set(KEY, JSON.stringify({ music: o.music, sounds: o.sounds, blood: o.blood, difficulty: o.difficulty }));
+    store.set(KEY, JSON.stringify({ music: o.music, sounds: o.sounds, blood: o.blood, difficulty: o.difficulty, hints: o.hints }));
   }
   function levelGain(level) {
     return (level / MIDDLE) ** 2;
   }
-  var OPTION_LINES = ["MUSIC", "SOUNDS", "BLOOD", "DIFFICULTY", "BACK"];
+  var OPTION_LINES = ["MUSIC", "SOUNDS", "BLOOD", "DIFFICULTY", "HINTS", "BACK"];
   var OptionsMenu = class {
     line = 0;
     done = false;
@@ -54,7 +55,7 @@
     /** Jump or A: the blood or the difficulty turns, BACK closes; on a level it does nothing. */
     confirm() {
       this.changed = null;
-      if (OPTION_LINES[this.line] === "BLOOD" || OPTION_LINES[this.line] === "DIFFICULTY") this.turn(1);
+      if (["BLOOD", "DIFFICULTY", "HINTS"].includes(OPTION_LINES[this.line])) this.turn(1);
       else if (OPTION_LINES[this.line] === "BACK") this.done = true;
     }
     back() {
@@ -74,6 +75,9 @@
       } else if (what === "DIFFICULTY") {
         o.difficulty = o.difficulty === "normal" ? "easy" : "normal";
         this.changed = "difficulty";
+      } else if (what === "HINTS") {
+        o.hints = !o.hints;
+        this.changed = "hints";
       }
     }
   };
@@ -952,310 +956,6 @@
     return null;
   }
 
-  // src/input.ts
-  var KEYS = {
-    left: ["ArrowLeft", "KeyA"],
-    right: ["ArrowRight", "KeyD"],
-    up: ["ArrowUp", "KeyW"],
-    down: ["ArrowDown", "KeyS"],
-    jump: ["Space", "KeyK"],
-    attack: ["KeyX", "KeyJ", "ControlLeft", "ControlRight"],
-    guard: ["KeyC", "ShiftLeft", "ShiftRight", "KeyL"],
-    special: ["KeyV", "KeyI"],
-    restart: ["KeyR", "Enter"],
-    music: ["KeyM"],
-    pause: ["KeyP"],
-    full: ["KeyF"],
-    cheat: ["KeyG"],
-    win: ["KeyN"],
-    view: ["KeyH"],
-    options: ["KeyO"]
-  };
-  var STICK = 0.4;
-  var STICK_UP = 0.5;
-  var REPEAT_AFTER = 450;
-  var REPEAT_EVERY = 110;
-  var DIRECTIONS = ["up", "down", "left", "right"];
-  var Input = class {
-    constructor(target, pads, now = () => performance.now()) {
-      this.pads = pads;
-      this.now = now;
-      target.addEventListener("keydown", (event) => {
-        const e = event;
-        this.keys.add(e.code);
-        if (!e.repeat) this.taps.add(e.code);
-        if (typeof e.key === "string" && e.key && (!e.repeat || e.key === "Backspace" || e.key.startsWith("Arrow"))) this.typed.push(e.key);
-        if ((e.code.startsWith("Arrow") || e.code === "Space") && e.preventDefault) e.preventDefault();
-      });
-      target.addEventListener("keyup", (event) => {
-        this.keys.delete(event.code);
-      });
-      target.addEventListener("blur", () => {
-        this.keys.clear();
-        this.taps.clear();
-        this.typed = [];
-      });
-    }
-    pads;
-    now;
-    keys = /* @__PURE__ */ new Set();
-    taps = /* @__PURE__ */ new Set();
-    // pressed since the last read: a tap shorter than a frame still counts
-    held = { jump: false, attack: false, special: false, restart: false, music: false, pause: false, full: false, cheat: false, win: false, view: false, options: false };
-    typed = [];
-    padHeld = { up: false, down: false, left: false, right: false, confirm: false, back: false, finish: false, options: false, select: false };
-    heldSince = { up: 0, down: 0, left: 0, right: 0 };
-    lastRepeat = { up: 0, down: 0, left: 0, right: 0 };
-    /** The state of the controls now. Call once per frame: presses are reported on the frame they happen. */
-    read() {
-      const key = (name2) => KEYS[name2].some((code) => this.keys.has(code) || this.taps.has(code));
-      const now = { left: key("left"), right: key("right"), up: key("up"), down: key("down"), jump: key("jump"), attack: key("attack"), guard: key("guard"), special: key("special"), restart: key("restart"), music: key("music"), pause: key("pause"), full: key("full"), cheat: key("cheat"), win: key("win"), view: key("view"), options: key("options") };
-      const padNow = { up: false, down: false, left: false, right: false, confirm: false, back: false, finish: false, options: false, select: false };
-      for (const pad of this.pads()) {
-        if (!pad || !pad.connected) continue;
-        const b = (i) => !!pad.buttons[i]?.pressed, ax = pad.axes[0] ?? 0, ay = pad.axes[1] ?? 0;
-        padNow.up ||= ay < -STICK_UP || b(12);
-        padNow.down ||= ay > STICK_UP || b(13);
-        padNow.left ||= ax < -STICK || b(14);
-        padNow.right ||= ax > STICK || b(15);
-        padNow.confirm ||= b(0);
-        padNow.back ||= b(1);
-        padNow.finish ||= b(9);
-        padNow.options ||= b(3);
-        padNow.select ||= b(8);
-        now.left ||= ax < -STICK || b(14);
-        now.right ||= ax > STICK || b(15);
-        now.up ||= ay < -STICK_UP || b(12);
-        now.down ||= ay > STICK_UP || b(13);
-        now.jump ||= b(0);
-        now.attack ||= b(2) || b(1);
-        now.special ||= b(3);
-        now.guard ||= b(4) || b(5) || b(6) || b(7);
-        now.restart ||= b(9);
-        now.pause ||= b(8);
-      }
-      const pressed = (name2) => {
-        const p = now[name2] && !this.held[name2];
-        this.held[name2] = now[name2];
-        return p;
-      };
-      const frame = {
-        x: (now.right ? 1 : 0) - (now.left ? 1 : 0),
-        up: now.up,
-        down: now.down,
-        jump: now.jump,
-        jumpPressed: pressed("jump"),
-        attackPressed: pressed("attack"),
-        guard: now.guard,
-        specialPressed: pressed("special"),
-        restartPressed: pressed("restart"),
-        musicPressed: pressed("music"),
-        pausePressed: pressed("pause"),
-        fullPressed: pressed("full"),
-        cheatPressed: pressed("cheat"),
-        winPressed: pressed("win"),
-        viewPressed: pressed("view"),
-        optionsPressed: pressed("options"),
-        any: Object.values(now).some(Boolean),
-        typed: this.typed,
-        pad: Object.fromEntries(Object.entries(padNow).map(([k, v]) => [k, v && !this.padHeld[k]]))
-      };
-      const t = this.now();
-      for (const d of DIRECTIONS) {
-        if (!padNow[d]) continue;
-        if (!this.padHeld[d]) {
-          this.heldSince[d] = t;
-          this.lastRepeat[d] = t;
-          continue;
-        }
-        if (t - this.heldSince[d] >= REPEAT_AFTER && t - this.lastRepeat[d] >= REPEAT_EVERY) {
-          frame.pad[d] = true;
-          this.lastRepeat[d] = t;
-        }
-      }
-      this.padHeld = padNow;
-      this.typed = [];
-      this.taps.clear();
-      return frame;
-    }
-  };
-
-  // src/level/kinds.ts
-  var FIRE = [255, 138, 80];
-  var CANDLE = [255, 165, 105];
-  var MOON = [150, 172, 255];
-  var GLASS = [190, 205, 255];
-  var lantern = (dx) => ({ dx, dy: -80, radius: 48, strength: 0.7, flicker: 0.5, color: CANDLE });
-  var KINDS = {
-    hero: { role: "spawn", actor: "hero" },
-    shade: { role: "spawn", actor: "shade" },
-    ghoul: { role: "spawn", actor: "ghoul" },
-    demon: { role: "spawn", actor: "demon" },
-    skull: { role: "spawn", actor: "skull" },
-    // flies: its point is the bottom of its box, in the air
-    hound: { role: "spawn", actor: "hound" },
-    ghost: { role: "spawn", actor: "ghost" },
-    crow: { role: "spawn", actor: "crow" },
-    hand: { role: "spawn", actor: "hand" },
-    drowned: { role: "spawn", actor: "drowned" },
-    beast: { role: "spawn", actor: "beast" },
-    "reaper-guard": { role: "spawn", actor: "reaper" },
-    // the reaper of stone who keeps the gate: the door opens only once it is dust              // under the ground: its point is where it comes up              // perched: its point is under its feet            // comes out near a hero within its haunt, either side of its point
-    grave: { role: "grave" },
-    bell: { role: "bell" },
-    spikes: { role: "hazard" },
-    hill: { role: "terrain" },
-    candle: { role: "heal" },
-    ember: { role: "ember" },
-    door: { role: "door" },
-    window: { role: "decor", plane: "wall", image: "back", src: [0, 0, 160, 192], anchor: [80, 192], lights: [{ dx: 0, dy: -96, radius: 86, strength: 0.7, flicker: 0, color: MOON, cool: true }, { dx: 0, dy: -112, radius: 28, strength: 0.9, flicker: 0, color: GLASS }], shaft: true },
-    altar: { role: "decor", plane: "wall", image: "back", src: [320, 0, 128, 192], anchor: [64, 192], lights: [{ dx: 0, dy: -48, radius: 58, strength: 0.75, flicker: 0.5, color: CANDLE }], shaft: false },
-    gargoyle: { role: "decor", plane: "wall", image: "back", src: [464, 0, 80, 192], anchor: [40, 192], lights: [], shaft: false },
-    pillar: { role: "decor", plane: "wall", image: "column", src: [0, 0, 114, 190], anchor: [57, 190], lights: [lantern(-19), lantern(36)], shaft: false },
-    balustrade: { role: "decor", plane: "wall", image: "tiles", src: [192, 92, 80, 52], anchor: [40, 52], lights: [{ dx: 31, dy: -46, radius: 38, strength: 0.6, flicker: 0.5, color: CANDLE }], shaft: false },
-    torch: { role: "decor", plane: "back", sheet: "torch", lights: [{ dx: 0, dy: -26, radius: 150, strength: 1, flicker: 1, color: FIRE }] },
-    // An opening in the wall, on the sky: its foot on (x, y), `width` and `height` in its properties. The moon comes in.
-    arch: { role: "decor", plane: "wall", painter: "arch", lights: [{ dx: 0, dy: -40, radius: 96, strength: 0.6, flicker: 0, color: MOON, cool: true }] },
-    // Out of doors: a place where there is no wall, only the sky (its point is the top left corner; width, height).
-    outdoors: { role: "decor", plane: "wall", painter: "outdoors", lights: [] },
-    // Stone out of doors: the stone of the grid inside it is dressed as stone, not as earth (top left corner; width, height).
-    masonry: { role: "decor", plane: "wall", painter: "masonry", lights: [] },
-    // Rock out of doors: the stone of the grid inside it is dressed as the cemetery's mounds of rock, grass on top (top left corner; width, height).
-    rock: { role: "decor", plane: "wall", painter: "masonry", lights: [] },
-    // A wall left standing out of doors, ragged at its top and its sides, from its bottom left corner (width, height;
-    // `door` 1 for a doorway at its foot, `windows` for so many arched openings on the sky).
-    "ruin-wall": { role: "decor", plane: "wall", painter: "ruin-wall", lights: [] },
-    // An iron railing, spears on top, from its bottom left corner (width, height).
-    railing: { role: "decor", plane: "wall", painter: "railing", lights: [] },
-    // A column of the cemetery, two tiles wide, standing on the ground: its point is its bottom left corner on the
-    // top of the ground, `height` the tiles it rises above it. The stone of the grid under it is its body.
-    column: { role: "decor", plane: "back", painter: "column", lights: [] },
-    // A ledge of the cemetery: ground two tiles thick held up in the air, from its top left corner, `width` wide; the
-    // stone of the grid there is its body. Ruined columns behind hold it up: one walks under it, or on it.
-    ledge: { role: "decor", plane: "back", painter: "ledge", lights: [] },
-    // Crows perched together, `count` of them about the point (on a branch, a stone): they fly off all at once when the
-    // hero comes near or the thunder rolls. Only seen, never felt.
-    flock: { role: "decor", plane: "front", painter: "flock", lights: [] },
-    // The cemetery (ansimuz, public domain): its trees, its stones, its statue, its bushes, its mounds.
-    tree: { role: "decor", plane: "wall", image: "cemetery/tree-1", src: [0, 0, 166, 117], anchor: [72, 117], lights: [], shaft: false },
-    "mossy-tree": { role: "decor", plane: "wall", image: "cemetery/tree-2", src: [0, 0, 166, 117], anchor: [72, 117], lights: [], shaft: false },
-    "great-tree": { role: "decor", plane: "wall", image: "cemetery/tree-3", src: [0, 0, 176, 171], anchor: [78, 171], lights: [], shaft: false },
-    reaper: { role: "decor", plane: "wall", image: "cemetery/statue", src: [0, 0, 63, 75], anchor: [31, 75], lights: [], shaft: false },
-    "headstone-1": { role: "decor", plane: "wall", image: "cemetery/stone-1", src: [0, 0, 27, 39], anchor: [13, 39], lights: [], shaft: false },
-    "headstone-2": { role: "decor", plane: "wall", image: "cemetery/stone-2", src: [0, 0, 27, 40], anchor: [13, 40], lights: [], shaft: false },
-    "headstone-3": { role: "decor", plane: "wall", image: "cemetery/stone-3", src: [0, 0, 27, 33], anchor: [13, 33], lights: [], shaft: false },
-    "headstone-4": { role: "decor", plane: "wall", image: "cemetery/stone-4", src: [0, 0, 19, 38], anchor: [9, 38], lights: [], shaft: false },
-    bush: { role: "decor", plane: "wall", image: "cemetery/bush-large", src: [0, 0, 76, 65], anchor: [38, 65], lights: [], shaft: false },
-    shrub: { role: "decor", plane: "front", image: "cemetery/bush-small", src: [0, 0, 34, 29], anchor: [17, 29], lights: [], shaft: false },
-    mound: { role: "decor", plane: "wall", image: "cemetery/tiles", src: [278, 71, 148, 73], anchor: [74, 73], lights: [], shaft: false },
-    knoll: { role: "decor", plane: "wall", image: "cemetery/tiles", src: [304, 16, 96, 48], anchor: [48, 48], lights: [], shaft: false },
-    ruin: { role: "decor", plane: "back", image: "cemetery/tiles", src: [224, 48, 32, 96], anchor: [16, 64], lights: [], shaft: false },
-    // its base sunk into the ground, as the pack sets it
-    breach: { role: "decor", plane: "wall", painter: "breach", lights: [{ dx: 0, dy: 40, radius: 120, strength: 0.55, flicker: 0, color: MOON, cool: true }] },
-    "chain-lantern": { role: "decor", plane: "wall", painter: "chain-lantern", lights: [{ dx: 0, dy: 6, radius: 62, strength: 0.8, flicker: 0.6, color: CANDLE }] }
-  };
-  var KIND_NAMES = new Set(Object.keys(KINDS));
-  var CHURCH = "gothicvania-church/";
-  var CEMETERY = "gothicvania-cemetery/";
-  var MONK_FRAMES = [
-    "idle1",
-    "idle2",
-    "idle3",
-    "idle4",
-    "walk1",
-    "walk2",
-    "walk3",
-    "walk4",
-    "walk5",
-    "walk6",
-    "jump1",
-    "jump2",
-    "fall1",
-    "fall2",
-    "punch1",
-    "punch2",
-    "punch3",
-    "punch4",
-    "punch5",
-    "punch6",
-    "kick1",
-    "kick2",
-    "kick3",
-    "kick4",
-    "kick5",
-    "flying-kick1",
-    "flying-kick2",
-    "hurt1",
-    "hurt2",
-    "crouch1",
-    "crouch2",
-    "crouch-kick1",
-    "crouch-kick2",
-    "crouch-kick3",
-    "crouch-kick4",
-    "crouch-kick5"
-  ];
-  var range = (from, to5) => Array.from({ length: to5 - from + 1 }, (_, i) => from + i);
-  var IMAGES = {
-    tiles: CHURCH + "environment/tileset.png",
-    tilesCut: CHURCH + "environment/tileset-cut.png",
-    back: CHURCH + "environment/backgrounds-cut.png",
-    column: CHURCH + "environment/column-cut.png",
-    ...Object.fromEntries(MONK_FRAMES.map((n) => ["monk/" + n, `${CHURCH}player/${n}.png`])),
-    ...Object.fromEntries(range(1, 8).map((i) => ["ghoul/" + i, `${CHURCH}ghoul/burning-ghoul${i}.png`])),
-    ...Object.fromEntries(range(2, 8).map((i) => ["death/" + i, `${CHURCH}fx/enemy-death${i}.png`])),
-    ...Object.fromEntries(range(1, 3).map((i) => ["orb/" + i, `${CHURCH}fx/fireball${i}.png`])),
-    // The skeletons of the cemetery pack: bare (0) or in rags (1), walking and coming out of the ground.
-    ...Object.fromEntries(["bg-moon", "bg-mountains", "bg-graveyard", "tileset", "tree-1", "tree-2", "tree-3", "statue", "stone-1", "stone-2", "stone-3", "stone-4", "bush-large", "bush-small"].map((n) => ["cemetery/" + (n === "tileset" ? "tiles" : n), `${CEMETERY}environment/${n}.png`])),
-    ...Object.fromEntries([0, 1].flatMap((look) => range(1, 8).map((i) => [`skeleton/${look}/${i}`, `${CEMETERY}skeleton/skeleton${look ? "-clothed" : ""}-${i}.png`]))),
-    ...Object.fromEntries([0, 1].flatMap((look) => range(1, 6).map((i) => [`skeleton-rise/${look}/${i}`, `${CEMETERY}skeleton/skeleton-rise${look ? "-clothed" : ""}-${i}.png`])))
-  };
-  var STRIPS = {
-    "demon/idle": { file: "gothicvania-patreon/demon/demon-idle.png", w: 160, h: 144, frames: 6, footX: 61, footY: 126 },
-    "demon/attack": { file: "gothicvania-patreon/demon/demon-attack.png", w: 240, h: 192, frames: 11, footX: 135, footY: 166 },
-    // The beast of the furnace: (footX, footY) is between its feet; burning, it sinks into its fire and becomes a pillar of it.
-    "beast/idle": { file: "gothicvania-patreon/beast/beast-idle.png", w: 55, h: 67, frames: 6, footX: 27, footY: 66 },
-    "beast/breath": { file: "gothicvania-patreon/beast/beast-breath.png", w: 64, h: 64, frames: 4, footX: 32, footY: 63 },
-    "beast/burn": { file: "gothicvania-patreon/beast/beast-burn.png", w: 74, h: 160, frames: 6, footX: 37, footY: 159 },
-    "beast/ball": { file: "gothicvania-patreon/beast/fire-ball.png", w: 19, h: 16, frames: 3, footX: 9, footY: 8 },
-    // The fire skull, at half the size of the pack's (made with ffmpeg, its edges kept sharp): (footX, footY)
-    // is the middle of the skull, which flies; the bare skull lies on its bottom.
-    "skull/fire": { file: "gothicvania-patreon/skull/fire-skull-half.png", w: 48, h: 56, frames: 8, footX: 22, footY: 33 },
-    "skull/bare": { file: "gothicvania-patreon/skull/fire-skull-no-fire-half.png", w: 27, h: 35, frames: 4, footX: 13, footY: 32 },
-    "hound/idle": { file: "gothicvania-patreon/hound/hell-hound-idle.png", w: 64, h: 32, frames: 6, footX: 29, footY: 31 },
-    "hound/run": { file: "gothicvania-patreon/hound/hell-hound-run.png", w: 67, h: 32, frames: 5, footX: 35, footY: 31 },
-    "hound/jump": { file: "gothicvania-patreon/hound/hell-hound-jump.png", w: 65, h: 48, frames: 6, footX: 33, footY: 47 },
-    "ghost/appear": { file: "gothicvania-patreon/ghost/ghost-appears.png", w: 64, h: 48, frames: 6, footX: 32, footY: 45 },
-    "ghost/idle": { file: "gothicvania-patreon/ghost/ghost-idle.png", w: 64, h: 80, frames: 7, footX: 32, footY: 63 },
-    "ghost/shriek": { file: "gothicvania-patreon/ghost/ghost-shriek.png", w: 64, h: 80, frames: 4, footX: 31, footY: 58 },
-    "ghost/vanish": { file: "gothicvania-patreon/ghost/ghost-vanish.png", w: 64, h: 64, frames: 7, footX: 32, footY: 61 }
-  };
-  var sheet = (name2, frames, w, h, px, py, cols) => ({ file: `pixelfx/${name2}.png`, fps: 30, frames, w, h, px, py, cols });
-  var SHEETS = {
-    "hit-spark": sheet("hit-spark", 16, 136, 80, 44, 64, 4),
-    "crit-hit": sheet("crit-hit", 28, 216, 136, 84, 106, 5),
-    "blunt-hit": sheet("blunt-hit", 28, 128, 88, 64, 72, 5),
-    "collect-burst": sheet("collect-burst", 42, 112, 108, 56, 94, 7),
-    "poof-green": sheet("poof-green", 49, 112, 92, 56, 80, 7),
-    "heavy-landing": sheet("heavy-landing", 49, 176, 80, 88, 60, 5),
-    torch: sheet("torch", 60, 72, 120, 36, 94, 10),
-    bat: sheet("bat", 72, 112, 80, 56, 40, 8)
-  };
-  var EFFECTS = {
-    "hit-spark": { sheet: "hit-spark" },
-    "crit-hit": { sheet: "crit-hit" },
-    "blunt-hit": { sheet: "blunt-hit" },
-    "collect-burst": { sheet: "collect-burst" },
-    "poof-green": { sheet: "poof-green" },
-    "heavy-landing": { sheet: "heavy-landing" },
-    death: { frames: range(2, 8).map((i) => "death/" + i), frameTime: 0.08, anchorX: 40 }
-  };
-  function effectDuration(kind) {
-    const e = EFFECTS[kind];
-    if (!e) return 0;
-    return "sheet" in e ? SHEETS[e.sheet].frames / SHEETS[e.sheet].fps : e.frames.length * e.frameTime;
-  }
-
   // src/sim/grid.ts
   var TILE = 16;
   var AIR = 0;
@@ -1354,119 +1054,6 @@
     }
   };
 
-  // src/level/tiled.ts
-  var LevelError = class extends Error {
-    constructor(message) {
-      super(message);
-      this.name = "LevelError";
-    }
-  };
-  var FLIP_BITS = 536870911;
-  function readProps(list) {
-    const props = {};
-    if (Array.isArray(list)) {
-      for (const p of list) if (p && typeof p.name === "string") props[p.name] = p.value;
-    }
-    return props;
-  }
-  function parseLevel(tiled, knownKinds, name2 = "") {
-    const map = tiled;
-    if (!map || map.type !== "map" || !Array.isArray(map.layers)) throw new LevelError("this file is not a Tiled map");
-    if (map.orientation !== "orthogonal" || map.infinite) throw new LevelError("the map must be orthogonal and of a fixed size");
-    if (map.tilewidth !== TILE || map.tileheight !== TILE) throw new LevelError(`the tiles must be ${TILE} pixels, they are ${map.tilewidth} x ${map.tileheight}`);
-    const tileset = (map.tilesets ?? []).find((t) => t.name === "collision");
-    if (!tileset) throw new LevelError('the map has no tileset named "collision"');
-    const layer = map.layers.find((l) => l.type === "tilelayer" && l.name === "collision");
-    if (!layer) throw new LevelError('the map has no tile layer named "collision"');
-    if (!Array.isArray(layer.data) || layer.data.length !== map.width * map.height) throw new LevelError('the "collision" layer must be stored as plain numbers (CSV), uncompressed');
-    const cells = new Uint8Array(map.width * map.height);
-    for (let i = 0; i < cells.length; i++) {
-      const gid = layer.data[i] & FLIP_BITS;
-      if (gid === 0) cells[i] = AIR;
-      else if (gid === tileset.firstgid) cells[i] = STONE;
-      else if (gid === tileset.firstgid + 1) cells[i] = LADDER;
-      else if (gid === tileset.firstgid + 2) cells[i] = PLATFORM;
-      else throw new LevelError(`the "collision" layer uses tile ${gid} at column ${i % map.width}, row ${Math.floor(i / map.width)}: only the three tiles of the "collision" tileset mean something there`);
-    }
-    const objects = [];
-    for (const group of map.layers) {
-      if (group.type !== "objectgroup") continue;
-      for (const o of group.objects ?? []) {
-        const kind = o.type || o.class || "";
-        if (!kind) throw new LevelError(`object ${o.id} in layer "${group.name}" has no type`);
-        if (!knownKinds.has(kind)) throw new LevelError(`unknown kind "${kind}" (object ${o.id} in layer "${group.name}")`);
-        objects.push({ kind, x: o.x, y: o.y, props: readProps(o.properties) });
-      }
-    }
-    const p = readProps(map.properties);
-    const settings = {
-      name: name2,
-      title: typeof p.title === "string" ? p.title : name2.toUpperCase(),
-      darkness: typeof p.darkness === "number" ? p.darkness : 0.5,
-      music: typeof p.music === "string" ? p.music : "",
-      mist: p.mist === true,
-      bats: typeof p.bats === "number" ? p.bats : 0,
-      sky: p.sky === true,
-      snow: p.snow === true,
-      storm: p.storm === true,
-      omen: p.omen === true,
-      intro: typeof p.intro === "string" ? p.intro : "",
-      collapse: typeof p.collapse === "number" && p.collapse > 0 ? p.collapse : 0,
-      water: typeof p.water === "number" && p.water > 0 ? p.water : 0,
-      rain: p.rain === true,
-      skyline: typeof p.skyline === "string" ? p.skyline : "",
-      restless: typeof p.restless === "number" && p.restless > 0 ? p.restless : 0,
-      tremor: typeof p.tremor === "number" && p.tremor > 0 ? p.tremor : 0,
-      fliers: typeof p.fliers === "string" ? p.fliers : "",
-      ending: typeof p.ending === "string" ? p.ending : "",
-      demo: p.demo === true
-    };
-    return { grid: new Grid(map.width, map.height, cells), objects, settings, width: map.width * TILE, height: map.height * TILE };
-  }
-
-  // src/levels.ts
-  var table = globalThis.LEVELS ?? {};
-  var LEVELS2 = table;
-  var LEVEL_NAMES = Object.keys(table);
-
-  // src/render/camera.ts
-  var VIEW_W = 640;
-  var VIEW_H = 360;
-  var EASE = 7;
-  var Camera = class {
-    constructor(levelW, levelH) {
-      this.levelW = levelW;
-      this.levelH = levelH;
-    }
-    levelW;
-    levelH;
-    x = 0;
-    y = 0;
-    fx = 0;
-    fy = 0;
-    // The corner that centres the view on a target, held inside the level (a level smaller than the view is centred).
-    goal(target, view, size) {
-      const max = size - view;
-      return max < 0 ? max / 2 : Math.max(0, Math.min(max, target - view / 2));
-    }
-    /** Jumps straight to the target. */
-    follow(targetX, targetY) {
-      this.fx = this.goal(targetX, VIEW_W, this.levelW);
-      this.fy = this.goal(targetY, VIEW_H, this.levelH);
-      this.x = Math.round(this.fx);
-      this.y = Math.round(this.fy);
-    }
-    /** Glides towards the target. */
-    ease(targetX, targetY, dt) {
-      const k = 1 - Math.exp(-dt * EASE);
-      const gx = this.goal(targetX, VIEW_W, this.levelW), gy = this.goal(targetY, VIEW_H, this.levelH);
-      this.fx = Math.abs(gx - this.fx) < 0.5 ? gx : this.fx + (gx - this.fx) * k;
-      this.fy = Math.abs(gy - this.fy) < 0.5 ? gy : this.fy + (gy - this.fy) * k;
-      this.x = Math.round(this.fx);
-      this.y = Math.round(this.fy);
-    }
-  };
-
   // src/sim/actor.ts
   var ACTOR_W = 14;
   var ACTOR_H = 40;
@@ -1533,152 +1120,617 @@
   var centreX = (a) => a.x + a.w / 2;
   var feetY = (a) => a.y + a.h;
 
-  // src/sim/terrain.ts
-  function hillShape(u) {
-    const v = Math.max(0, Math.min(1, u));
-    return v * v * (3 - 2 * v);
-  }
-  function terrainOf(objects, width) {
-    const hills = objects.filter((o) => o.kind === "hill");
-    if (!hills.length) return null;
-    const t = new Float32Array(Math.ceil(width)).fill(NaN);
-    for (const o of hills) {
-      const w = Number(o.props.width ?? 160), h = Number(o.props.height ?? 48), top = Math.min(w, Number(o.props.top ?? w / 3));
-      const rise = Math.max(1, (w - top) / 2);
-      for (let x = Math.max(0, Math.floor(o.x)); x < Math.min(t.length, o.x + w); x++) {
-        const d = x - o.x, u = d < rise ? hillShape(d / rise) : d < rise + top ? 1 : hillShape((w - d) / rise);
-        const y = o.y - h * u;
-        if (Number.isNaN(t[x]) || y < t[x]) t[x] = y;
-      }
-    }
-    return t;
-  }
-
-  // src/sim/reaper.ts
-  var REAPER = {
-    hp: 12,
-    wake: 230,
-    // px: how near the hero must come, across, to wake it
-    waking: 1.2,
-    // seconds it takes to come out of the stone
-    speed: 58,
-    hover: 6,
-    // px a second it floats at the hero; px over its floor
-    reach: 62,
-    // px: its blade, from its middle
-    windup: 0.55,
-    sweep: 0.3,
-    rest: 0.8,
-    far: 130,
-    // px: beyond this it throws its scythe rather than come
-    hold: 0.45,
-    // seconds it takes to throw
-    scythe: { speed: 270, out: 230, catch: 18, half: 10 },
-    hurt: 1,
-    stun: 0.22,
-    dust: 1.4
-    // seconds it takes to fall to dust
+  // src/sim/beast.ts
+  var BEAST = {
+    hp: 24,
+    wake: 300,
+    // px: a hero this near wakes it
+    rest: 1,
+    restEnraged: 0.6,
+    // seconds between two attacks
+    breath: 0.75,
+    throwAt: 0.5,
+    // seconds: it rears and draws breath; the fire leaves at this moment of it
+    recover: 0.8,
+    // seconds after a throw, open to blows
+    ball: { speed: 170, life: 4, w: 14, h: 10, fan: 0.22, hurt: 1 },
+    // fan: radians between the balls of a three
+    claw: { near: 46, windup: 0.4, strike: 0.15, reach: 40, recover: 0.55, hurt: 1 },
+    flare: { windup: 0.45, reach: 58, recover: 0.6, hurt: 1 },
+    // its fire bursting out all round it
+    burn: 0.5,
+    // seconds to sink into its fire
+    pillar: { warn: 0.75, rise: 0.6, half: 14, high: 150, every: 0.55, count: 3, countEnraged: 4, hurt: 1 },
+    reform: 0.6,
+    dying: 1.6,
+    enraged: 0.5,
+    // of its health: past this, its fury
+    untouchable: ["wait", "burn", "pillars", "dying", "gone"]
   };
-  var to = (e, mode) => {
+  function makeBeastFire() {
+    return { balls: [], pillars: [] };
+  }
+  function to(e, mode) {
     e.mode = mode;
     e.modeT = 0;
     e.struck = false;
-  };
-  function stepReaper(e, a, dt, held) {
-    const hero = a.hero, cx = centreX(e), hx = centreX(hero), dx = hx - cx, side = dx >= 0 ? 1 : -1;
+  }
+  var enraged = (e) => e.hp <= BEAST.hp * BEAST.enraged;
+  function beastThere(e) {
+    return !BEAST.untouchable.includes(e.mode) && (e.mode !== "reform" || e.modeT > BEAST.reform * 0.4);
+  }
+  function beastGuards(e) {
+    return e.mode === "rest" || e.mode === "claw" && e.modeT < BEAST.claw.windup + BEAST.claw.strike || e.mode === "flare" && e.modeT < BEAST.flare.windup;
+  }
+  function strikeBeast(e, damage) {
+    e.hp = Math.max(0, e.hp - damage);
+    e.invul = 0.12;
+    if (e.hp > 0) return false;
+    to(e, "dying");
+    return true;
+  }
+  function stepBeast(e, a, fire, dt) {
     e.modeT += dt;
-    e.animT += dt;
-    stepScythe(e, a, dt, held);
+    e.invul = Math.max(0, e.invul - dt);
+    e.vx = 0;
+    e.vy = 0;
+    e.y = e.spawnY - e.h;
+    const hero = a.hero, dx = centreX(hero) - centreX(e), floor = feetY(e);
+    stepFire(e, a, fire, dt);
+    const face = () => {
+      if (Math.abs(dx) > 4) e.facing = dx > 0 ? 1 : -1;
+    };
     switch (e.mode) {
-      case "stone":
-        if (a.playing && Math.abs(dx) < REAPER.wake && Math.abs(hero.y + hero.h - e.spawnY) < 120) {
-          to(e, "waking");
-          a.emit({ type: "sound", name: "reaper" });
-          a.emit({ type: "debris", x: cx, y: e.y + 10, count: 10 });
-          a.shake(0.3);
+      case "wait":
+        if (a.playing && Math.abs(dx) < BEAST.wake && Math.abs(feetY(hero) - floor) < 220) {
+          face();
+          to(e, "rest");
+          a.emit({ type: "sound", name: "roar" });
+          a.shake(0.4);
         }
-        return;
-      case "waking":
-        e.y = e.spawnY - e.h - REAPER.hover * Math.min(1, e.modeT / REAPER.waking);
-        if (e.modeT >= REAPER.waking) to(e, "drift");
-        return;
-      case "dust":
-        if (e.modeT >= REAPER.dust) e.dead = 1;
-        return;
-      case "stunned":
-        if (e.modeT >= REAPER.stun) to(e, "drift");
-        return;
-      case "drift": {
-        e.facing = side;
-        e.y = e.spawnY - e.h - REAPER.hover + Math.sin(e.animT * 2.2) * 3;
-        if (!a.playing) return;
-        if (Math.abs(dx) <= REAPER.reach - 8) {
-          to(e, "windup");
-          return;
-        }
-        if (Math.abs(dx) > REAPER.far && !held.scythe && e.cool <= 0) {
-          to(e, "throw");
-          return;
-        }
-        e.cool = Math.max(0, e.cool - dt);
-        e.x += side * REAPER.speed * dt;
-        return;
-      }
-      case "windup":
-        if (e.modeT >= REAPER.windup) to(e, "sweep");
-        return;
-      case "sweep":
-        if (!e.struck && Math.abs(dx) < REAPER.reach && hero.y < e.y + e.h && hero.y + hero.h > e.y) {
-          e.struck = true;
-          a.hurt(side, REAPER.hurt, false);
-        }
-        if (e.modeT >= REAPER.sweep) to(e, "rest");
         return;
       case "rest":
-        if (e.modeT >= REAPER.rest) to(e, "drift");
-        return;
-      case "throw":
-        if (e.modeT >= REAPER.hold) {
-          held.scythe = { x: cx, y: e.y + e.h * 0.45, vx: e.facing * REAPER.scythe.speed, fromX: cx, back: false, t: 0 };
-          a.emit({ type: "sound", name: "breath" });
-          e.cool = 2.5;
-          to(e, "drift");
+        face();
+        if (!a.playing || e.modeT < (enraged(e) ? BEAST.restEnraged : BEAST.rest)) return;
+        if (Math.abs(dx) < BEAST.claw.near && Math.abs(feetY(hero) - floor) < 30) {
+          if (e.chain >= 2) {
+            e.chain = 0;
+            to(e, "flare");
+          } else {
+            e.chain++;
+            to(e, "claw");
+          }
+          return;
+        }
+        e.chain = 0;
+        {
+          const plan = enraged(e) ? ["breath", "burn"] : ["breath", "breath", "burn"];
+          to(e, plan[e.look++ % plan.length]);
         }
         return;
-    }
-  }
-  function stepScythe(e, a, dt, held) {
-    const s = held.scythe;
-    if (!s) return;
-    s.t += dt;
-    if (!s.back) {
-      s.x += s.vx * dt;
-      if (Math.abs(s.x - s.fromX) >= REAPER.scythe.out) s.back = true;
-    } else {
-      const home = centreX(e), d = home - s.x;
-      s.x += Math.sign(d) * Math.min(Math.abs(d), REAPER.scythe.speed * dt);
-      s.y += (e.y + e.h * 0.45 - s.y) * Math.min(1, 4 * dt);
-      if (Math.abs(d) < REAPER.scythe.catch) {
-        held.scythe = null;
+      case "breath":
+        if (!e.struck && e.modeT >= BEAST.throwAt) {
+          e.struck = true;
+          const mx = centreX(e) + e.facing * 20, my = e.y + 22;
+          const aim = Math.atan2(hero.y + hero.h / 2 - my, centreX(hero) - mx);
+          const angles = enraged(e) ? [aim - BEAST.ball.fan, aim, aim + BEAST.ball.fan] : [aim];
+          for (const r of angles) fire.balls.push({ x: mx, y: my, vx: Math.cos(r) * BEAST.ball.speed, vy: Math.sin(r) * BEAST.ball.speed, life: BEAST.ball.life, gone: false });
+          a.emit({ type: "sound", name: "breath" });
+        }
+        if (e.modeT >= BEAST.breath) to(e, "recover");
+        return;
+      case "recover":
+        if (e.modeT >= BEAST.recover) to(e, "rest");
+        return;
+      case "claw": {
+        const c = BEAST.claw;
+        if (!e.struck && e.modeT >= c.windup) {
+          e.struck = true;
+          const left = e.facing > 0 ? e.x : e.x - c.reach, right = e.facing > 0 ? e.x + e.w + c.reach : e.x + e.w;
+          const box = { x: left, y: e.y + 10, w: right - left, h: e.h - 20 };
+          if (hero.x < box.x + box.w && hero.x + hero.w > box.x && hero.y < box.y + box.h && hero.y + hero.h > box.y) a.hurt(Math.abs(dx) < 2 ? e.facing : dx > 0 ? 1 : -1, c.hurt, false);
+          a.emit({ type: "sound", name: "swing" });
+        }
+        if (e.modeT >= c.windup + c.strike + c.recover) to(e, "rest");
         return;
       }
-    }
-    const h = a.hero, r = REAPER.scythe.half;
-    if (a.playing && h.x < s.x + r && h.x + h.w > s.x - r && h.y < s.y + r && h.y + h.h > s.y - r) {
-      const got = a.hurt(s.x <= h.x + h.w / 2 ? 1 : -1, REAPER.hurt, false);
-      if (got) s.back = true;
+      case "flare": {
+        const f = BEAST.flare;
+        if (!e.struck && e.modeT >= f.windup) {
+          e.struck = true;
+          a.emit({ type: "sound", name: "blaze" });
+          a.shake(0.3);
+          if (Math.abs(dx) < f.reach && feetY(hero) > e.y && hero.y < floor) a.hurt(Math.abs(dx) < 2 ? e.facing : dx > 0 ? 1 : -1, f.hurt, true);
+        }
+        if (e.modeT >= f.windup + f.recover) to(e, "rest");
+        return;
+      }
+      case "burn":
+        if (e.modeT >= BEAST.burn) {
+          to(e, "pillars");
+          e.chain = enraged(e) ? BEAST.pillar.countEnraged : BEAST.pillar.count;
+          e.motionT = 0;
+          a.emit({ type: "sound", name: "flare" });
+        }
+        return;
+      case "pillars": {
+        const p = BEAST.pillar;
+        e.motionT -= dt;
+        if (e.chain > 0 && e.motionT <= 0) {
+          fire.pillars.push({ x: centreX(hero), y: floor, t: 0, rose: false, hit: false });
+          e.chain--;
+          e.motionT = p.every;
+        }
+        if (e.chain <= 0 && fire.pillars.length === 0) {
+          const last = e.cool, inside = Math.max(TILE * 2 + e.w, Math.min(a.width - TILE * 2 - e.w, last));
+          e.x = inside - e.w / 2;
+          to(e, "reform");
+        }
+        if (fire.pillars.length) e.cool = fire.pillars[fire.pillars.length - 1].x;
+        return;
+      }
+      case "reform":
+        face();
+        if (e.modeT >= BEAST.reform) to(e, "rest");
+        return;
+      case "dying":
+        fire.balls.length = 0;
+        fire.pillars.length = 0;
+        if (e.modeT >= BEAST.dying) to(e, "gone");
+        return;
     }
   }
-  function strikeReaper(e, damage) {
-    e.hp -= damage;
-    if (e.hp <= 0) {
-      to(e, "dust");
-      return true;
+  function stepFire(e, a, fire, dt) {
+    const hero = a.hero, b = BEAST.ball, p = BEAST.pillar;
+    for (const ball of fire.balls) {
+      ball.x += ball.vx * dt;
+      ball.y += ball.vy * dt;
+      ball.life -= dt;
+      if (ball.life <= 0 || a.grid.solidAt(Math.floor(ball.x / TILE), Math.floor(ball.y / TILE))) {
+        ball.gone = true;
+        continue;
+      }
+      const touch = hero.x < ball.x + b.w / 2 && hero.x + hero.w > ball.x - b.w / 2 && hero.y < ball.y + b.h / 2 && hero.y + hero.h > ball.y - b.h / 2;
+      if (touch && a.playing && a.hurt(ball.vx >= 0 ? 1 : -1, b.hurt, false)) ball.gone = true;
     }
-    to(e, "stunned");
-    return false;
+    fire.balls = fire.balls.filter((ball) => !ball.gone);
+    for (const pillar of fire.pillars) {
+      pillar.t += dt;
+      if (pillar.t < p.warn) continue;
+      if (!pillar.rose) {
+        pillar.rose = true;
+        a.emit({ type: "sound", name: "blaze" });
+        a.shake(0.15);
+      }
+      const feet = feetY(hero), under = Math.abs(centreX(hero) - pillar.x) < p.half && feet > pillar.y - p.high && feet <= pillar.y + 4;
+      if (!pillar.hit && under && a.playing && a.hurt(centreX(hero) >= pillar.x ? 1 : -1, p.hurt, true)) pillar.hit = true;
+    }
+    fire.pillars = fire.pillars.filter((pillar) => pillar.t < p.warn + p.rise);
+    void e;
   }
-  var reaperThere = (e) => e.mode !== "stone" && e.mode !== "waking" && e.mode !== "dust";
+
+  // src/hints.ts
+  var HINTS = {
+    held: { keys: "X X X: STRIKE TO BREAK FREE", pad: "X X X: STRIKE TO BREAK FREE" },
+    pillar: { keys: "A GLOW ON THE STONE: FIRE RISES THERE", pad: "A GLOW ON THE STONE: FIRE RISES THERE" },
+    guard: { keys: "HOLD C TO GUARD", pad: "HOLD LB TO GUARD" },
+    dazed: { keys: "IT IS DAZED: X X - THE KICK ENDS IT", pad: "IT IS DAZED: X X - THE KICK ENDS IT" },
+    parry: { keys: "IT PARRIES: STRIKE WHILE IT DRAWS BREATH", pad: "IT PARRIES: STRIKE WHILE IT DRAWS BREATH" },
+    door: { keys: "THE DOOR OPENS WITH EVERY EMBER", pad: "THE DOOR OPENS WITH EVERY EMBER" },
+    charge: { keys: "V: FLAMING CHARGE - IT COSTS AN EMBER", pad: "Y: FLAMING CHARGE - IT COSTS AN EMBER" },
+    water: { keys: "UNDER THE WATER: SPACE TO COME UP", pad: "UNDER THE WATER: A TO COME UP" },
+    ladder: { keys: "UP: CLIMB THE LADDER", pad: "UP: CLIMB THE LADDER" }
+  };
+  function hintFor(w, seen, pad) {
+    if (w.state !== "play") return null;
+    const h = w.hero, hx = centreX(h), hf = feetY(h);
+    const near = (x, y, across, high = 40) => Math.abs(x - hx) < across && Math.abs(y - hf) < high;
+    const now = {
+      held: () => !!w.heldBy,
+      pillar: () => w.beastFire.pillars.some((p) => p.t < BEAST.pillar.warn),
+      guard: () => w.foes.some((f) => f.kind === "shade" && f.windup > 0 && near(centreX(f), feetY(f), 90)),
+      dazed: () => w.foes.some((f) => f.kind === "shade" && f.dazed > 0 && near(centreX(f), feetY(f), 120)),
+      parry: () => {
+        const b = w.beast;
+        return !!b && b.mode === "rest" && h.attackT > 0 && near(centreX(b), feetY(b), 70);
+      },
+      door: () => !!w.door && !w.doorOpen && h.x < w.door.x + w.door.w && h.x + h.w > w.door.x && h.y < w.door.y + w.door.h && h.y + h.h > w.door.y,
+      charge: () => (w.carried > w.embers.length || !!(w.boss || w.beast) && w.carried > 0) && w.foes.some((f) => f.dead <= 0 && f.ko <= 0 && f.kind !== "hand" && f.kind !== "crow" && near(centreX(f), feetY(f), 170)),
+      water: () => w.level.settings.water > 0 && h.y > w.level.settings.water + 2,
+      ladder: () => h.onGround && !h.climbing && w.grid.ladderAt(Math.floor(hx / TILE), h.lastFloor - 1)
+    };
+    for (const key of Object.keys(HINTS)) {
+      if (seen.has(key) || !now[key]()) continue;
+      return { key, text: pad ? HINTS[key].pad : HINTS[key].keys };
+    }
+    return null;
+  }
+
+  // src/render/camera.ts
+  var VIEW_W = 640;
+  var VIEW_H = 360;
+  var EASE = 7;
+  var Camera = class {
+    constructor(levelW, levelH) {
+      this.levelW = levelW;
+      this.levelH = levelH;
+    }
+    levelW;
+    levelH;
+    x = 0;
+    y = 0;
+    fx = 0;
+    fy = 0;
+    // The corner that centres the view on a target, held inside the level (a level smaller than the view is centred).
+    goal(target, view, size) {
+      const max = size - view;
+      return max < 0 ? max / 2 : Math.max(0, Math.min(max, target - view / 2));
+    }
+    /** Jumps straight to the target. */
+    follow(targetX, targetY) {
+      this.fx = this.goal(targetX, VIEW_W, this.levelW);
+      this.fy = this.goal(targetY, VIEW_H, this.levelH);
+      this.x = Math.round(this.fx);
+      this.y = Math.round(this.fy);
+    }
+    /** Glides towards the target. */
+    ease(targetX, targetY, dt) {
+      const k = 1 - Math.exp(-dt * EASE);
+      const gx = this.goal(targetX, VIEW_W, this.levelW), gy = this.goal(targetY, VIEW_H, this.levelH);
+      this.fx = Math.abs(gx - this.fx) < 0.5 ? gx : this.fx + (gx - this.fx) * k;
+      this.fy = Math.abs(gy - this.fy) < 0.5 ? gy : this.fy + (gy - this.fy) * k;
+      this.x = Math.round(this.fx);
+      this.y = Math.round(this.fy);
+    }
+  };
+
+  // src/records.ts
+  var PLACES = 5;
+  var KEY2 = "unextinguished.board";
+  var OLD_KEY = "unextinguished.best";
+  function browserStore() {
+    return {
+      get: (key) => {
+        try {
+          return globalThis.localStorage?.getItem(key) ?? null;
+        } catch {
+          return null;
+        }
+      },
+      set: (key, value) => {
+        try {
+          globalThis.localStorage?.setItem(key, value);
+        } catch {
+        }
+      }
+    };
+  }
+  function apart(store, prefix = "trial.") {
+    return { get: (key) => store.get(prefix + key), set: (key, value) => store.set(prefix + key, value) };
+  }
+  function seedBoard(board, keys) {
+    const names = ["BROTHER", "ABBOT", "NOVICE", "PRIOR", "BELLMAN"];
+    for (const key of keys) {
+      const base = key === "run" ? 900 : 120;
+      board.seed(key, names.slice(0, 4).map((name2, i) => ({ name: name2, time: Math.round(base * [0.7, 0.85, 1.1, 1.4][i]) })));
+    }
+  }
+  var read = (store, key) => {
+    try {
+      return JSON.parse(store.get(key) ?? "null");
+    } catch {
+      return null;
+    }
+  };
+  var Board = class {
+    constructor(store) {
+      this.store = store;
+      const saved = read(store, KEY2);
+      if (saved && typeof saved === "object") {
+        if (typeof saved.lastName === "string") this.lastName = saved.lastName.slice(0, NAME_LENGTH);
+        const tables = saved.tables;
+        if (tables && typeof tables === "object") for (const [key, list] of Object.entries(tables)) {
+          if (!Array.isArray(list)) continue;
+          const good = list.filter((e) => e && typeof e.name === "string" && typeof e.time === "number" && e.time > 0).map((e) => ({ name: String(e.name).slice(0, NAME_LENGTH), time: e.time }));
+          if (good.length) this.tables[key] = good.sort((a, b) => a.time - b.time).slice(0, PLACES);
+        }
+      }
+      const old = read(store, OLD_KEY);
+      if (old && typeof old === "object") for (const [key, time] of Object.entries(old)) {
+        if (typeof time === "number" && time > 0 && !this.tables[key]) this.tables[key] = [{ name: "???", time }];
+      }
+    }
+    store;
+    tables = {};
+    /** The last name given, to offer it again. */
+    lastName = "";
+    /** The table of a level (by its name) or of the runs ("run"), fastest first. */
+    table(key) {
+      return [...this.tables[key] ?? []];
+    }
+    best(key) {
+      return this.tables[key]?.[0]?.time ?? null;
+    }
+    /** The place (0 the first) a time would take in a table, or null when it is not good enough. */
+    place(key, time) {
+      const list = this.tables[key] ?? [];
+      const at = list.findIndex((e) => time < e.time);
+      if (at >= 0) return at;
+      return list.length < PLACES ? list.length : null;
+    }
+    /** Fills a table that is empty, without offering its names to anyone. */
+    seed(key, entries) {
+      if (this.tables[key]?.length) return;
+      this.tables[key] = [...entries].sort((a, b) => a.time - b.time).slice(0, PLACES);
+      this.save();
+    }
+    save() {
+      try {
+        this.store.set(KEY2, JSON.stringify({ tables: this.tables, lastName: this.lastName }));
+      } catch {
+      }
+    }
+    /** Writes a time in, under a name; its place is returned. */
+    add(key, name2, time) {
+      const list = this.tables[key] ?? [], at = this.place(key, time) ?? PLACES;
+      list.splice(at, 0, { name: name2.slice(0, NAME_LENGTH), time });
+      this.tables[key] = list.slice(0, PLACES);
+      this.lastName = name2.slice(0, NAME_LENGTH);
+      this.save();
+      return at;
+    }
+  };
+
+  // src/render/text.ts
+  var FONT = {
+    A: "010101111101101",
+    B: "110101110101110",
+    C: "011100100100011",
+    D: "110101101101110",
+    E: "111100110100111",
+    F: "111100110100100",
+    G: "011100101101011",
+    H: "101101111101101",
+    I: "111010010010111",
+    J: "001001001101010",
+    K: "101101110101101",
+    L: "100100100100111",
+    M: "101111111101101",
+    N: "110101101101101",
+    O: "010101101101010",
+    P: "110101110100100",
+    Q: "010101101110011",
+    R: "110101110101101",
+    S: "011100010001110",
+    T: "111010010010010",
+    U: "101101101101111",
+    V: "101101101101010",
+    W: "101101111111101",
+    X: "101101010101101",
+    Y: "101101010010010",
+    Z: "111001010100111",
+    0: "111101101101111",
+    1: "010110010010111",
+    2: "110001010100111",
+    3: "110001010001110",
+    4: "101101111001001",
+    5: "111100110001110",
+    6: "011100111101111",
+    7: "111001010010010",
+    8: "111101111101111",
+    9: "111101111001110",
+    ":": "000010000010000",
+    "?": "111001010000010",
+    ".": "000000000000010",
+    "!": "010010010000010",
+    "/": "001001010100100",
+    "-": "000000111000000",
+    " ": "000000000000000",
+    ">": "100010001010100",
+    "<": "001010100010001"
+  };
+  function text(g2, str, x, y, color, scale = 2) {
+    g2.fillStyle = color;
+    for (const ch of str) {
+      const bits = FONT[ch] ?? FONT[" "];
+      for (let i = 0; i < 15; i++) if (bits[i] === "1") g2.fillRect(x + i % 3 * scale, y + Math.floor(i / 3) * scale, scale, scale);
+      x += 4 * scale;
+    }
+  }
+  var textWidth = (str, scale = 2) => str.length * 4 * scale - scale;
+  function centered(g2, str, y, color, scale = 2) {
+    text(g2, str, Math.round((VIEW_W - textWidth(str, scale)) / 2), y, color, scale);
+  }
+
+  // src/render/title.ts
+  var FIRE = ["#fff3c4", "#ffc93c", "#ff8a2a", "#e0401c"];
+  var PALE = "#e2d8f0";
+  var DIM = "#9d93b8";
+  var GOLD = "#ffe27a";
+  var hash = (a, b) => {
+    const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+    return s - Math.floor(s);
+  };
+  function veil(g2, light = false) {
+    g2.fillStyle = light ? "rgba(8,6,18,0.1)" : "rgba(8,6,18,0.32)";
+    g2.fillRect(0, 0, VIEW_W, VIEW_H);
+    const top = g2.createLinearGradient(0, 0, 0, 130);
+    top.addColorStop(0, "rgba(8,6,18,0.85)");
+    top.addColorStop(1, "rgba(8,6,18,0)");
+    g2.fillStyle = top;
+    g2.fillRect(0, 0, VIEW_W, 130);
+    const low = g2.createLinearGradient(0, VIEW_H - 90, 0, VIEW_H);
+    low.addColorStop(0, "rgba(8,6,18,0)");
+    low.addColorStop(1, "rgba(8,6,18,0.9)");
+    g2.fillStyle = low;
+    g2.fillRect(0, VIEW_H - 90, VIEW_W, 90);
+  }
+  function sparks(g2, t) {
+    g2.save();
+    g2.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 46; i++) {
+      const speed = 14 + hash(i, 1) * 30, life = VIEW_H + 60;
+      const y = VIEW_H + 20 - (t * speed + hash(i, 2) * life) % life;
+      const x = hash(i, 3) * VIEW_W + Math.sin(t * (0.6 + hash(i, 4)) + i) * 10;
+      g2.fillStyle = FIRE[i % 3];
+      g2.globalAlpha = 0.35 + 0.65 * Math.min(1, (y + 40) / VIEW_H);
+      g2.fillRect(Math.round(x), Math.round(y), i % 5 === 0 ? 2 : 1, i % 5 === 0 ? 2 : 1);
+    }
+    g2.restore();
+  }
+  function name(g2, t) {
+    const big = 7, word = "UNEXTINGUISHED", y = 56, h = 5 * big;
+    g2.save();
+    g2.globalCompositeOperation = "lighter";
+    const glow = g2.createRadialGradient(VIEW_W / 2, y + h / 2, 10, VIEW_W / 2, y + h / 2, 260);
+    glow.addColorStop(0, `rgba(255,120,40,${0.32 + 0.06 * Math.sin(t * 4.3) + 0.04 * Math.sin(t * 11)})`);
+    glow.addColorStop(1, "rgba(255,120,40,0)");
+    g2.fillStyle = glow;
+    g2.fillRect(0, y - 80, VIEW_W, h + 160);
+    g2.restore();
+    centered(g2, "THE", 36, PALE, 3);
+    const x = Math.round((VIEW_W - textWidth(word, big)) / 2);
+    text(g2, word, x + 4, y + 4, "#4a0a0c", big);
+    const flame2 = g2.createLinearGradient(0, y, 0, y + h);
+    flame2.addColorStop(0, FIRE[0]);
+    flame2.addColorStop(0.45, FIRE[1]);
+    flame2.addColorStop(1, FIRE[3]);
+    text(g2, word, x, y, flame2, big);
+  }
+  function panel(g2, x, y, w, h) {
+    g2.fillStyle = "rgba(10,8,20,0.78)";
+    g2.fillRect(x, y, w, h);
+    g2.strokeStyle = "rgba(154,143,192,0.7)";
+    g2.lineWidth = 2;
+    g2.strokeRect(x + 1, y + 1, w - 2, h - 2);
+  }
+  var blink = (t) => t % 1.1 < 0.8;
+  var CONTROLS = [
+    ["MOVE", "ARROWS", "STICK"],
+    ["JUMP", "SPACE", "A"],
+    ["STRIKE", "X", "X"],
+    ["GUARD", "C", "LB"],
+    ["CHARGE", "V", "Y"]
+  ];
+  function drawTitle(g2, t, page = null, menu = null, musicOn = true, start = null) {
+    g2.setTransform(1, 0, 0, 1, 0, 0);
+    veil(g2);
+    sparks(g2, t);
+    name(g2, t);
+    centered(g2, "A GOTHIC PLATFORM FIGHTER", 104, "#c9bfe0");
+    const px = 160, pw = 320, py = 128;
+    if (menu) {
+      drawOptions(g2, t, menu, musicOn);
+      return;
+    }
+    panel(g2, px, py, pw, 136);
+    if (page) drawTable(g2, page.title, page.entries, px, py, pw);
+    else {
+      const col = [px + 24, px + 128, px + 228];
+      text(g2, "KEYBOARD", col[1], py + 12, GOLD);
+      text(g2, "GAMEPAD", col[2], py + 12, GOLD);
+      CONTROLS.forEach(([what, key, pad], i) => {
+        const y = py + 32 + i * 16;
+        text(g2, what, col[0], y, DIM);
+        text(g2, key, col[1], y, PALE);
+        text(g2, pad, col[2], y, PALE);
+      });
+      centered(g2, "THE CHARGE COSTS AN EMBER", py + 116, DIM);
+    }
+    if (start) start.lines.forEach((line, i) => {
+      const here = i === start.at;
+      centered(g2, here ? `> ${line} <` : line, 278 + i * 18, here ? GOLD : DIM);
+    });
+    else if (blink(t)) centered(g2, "PRESS JUMP TO START", 286, GOLD, 3);
+    centered(g2, "F FULL SCREEN    M MUSIC    P PAUSE    H COLLISIONS    O OPTIONS", 334, DIM);
+  }
+  var OPTIONS_HINT = "ARROWS CHOOSE AND CHANGE  O BACK";
+  function drawOptions(g2, t, menu, musicOn) {
+    const px = 150, pw = 340, py = 118, ph = 196;
+    g2.fillStyle = "rgba(10,8,20,0.94)";
+    g2.fillRect(px, py, pw, ph);
+    g2.strokeStyle = "rgba(154,143,192,0.8)";
+    g2.lineWidth = 2;
+    g2.strokeRect(px + 1, py + 1, pw - 2, ph - 2);
+    centered(g2, "OPTIONS", py + 12, GOLD);
+    const o = menu.options;
+    OPTION_LINES.forEach((what, i) => {
+      const y = py + 36 + i * 22, here = i === menu.line;
+      if (here && blink(t * 2)) text(g2, ">", px + 22, y, GOLD);
+      text(g2, what, px + 38, y, here ? GOLD : PALE);
+      const vx = px + 150;
+      if (what === "MUSIC" && !musicOn) text(g2, "OFF", vx, y, DIM);
+      else if (what === "MUSIC" || what === "SOUNDS") {
+        const level = what === "MUSIC" ? o.music : o.sounds;
+        for (let k = 0; k < LEVELS; k++) {
+          const x = vx + k * 15;
+          if (k < level) {
+            g2.fillStyle = here ? GOLD : PALE;
+            g2.fillRect(x, y, 11, 10);
+          } else {
+            g2.strokeStyle = DIM;
+            g2.lineWidth = 1;
+            g2.strokeRect(x + 0.5, y + 0.5, 10, 9);
+          }
+        }
+      } else if (what === "BLOOD") text(g2, o.blood === "red" ? "RED" : "ASH", vx, y, o.blood === "red" ? "#ff6a5a" : "#b3aeb8");
+      else if (what === "DIFFICULTY") text(g2, o.difficulty === "easy" ? "EASY" : "NORMAL", vx, y, o.difficulty === "easy" ? "#8ff0c0" : PALE);
+      else if (what === "HINTS") text(g2, o.hints ? "ON" : "OFF", vx, y, o.hints ? PALE : DIM);
+    });
+    centered(g2, OPTIONS_HINT, py + ph - 22, DIM);
+  }
+  function drawEnd(g2, t, lines, naming = null, note = null) {
+    g2.setTransform(1, 0, 0, 1, 0, 0);
+    veil(g2, true);
+    sparks(g2, t);
+    name(g2, t);
+    centered(g2, "EVERY ROOM IS CLEARED", 104, "#fff1d6");
+    const py = 132, ph = 30 + lines.length * 26;
+    panel(g2, 130, py, 380, ph);
+    lines.forEach((line, i) => centered(g2, line, py + 18 + i * 26, i === lines.length - 1 ? DIM : PALE, 3));
+    if (naming && !naming.done) {
+      centered(g2, "A RUN FOR THE BOARD  ENTER YOUR NAME", 272, GOLD);
+      drawName(g2, naming, 288, t);
+      centered(g2, "TYPE IT  THEN ENTER     GAMEPAD  UP DOWN  A  START", 322, DIM);
+      return;
+    }
+    if (note) centered(g2, note, 274, GOLD);
+    if (t > 1.5 && blink(t)) centered(g2, "PRESS JUMP", 300, GOLD, 3);
+  }
+  function drawCredits(g2, t) {
+    g2.setTransform(1, 0, 0, 1, 0, 0);
+    veil(g2, true);
+    g2.fillStyle = "rgba(8,6,18,0.18)";
+    g2.fillRect(0, 0, VIEW_W, VIEW_H);
+    sparks(g2, t);
+    const shift = Math.min(t, creditsLength(VIEW_H)) * CREDITS_SPEED;
+    CREDITS.forEach((c, i) => {
+      const y = Math.round(VIEW_H + i * CREDITS_STEP - shift);
+      if (y < -30 || y > VIEW_H + 10 || !c.text) return;
+      centered(g2, c.text, y, c.head ? GOLD : PALE, c.big ? 3 : 2);
+    });
+    if (t > creditsLength(VIEW_H) && blink(t)) centered(g2, "PRESS JUMP", 300, DIM);
+  }
+  function drawTable(g2, title, entries, px, py, pw) {
+    centered(g2, title, py + 12, GOLD);
+    for (let i = 0; i < PLACES; i++) {
+      const e = entries[i], y = py + 36 + i * 18, color = e ? i === 0 ? GOLD : PALE : DIM;
+      text(g2, `${i + 1}`, px + 40, y, color);
+      text(g2, e ? e.name : "-------", px + 76, y, color);
+      const time = e ? clockText(e.time) : "-:--";
+      text(g2, time, px + pw - 40 - textWidth(time), y, color);
+    }
+  }
+  function drawName(g2, name2, y, t) {
+    const step = 22, x0 = Math.round((VIEW_W - step * NAME_LENGTH) / 2) + 3;
+    const shown = name2.shown;
+    for (let i = 0; i < NAME_LENGTH; i++) {
+      const x = x0 + i * step, here = i === name2.at && !name2.done;
+      if (!(here && Math.floor(t * 5) % 2)) text(g2, shown[i], x, y, here ? GOLD : PALE, 4);
+      g2.fillStyle = here ? GOLD : DIM;
+      g2.fillRect(x - 1, y + 23, 14, 2);
+    }
+  }
 
   // src/sim/movement.ts
   var NO_CONTROLS = { x: 0, up: false, down: false, jump: false, jumpPressed: false, attackPressed: false, guard: false, specialPressed: false };
@@ -1841,412 +1893,6 @@
     }
   }
 
-  // src/sim/creatures.ts
-  var SKULL = {
-    hurt: 1,
-    range: 150,
-    high: 90,
-    // px: how near the hero must be, across and up or down, for it to fly at him
-    flare: 0.45,
-    // seconds its fire flares up before it flies: the warning
-    dash: 330,
-    dashTime: 0.8,
-    // px a second, and for how long at most
-    back: 90,
-    drift: 50,
-    // px a second, going home and hovering
-    cool: 1.4,
-    // seconds before it flies again
-    out: 6
-    // seconds it lies out after a blow, before it lights again
-  };
-  var HOUND = {
-    hurt: 1,
-    hp: 2,
-    sight: 230,
-    // px: a hero on its floor this near wakes it
-    run: 195,
-    // faster than the hero
-    leapRange: 70,
-    leapVx: 250,
-    leapVy: 360,
-    rest: 0.6,
-    // seconds it gathers itself after a leap
-    back: 9
-    // seconds before it comes back where it sat
-  };
-  var GHOST = {
-    hurt: 1,
-    haunt: 220,
-    // px: it haunts this far either side of its place
-    near: [56, 80],
-    // px: how far from the hero it comes out
-    appear: 0.6,
-    idle: 1,
-    windup: 0.5,
-    scream: 0.35,
-    vanish: 0.6,
-    reach: 90,
-    // px: how far its shriek carries
-    away: [2.2, 3.6],
-    // seconds it stays away, in turn
-    driven: 6
-    // seconds it stays away when a blow drives it off
-  };
-  var CROW = {
-    hurt: 1,
-    wake: 150,
-    high: 150,
-    // px: how near the hero must come, across and up or down, to wake it
-    rise: 0.35,
-    climb: 70,
-    // seconds it rises from its perch, and how fast
-    dive: 1,
-    speed: 210,
-    // seconds it dives at where the hero was, and how fast
-    away: 1.4,
-    flee: 150
-    // seconds it flies off after, and how fast, then it is gone
-  };
-  var to2 = (e, mode) => {
-    e.mode = mode;
-    e.modeT = 0;
-    e.struck = false;
-  };
-  var towards = (e, tx, ty, speed, dt) => {
-    const cx = centreX(e), cy = e.y + e.h / 2, dx = tx - cx, dy = ty - cy, d = Math.hypot(dx, dy);
-    if (d > 0.01) {
-      const k = Math.min(d, speed * dt) / d;
-      e.x += dx * k;
-      e.y += dy * k;
-      if (Math.abs(dx) > 1) e.facing = dx > 0 ? 1 : -1;
-    }
-    return d;
-  };
-  var sideOf = (hero, e) => centreX(hero) >= centreX(e) ? 1 : -1;
-  var overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-  function stepSkull(e, a, dt) {
-    const hero = a.hero, homeX = e.spawnX, homeY = e.spawnY - e.h / 2;
-    e.modeT += dt;
-    e.animT += dt;
-    e.invul = Math.max(0, e.invul - dt);
-    e.cool = Math.max(0, e.cool - dt);
-    const cx = centreX(e), cy = e.y + e.h / 2, hx = centreX(hero), hy = hero.y + hero.h / 2;
-    switch (e.mode) {
-      case "hover":
-        towards(e, homeX + Math.sin(e.animT * 0.9) * 22, homeY + Math.sin(e.animT * 1.7) * 7, SKULL.drift, dt);
-        if (a.playing && e.cool <= 0 && Math.abs(hx - cx) < SKULL.range && Math.abs(hy - cy) < SKULL.high) {
-          to2(e, "flare");
-          e.facing = hx >= cx ? 1 : -1;
-          a.emit({ type: "sound", name: "flare" });
-        }
-        break;
-      case "flare":
-        if (e.modeT >= SKULL.flare) {
-          const dx = hx - cx, dy = hy - cy, d = Math.hypot(dx, dy) || 1;
-          e.vx = dx / d * SKULL.dash;
-          e.vy = dy / d * SKULL.dash;
-          to2(e, "dash");
-        }
-        break;
-      case "dash": {
-        const nx = e.x + e.vx * dt, ny = e.y + e.vy * dt;
-        if (a.grid.solidAt(Math.floor((nx + e.w / 2) / TILE), Math.floor((ny + e.h / 2) / TILE)) || e.modeT >= SKULL.dashTime) {
-          to2(e, "back");
-          e.cool = SKULL.cool;
-        } else {
-          e.x = nx;
-          e.y = ny;
-        }
-        break;
-      }
-      case "back":
-        if (towards(e, homeX, homeY, SKULL.back, dt) < 4) to2(e, "hover");
-        break;
-      case "out":
-        e.vy = Math.min(TUNING.maxFall, e.vy + TUNING.gravity * dt);
-        if (e.onGround) e.vx *= Math.exp(-6 * dt);
-        move(e, a.grid, dt, () => {
-        });
-        if (e.modeT >= SKULL.out) {
-          to2(e, "back");
-          e.invul = 0.6;
-          e.cool = SKULL.cool;
-          a.emit({ type: "effect", kind: "collect-burst", x: centreX(e), y: e.y + e.h + 20, flip: false });
-        }
-        return;
-    }
-    if (a.playing && (e.mode === "dash" || e.mode === "hover" || e.mode === "flare") && e.invul <= 0 && overlap(e, hero)) {
-      if (a.hurt(sideOf(hero, e), SKULL.hurt, false)) {
-        to2(e, "back");
-        e.cool = SKULL.cool;
-      }
-    }
-  }
-  function strikeSkull(e, dir) {
-    to2(e, "out");
-    e.vx = dir * 120;
-    e.vy = -140;
-    e.onGround = false;
-  }
-  function stepCrow(e, a, dt) {
-    const hero = a.hero;
-    e.modeT += dt;
-    e.animT += dt;
-    if (e.mode === "fallen") {
-      e.vy = Math.min(TUNING.maxFall, e.vy + TUNING.gravity * dt);
-      if (e.onGround) e.vx = 0;
-      move(e, a.grid, dt, () => {
-      });
-      return;
-    }
-    if (e.dead > 0) return;
-    const cx = centreX(e), cy = e.y + e.h / 2, hx = centreX(hero), hy = hero.y + hero.h / 3;
-    switch (e.mode) {
-      case "perch":
-        if (a.playing && Math.abs(hx - cx) < CROW.wake && Math.abs(hy - cy) < CROW.high) {
-          to2(e, "rise");
-          e.facing = hx >= cx ? 1 : -1;
-          a.emit({ type: "sound", name: "caw" });
-        }
-        return;
-      case "rise":
-        e.y -= CROW.climb * dt;
-        e.x -= e.facing * 20 * dt;
-        if (e.modeT >= CROW.rise) {
-          const dx = hx - cx, dy = hy - cy, d = Math.hypot(dx, dy) || 1;
-          e.vx = dx / d * CROW.speed;
-          e.vy = dy / d * CROW.speed;
-          e.facing = dx >= 0 ? 1 : -1;
-          to2(e, "dive");
-        }
-        break;
-      case "dive":
-        e.x += e.vx * dt;
-        e.y += e.vy * dt;
-        if (e.modeT >= CROW.dive) {
-          to2(e, "away");
-          e.vy = -CROW.flee * 0.6;
-          e.vx = e.facing * CROW.flee;
-        }
-        break;
-      case "away":
-        e.x += e.vx * dt;
-        e.y += e.vy * dt;
-        if (e.modeT >= CROW.away) {
-          to2(e, "gone");
-          e.dead = 1;
-        }
-        return;
-    }
-    if (a.playing && e.mode === "dive" && overlap(e, hero)) {
-      const got = a.hurt(sideOf(hero, e), CROW.hurt, false);
-      if (got === "blocked") strikeCrow(e, sideOf(e, hero));
-      else if (got) {
-        to2(e, "away");
-        e.vy = -CROW.flee * 0.6;
-        e.vx = e.facing * CROW.flee;
-      }
-    }
-  }
-  function strikeCrow(e, dir) {
-    to2(e, "fallen");
-    e.dead = 1;
-    e.vx = dir * 90;
-    e.vy = -120;
-    e.onGround = false;
-  }
-  function stepHound(e, a, dt) {
-    const hero = a.hero;
-    if (e.dead > 0) {
-      e.dead -= dt;
-      if (e.dead <= 0) {
-        e.dead = 0;
-        e.hp = HOUND.hp;
-        e.invul = 1;
-        e.stun = 0;
-        e.x = e.spawnX - e.w / 2;
-        e.y = e.spawnY - e.h;
-        e.vx = 0;
-        e.vy = 0;
-        to2(e, "sit");
-      }
-      return;
-    }
-    e.modeT += dt;
-    e.invul = Math.max(0, e.invul - dt);
-    e.stun = Math.max(0, e.stun - dt);
-    const dx = centreX(hero) - centreX(e);
-    const sameFloor = hero.lastFloor === e.lastFloor || hero.onGround && Math.abs(dx) < HOUND.sight * 2 && a.grid.walkable(centreX(e), feetY(e), centreX(hero), feetY(hero));
-    if (e.stun > 0) e.vx *= Math.exp(-5 * dt);
-    else switch (e.mode) {
-      case "sit":
-        e.vx = 0;
-        if (a.playing && sameFloor && Math.abs(dx) < HOUND.sight) {
-          to2(e, "run");
-          a.emit({ type: "sound", name: "growl" });
-        }
-        break;
-      case "run": {
-        if (Math.abs(dx) > 2) e.facing = dx > 0 ? 1 : -1;
-        const ahead = !e.onGround || a.grid.groundUnder(centreX(e) + e.facing * 14, feetY(e)) !== null;
-        e.vx = ahead ? e.facing * HOUND.run : 0;
-        const bite = sameFloor && Math.abs(dx) < HOUND.leapRange;
-        const over = !ahead && dx * e.facing > 0 && Math.abs(feetY(hero) - feetY(e)) < 48 && leapClears(e, a.grid);
-        if (a.playing && e.onGround && (bite || over)) {
-          e.vx = e.facing * HOUND.leapVx;
-          e.vy = -HOUND.leapVy;
-          e.onGround = false;
-          to2(e, "leap");
-          a.emit({ type: "sound", name: "bark" });
-        } else if (!sameFloor && e.modeT > 2) to2(e, "sit");
-        break;
-      }
-      case "leap":
-        if (e.onGround && e.modeT > 0.1) to2(e, "land");
-        break;
-      case "land":
-        e.vx *= Math.exp(-8 * dt);
-        if (e.modeT >= HOUND.rest) to2(e, "run");
-        break;
-    }
-    e.vy = Math.min(TUNING.maxFall, e.vy + TUNING.gravity * dt);
-    move(e, a.grid, dt, a.emit);
-    e.animT += dt;
-    if (a.playing && (e.mode === "run" || e.mode === "leap") && e.stun <= 0 && e.invul <= 0 && overlap(e, hero)) {
-      const outcome = a.hurt(sideOf(hero, e), HOUND.hurt, false);
-      if (outcome) {
-        to2(e, "land");
-        if (outcome === "blocked") {
-          e.vx = -e.facing * 220;
-          e.vy = -160;
-          e.onGround = false;
-        }
-      }
-    }
-  }
-  function leapClears(e, grid) {
-    const x0 = centreX(e), y = feetY(e);
-    const reach2 = HOUND.leapVx * 2 * HOUND.leapVy / TUNING.gravity - e.w / 2;
-    for (let d = 8; d <= reach2; d += 4) {
-      const x = x0 + e.facing * d;
-      if (grid.solidAt(Math.floor(x / TILE), Math.round(y / TILE) - 1)) return false;
-      if (grid.groundUnder(x, y) !== null && grid.groundUnder(x + e.facing * e.w / 2, y) !== null && d > 12) return true;
-    }
-    return false;
-  }
-  function strikeHound(e, dir, damage) {
-    e.hp = Math.max(0, e.hp - damage);
-    if (e.hp <= 0) {
-      e.dead = HOUND.back;
-      e.vx = 0;
-      return true;
-    }
-    e.stun = 0.4;
-    e.vx = dir * 160;
-    e.vy = -140;
-    e.onGround = false;
-    if (e.mode === "sit") to2(e, "run");
-    return false;
-  }
-  function stepGhost(e, a, dt) {
-    const hero = a.hero, hx = centreX(hero);
-    e.modeT += dt;
-    e.animT += dt;
-    switch (e.mode) {
-      case "away":
-        if (e.modeT >= e.cool && a.playing && Math.abs(hx - e.spawnX) < GHOST.haunt) {
-          const side = e.look % 2 ? 1 : -1, far = GHOST.near[0] + e.look * 7 % 5 / 4 * (GHOST.near[1] - GHOST.near[0]);
-          e.look++;
-          let x = hx + side * far;
-          if (Math.abs(x - e.spawnX) > GHOST.haunt || x < TILE * 2 || x > a.width - TILE * 2) x = hx - side * far;
-          e.x = x - e.w / 2;
-          e.y = hero.lastFloor * TILE - 2 - e.h;
-          e.facing = hx >= x ? 1 : -1;
-          to2(e, "appear");
-        }
-        break;
-      case "appear":
-        if (e.modeT >= GHOST.appear) to2(e, "idle");
-        break;
-      case "idle":
-        e.facing = sideOf(hero, e);
-        if (e.modeT >= GHOST.idle) to2(e, "shriek");
-        break;
-      case "shriek":
-        if (!e.struck && e.modeT >= GHOST.windup) {
-          e.struck = true;
-          a.emit({ type: "sound", name: "shriek" });
-          if (a.playing && Math.abs(hx - centreX(e)) < GHOST.reach && Math.abs(feetY(hero) - feetY(e)) < 30) a.hurt(sideOf(hero, e), GHOST.hurt, false);
-        }
-        if (e.modeT >= GHOST.windup + GHOST.scream) {
-          e.cool = GHOST.away[e.look % 2];
-          to2(e, "vanish");
-        }
-        break;
-      case "vanish":
-        if (e.modeT >= GHOST.vanish) to2(e, "away");
-        break;
-    }
-  }
-  function ghostThere(e) {
-    return e.mode === "idle" || e.mode === "shriek" || e.mode === "appear" && e.modeT > GHOST.appear / 2;
-  }
-  function strikeGhost(e) {
-    to2(e, "vanish");
-    e.cool = GHOST.driven;
-  }
-
-  // src/sim/fall.ts
-  var FALL = {
-    grace: 2,
-    // seconds the tower holds before it starts to come down
-    top: -60,
-    // px: where the collapse starts, over the top of the level
-    every: 0.3,
-    // seconds between two stones
-    ahead: 10,
-    // px under the collapse where a stone breaks off
-    rock: 1,
-    // what a stone costs the hero: the guard does not stop it
-    gravity: 900
-  };
-  function makeFall(speed) {
-    return { y: FALL.top, speed, t: 0, next: FALL.every, rocks: [], seed: 2654435769 };
-  }
-  function chance(f) {
-    f.seed = f.seed + 1831565813 >>> 0;
-    let z = f.seed;
-    z = Math.imul(z ^ z >>> 15, z | 1);
-    z ^= z + Math.imul(z ^ z >>> 7, z | 61);
-    return ((z ^ z >>> 14) >>> 0) / 4294967296;
-  }
-  var touches = (r, a) => r.x + r.size / 2 > a.x && r.x - r.size / 2 < a.x + a.w && r.y + r.size / 2 > a.y && r.y - r.size / 2 < a.y + a.h;
-  function stepFall(f, a, crush, dt) {
-    f.t += dt;
-    if (f.t > FALL.grace) f.y += f.speed * dt;
-    if ((f.next -= dt) <= 0) {
-      f.next = FALL.every;
-      f.rocks.push({ x: 24 + chance(f) * (a.width - 48), y: f.y + FALL.ahead, vy: 30, size: 7 + Math.floor(chance(f) * 8) });
-    }
-    const hero = a.hero;
-    f.rocks = f.rocks.filter((r) => {
-      r.vy += FALL.gravity * dt;
-      r.y += r.vy * dt;
-      if (a.playing && touches(r, hero)) {
-        a.hurt(hero.x + hero.w / 2 >= r.x ? 1 : -1, FALL.rock, true);
-        a.emit({ type: "debris", x: r.x, y: r.y, count: 8 });
-        return false;
-      }
-      if (a.grid.solidAt(Math.floor(r.x / TILE), Math.floor((r.y + r.size / 2) / TILE))) {
-        a.emit({ type: "debris", x: r.x, y: r.y, count: 6 });
-        return false;
-      }
-      return r.y < a.grid.rows * TILE + 40;
-    });
-    if (a.playing && hero.y < f.y) crush();
-  }
-
   // src/sim/demon.ts
   var BELL = {
     first: 4,
@@ -2313,7 +1959,7 @@
   function demonTouchable(d) {
     return d.phase !== "enter" && d.phase !== "rise" && d.phase !== "mark" && d.phase !== "fall" && d.phase !== "dying" && d.phase !== "gone";
   }
-  var overlap2 = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  var overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   function breathBox(d) {
     const b = d.body, s = DEMON.breath, front = b.facing > 0 ? centreX(b) + s.from : centreX(b) - s.from - s.reach;
     return { x: front, y: d.floor - s.height, w: s.reach, h: s.height };
@@ -2343,7 +1989,7 @@
       v.x += v.dir * DEMON.wave.speed * dt;
       v.t += dt;
       const box = { x: v.x - DEMON.wave.half, y: v.y - DEMON.wave.height, w: DEMON.wave.half * 2, h: DEMON.wave.height };
-      if (!v.hit && a.playing && overlap2(box, hero)) v.hit = !!a.hurt(v.dir, DEMON.wave.damage, true);
+      if (!v.hit && a.playing && overlap(box, hero)) v.hit = !!a.hurt(v.dir, DEMON.wave.damage, true);
     }
     d.waves = d.waves.filter((v) => v.t < DEMON.wave.life && v.x > TILE && v.x < a.width - TILE && d.phase !== "dying" && d.phase !== "gone");
     switch (d.phase) {
@@ -2393,7 +2039,7 @@
         }
         break;
       case "breath":
-        if (!d.hit && a.playing && overlap2(breathBox(d), hero)) d.hit = !!a.hurt(b.facing, DEMON.burn, true);
+        if (!d.hit && a.playing && overlap(breathBox(d), hero)) d.hit = !!a.hurt(b.facing, DEMON.burn, true);
         if (d.t >= DEMON.breath.time) {
           const behind = Math.sign(centreX(hero) - centreX(b)) === -b.facing;
           if (d.enraged && !d.again && behind && a.playing) {
@@ -2409,7 +2055,7 @@
         }
         break;
       case "buffet":
-        if (!d.hit && d.t >= DEMON.buffet.at && a.playing && overlap2(buffetBox(d), hero)) d.hit = !!a.hurt(centreX(hero) >= centreX(b) ? 1 : -1, DEMON.buffet.damage, false);
+        if (!d.hit && d.t >= DEMON.buffet.at && a.playing && overlap(buffetBox(d), hero)) d.hit = !!a.hurt(centreX(hero) >= centreX(b) ? 1 : -1, DEMON.buffet.damage, false);
         if (d.t >= DEMON.buffet.time) settle(d);
         break;
       case "rise":
@@ -2507,193 +2153,1120 @@
     if (speed) e.animT += dt;
   }
 
-  // src/sim/beast.ts
-  var BEAST = {
-    hp: 24,
-    wake: 300,
-    // px: a hero this near wakes it
-    rest: 1,
-    restEnraged: 0.6,
-    // seconds between two attacks
-    breath: 0.75,
-    throwAt: 0.5,
-    // seconds: it rears and draws breath; the fire leaves at this moment of it
-    recover: 0.8,
-    // seconds after a throw, open to blows
-    ball: { speed: 170, life: 4, w: 14, h: 10, fan: 0.22, hurt: 1 },
-    // fan: radians between the balls of a three
-    claw: { near: 46, windup: 0.4, strike: 0.15, reach: 40, recover: 0.55, hurt: 1 },
-    flare: { windup: 0.45, reach: 58, recover: 0.6, hurt: 1 },
-    // its fire bursting out all round it
-    burn: 0.5,
-    // seconds to sink into its fire
-    pillar: { warn: 0.75, rise: 0.6, half: 14, high: 150, every: 0.55, count: 3, countEnraged: 4, hurt: 1 },
-    reform: 0.6,
-    dying: 1.6,
-    enraged: 0.5,
-    // of its health: past this, its fury
-    untouchable: ["wait", "burn", "pillars", "dying", "gone"]
+  // src/render/hud.ts
+  var BAR_W = 168;
+  var BAR_H = 8;
+  var BAR_Y = 14;
+  var MARGIN = 16;
+  var DRAIN = 3.5;
+  var FINISH_WORDS = 1.1;
+  var HINT_TIME = 4;
+  var Hud = class {
+    constructor(world, opening) {
+      this.world = world;
+      this.opening = opening;
+    }
+    world;
+    opening;
+    banner = 3.5;
+    heroLag = MAX_HP;
+    foeLag = MAX_HP;
+    finish = 0;
+    foe = null;
+    /** The level won, against the board; the name being given for it; the name once written. */
+    result = null;
+    naming = null;
+    named = null;
+    /** A foe has just been ended. */
+    finisher() {
+      this.finish = FINISH_WORDS;
+    }
+    // The foe whose bar is shown: the demon while it lives, or else the nearest shade still standing.
+    rival() {
+      const p = this.world.hero, boss = this.world.boss;
+      if (boss && boss.phase !== "gone" && boss.phase !== "dying") return boss.body;
+      const beast = this.world.beast;
+      if (beast) return beast.mode === "wait" || beast.mode === "gone" ? null : beast;
+      let best = null, bestD = Infinity;
+      for (const f of this.world.foes) {
+        if (f.kind !== "shade" || f.ko > 0) continue;
+        const d = Math.abs(f.x - p.x) + Math.abs(f.y - p.y);
+        if (d < bestD) {
+          bestD = d;
+          best = f;
+        }
+      }
+      return best;
+    }
+    update(dt) {
+      this.banner = Math.max(0, this.banner - dt);
+      this.finish = Math.max(0, this.finish - dt);
+      const foe = this.rival();
+      if (foe !== this.foe) {
+        this.foe = foe;
+        this.foeLag = foe ? foe.hp : 0;
+      }
+      this.heroLag = Math.max(this.world.hero.hp, this.heroLag - DRAIN * dt);
+      if (foe) this.foeLag = Math.max(foe.hp, this.foeLag - DRAIN * dt);
+    }
+    // A bar that empties towards the middle of the screen; the pale part is what the last blow took.
+    bar(g2, x, hp, lag, fromRight, color, t, alarm, max = MAX_HP) {
+      const px = (bx, by, w, h, c) => {
+        g2.fillStyle = c;
+        g2.fillRect(bx, by, w, h);
+      };
+      px(x - 2, BAR_Y - 2, BAR_W + 4, BAR_H + 4, "#0a0814");
+      px(x - 1, BAR_Y - 1, BAR_W + 2, BAR_H + 2, alarm && Math.floor(t * 8) % 2 ? "#ffffff" : "#9a8fc0");
+      px(x, BAR_Y, BAR_W, BAR_H, "#3a0d14");
+      const full = Math.round(BAR_W * hp / max), pale = Math.round(BAR_W * lag / max);
+      const start = (w) => fromRight ? x + BAR_W - w : x;
+      px(start(pale), BAR_Y, pale, BAR_H, "#fff3d6");
+      px(start(full), BAR_Y, full, BAR_H, color);
+      px(start(full), BAR_Y, full, 2, "rgba(255,255,255,0.35)");
+      for (let i = 1; i < MAX_HP; i++) px(x + Math.round(BAR_W * i / MAX_HP), BAR_Y, 1, BAR_H, "rgba(10,8,20,0.55)");
+    }
+    // The panel of a level won: its time, its place on the board, the name asked for, what comes next.
+    wonPanel(g2, t, clock, won) {
+      const r = this.result, n = this.naming, words = r ? boardWords(r) : "";
+      const asking = !!n && !n.done, h = asking ? 206 : 112 + (words ? 22 : 0) + (this.named ? 22 : 0), y = Math.round((VIEW_H - h) / 2) - 6;
+      g2.fillStyle = "rgba(10,8,20,0.9)";
+      g2.fillRect(110, y, 420, h);
+      g2.strokeStyle = "#9a8fc0";
+      g2.lineWidth = 2;
+      g2.strokeRect(111, y + 1, 418, h - 2);
+      let at = y + 18;
+      centered(g2, won.title, at, "#ffe27a", 4);
+      at += 32;
+      centered(g2, `TIME ${clock}`, at, "#e2d8f0");
+      at += 22;
+      if (words) {
+        centered(g2, words, at, r?.cheated ? "#ff7a6a" : r?.place === 0 ? Math.floor(t * 4) % 2 ? "#ffe27a" : "#ff8a2a" : r?.place !== null ? "#ffe27a" : "#9d93b8");
+        at += 22;
+      }
+      if (asking) {
+        centered(g2, "ENTER YOUR NAME", at + 4, "#e2d8f0");
+        at += 26;
+        drawName(g2, n, at, t);
+        at += 38;
+        centered(g2, "TYPE IT  THEN ENTER", at, "#9d93b8");
+        at += 16;
+        centered(g2, "GAMEPAD  UP DOWN  A  START", at, "#9d93b8");
+        return;
+      }
+      if (this.named) {
+        centered(g2, `${this.named.name} IS NUMBER ${this.named.place + 1}`, at, "#ffe27a");
+        at += 22;
+      }
+      for (const line of won.lines) {
+        centered(g2, line, at + 6, "#9d93b8");
+        at += 22;
+      }
+    }
+    draw(g2, t, paused, won, pauseAt = 0, demo = false, hint = null) {
+      const w = this.world, p = w.hero;
+      const strip = g2.createLinearGradient(0, VIEW_H - 34, 0, VIEW_H);
+      strip.addColorStop(0, "rgba(8,6,18,0)");
+      strip.addColorStop(1, "rgba(8,6,18,0.85)");
+      g2.fillStyle = strip;
+      g2.fillRect(0, VIEW_H - 34, VIEW_W, 34);
+      const top = g2.createLinearGradient(0, 0, 0, 44);
+      top.addColorStop(0, "rgba(8,6,18,0.8)");
+      top.addColorStop(1, "rgba(8,6,18,0)");
+      g2.fillStyle = top;
+      g2.fillRect(0, 0, VIEW_W, 44);
+      const low = p.hp <= 2;
+      this.bar(g2, MARGIN, p.hp, this.heroLag, false, low ? "#ff5a3a" : "#ffd23a", t, low && w.state === "play");
+      text(g2, "MONK", MARGIN, BAR_Y + BAR_H + 5, "#e2d8f0");
+      if (demo) {
+        if (Math.floor(t * 1.6) % 2 === 0) centered(g2, "DEMO    PRESS ANY KEY", VIEW_H - 44, "#ffe27a");
+      } else if (hint && !paused && w.state === "play") {
+        const a = Math.min(1, hint.t / 0.25, (HINT_TIME - hint.t) / 0.5);
+        if (a > 0) {
+          g2.globalAlpha = a;
+          g2.fillStyle = "rgba(10,8,20,0.82)";
+          g2.fillRect(0, VIEW_H - 54, VIEW_W, 22);
+          g2.fillStyle = "#ffe27a";
+          g2.fillRect(0, VIEW_H - 54, VIEW_W, 1);
+          g2.fillRect(0, VIEW_H - 33, VIEW_W, 1);
+          centered(g2, hint.text, VIEW_H - 47, "#ffe27a");
+          g2.globalAlpha = 1;
+        }
+      } else if (w.invincible) text(g2, "INVINCIBLE", MARGIN + textWidth("MONK") + 12, BAR_Y + BAR_H + 5, "#ffe27a");
+      const foe = this.foe;
+      if (foe) {
+        const demon = foe.kind === "demon", beast = foe.kind === "beast", dazed = demon ? w.boss?.phase === "dazed" : foe.dazed > 0, x = VIEW_W - MARGIN - BAR_W;
+        this.bar(g2, x, foe.hp, this.foeLag, true, demon ? "#6fdcff" : beast ? "#ff8a3a" : "#6dff9a", t, dazed, demon ? DEMON.hp : beast ? BEAST.hp : MAX_HP);
+        const label = dazed ? "DAZED" : demon ? "DEMON" : beast ? "BEAST" : "SHADE";
+        text(g2, label, VIEW_W - MARGIN - textWidth(label), BAR_Y + BAR_H + 5, dazed && Math.floor(t * 6) % 2 ? "#ff5a3a" : "#e2d8f0");
+      }
+      const got = w.carried;
+      const need = w.embers.length, over = got > need ? `  +${got - need}` : "";
+      if (w.beast) centered(g2, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? "#ffe27a" : "#e2d8f0");
+      else if (need) centered(g2, `EMBERS ${Math.min(got, need)}/${need}${over}`, VIEW_H - 20, w.doorOpen ? "#ffe27a" : "#e2d8f0");
+      else if (w.boss) centered(g2, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? "#ffe27a" : "#e2d8f0");
+      const clock = clockText(w.clock);
+      text(g2, clock, VIEW_W - MARGIN - textWidth(clock), VIEW_H - 20, "#e2d8f0");
+      if (this.finish > 0) {
+        const words = "SNUFFED OUT", scale = 6, y = 84, hot = Math.floor(t * 14) % 2 === 0;
+        centered(g2, words, y + 3, "#1a0308", scale);
+        centered(g2, words, y, hot ? "#ff3b3b" : "#ffe27a", scale);
+      } else if (w.state === "play" && this.banner > 0) {
+        const top2 = w.boss ? 188 : 40;
+        this.opening.forEach((line, i) => centered(g2, line, top2 + i * 16, i === 0 ? "#ffe27a" : "#e2d8f0"));
+      } else if (w.state === "play" && w.doorOpen && w.door && Math.floor(t * 2) % 2) centered(g2, "THE DOOR IS OPEN", 40, "#ffe27a");
+      const panel2 = (lines) => {
+        const h = 44 + lines.length * 24, y = Math.round((VIEW_H - h) / 2) - 10;
+        g2.fillStyle = "rgba(10,8,20,0.88)";
+        g2.fillRect(120, y, 400, h);
+        g2.strokeStyle = "#9a8fc0";
+        g2.lineWidth = 2;
+        g2.strokeRect(121, y + 1, 398, h - 2);
+        lines.forEach(([str, color, scale], i) => centered(g2, str, y + 20 + i * 26, color, scale ?? 2));
+      };
+      if (w.state === "won") this.wonPanel(g2, t, clock, won);
+      else if (w.state === "lost" && w.slow <= 0) panel2([["KNOCKED OUT", "#ff7a6a", 4], ["PRESS JUMP TO TRY AGAIN", "#9d93b8"]]);
+      else if (paused) panel2([["PAUSED", "#ffe27a", 4], ["", "#9d93b8"], ...PAUSE_LINES.map((line, i) => i === pauseAt ? [`> ${line} <`, "#ffe27a"] : [line, "#9d93b8"])]);
+    }
   };
-  function makeBeastFire() {
-    return { balls: [], pillars: [] };
+
+  // src/input.ts
+  var KEYS = {
+    left: ["ArrowLeft", "KeyA"],
+    right: ["ArrowRight", "KeyD"],
+    up: ["ArrowUp", "KeyW"],
+    down: ["ArrowDown", "KeyS"],
+    jump: ["Space", "KeyK"],
+    attack: ["KeyX", "KeyJ", "ControlLeft", "ControlRight"],
+    guard: ["KeyC", "ShiftLeft", "ShiftRight", "KeyL"],
+    special: ["KeyV", "KeyI"],
+    restart: ["KeyR", "Enter"],
+    music: ["KeyM"],
+    pause: ["KeyP"],
+    full: ["KeyF"],
+    cheat: ["KeyG"],
+    win: ["KeyN"],
+    view: ["KeyH"],
+    options: ["KeyO"]
+  };
+  var STICK = 0.4;
+  var STICK_UP = 0.5;
+  var REPEAT_AFTER = 450;
+  var REPEAT_EVERY = 110;
+  var DIRECTIONS = ["up", "down", "left", "right"];
+  var Input = class {
+    constructor(target, pads, now = () => performance.now()) {
+      this.pads = pads;
+      this.now = now;
+      target.addEventListener("keydown", (event) => {
+        const e = event;
+        this.keys.add(e.code);
+        if (!e.repeat) this.taps.add(e.code);
+        if (typeof e.key === "string" && e.key && (!e.repeat || e.key === "Backspace" || e.key.startsWith("Arrow"))) this.typed.push(e.key);
+        if ((e.code.startsWith("Arrow") || e.code === "Space") && e.preventDefault) e.preventDefault();
+      });
+      target.addEventListener("keyup", (event) => {
+        this.keys.delete(event.code);
+      });
+      target.addEventListener("blur", () => {
+        this.keys.clear();
+        this.taps.clear();
+        this.typed = [];
+      });
+    }
+    pads;
+    now;
+    keys = /* @__PURE__ */ new Set();
+    taps = /* @__PURE__ */ new Set();
+    // pressed since the last read: a tap shorter than a frame still counts
+    held = { jump: false, attack: false, special: false, restart: false, music: false, pause: false, full: false, cheat: false, win: false, view: false, options: false };
+    typed = [];
+    pad = false;
+    // the gamepad was the last thing touched, not the keyboard
+    /** Whether the gamepad, rather than the keyboard, was used last: the hints speak of its buttons. */
+    get usingPad() {
+      return this.pad;
+    }
+    padHeld = { up: false, down: false, left: false, right: false, confirm: false, back: false, finish: false, options: false, select: false };
+    heldSince = { up: 0, down: 0, left: 0, right: 0 };
+    lastRepeat = { up: 0, down: 0, left: 0, right: 0 };
+    /** The state of the controls now. Call once per frame: presses are reported on the frame they happen. */
+    read() {
+      const key = (name2) => KEYS[name2].some((code) => this.keys.has(code) || this.taps.has(code));
+      const now = { left: key("left"), right: key("right"), up: key("up"), down: key("down"), jump: key("jump"), attack: key("attack"), guard: key("guard"), special: key("special"), restart: key("restart"), music: key("music"), pause: key("pause"), full: key("full"), cheat: key("cheat"), win: key("win"), view: key("view"), options: key("options") };
+      const padNow = { up: false, down: false, left: false, right: false, confirm: false, back: false, finish: false, options: false, select: false };
+      for (const pad of this.pads()) {
+        if (!pad || !pad.connected) continue;
+        const b = (i) => !!pad.buttons[i]?.pressed, ax = pad.axes[0] ?? 0, ay = pad.axes[1] ?? 0;
+        padNow.up ||= ay < -STICK_UP || b(12);
+        padNow.down ||= ay > STICK_UP || b(13);
+        padNow.left ||= ax < -STICK || b(14);
+        padNow.right ||= ax > STICK || b(15);
+        padNow.confirm ||= b(0);
+        padNow.back ||= b(1);
+        padNow.finish ||= b(9);
+        padNow.options ||= b(3);
+        padNow.select ||= b(8);
+        now.left ||= ax < -STICK || b(14);
+        now.right ||= ax > STICK || b(15);
+        now.up ||= ay < -STICK_UP || b(12);
+        now.down ||= ay > STICK_UP || b(13);
+        now.jump ||= b(0);
+        now.attack ||= b(2) || b(1);
+        now.special ||= b(3);
+        now.guard ||= b(4) || b(5) || b(6) || b(7);
+        now.restart ||= b(9);
+        now.pause ||= b(8);
+      }
+      const pressed = (name2) => {
+        const p = now[name2] && !this.held[name2];
+        this.held[name2] = now[name2];
+        return p;
+      };
+      const frame = {
+        x: (now.right ? 1 : 0) - (now.left ? 1 : 0),
+        up: now.up,
+        down: now.down,
+        jump: now.jump,
+        jumpPressed: pressed("jump"),
+        attackPressed: pressed("attack"),
+        guard: now.guard,
+        specialPressed: pressed("special"),
+        restartPressed: pressed("restart"),
+        musicPressed: pressed("music"),
+        pausePressed: pressed("pause"),
+        fullPressed: pressed("full"),
+        cheatPressed: pressed("cheat"),
+        winPressed: pressed("win"),
+        viewPressed: pressed("view"),
+        optionsPressed: pressed("options"),
+        any: Object.values(now).some(Boolean),
+        typed: this.typed,
+        pad: Object.fromEntries(Object.entries(padNow).map(([k, v]) => [k, v && !this.padHeld[k]]))
+      };
+      if (Object.values(padNow).some(Boolean)) this.pad = true;
+      if (this.keys.size > 0) this.pad = false;
+      const t = this.now();
+      for (const d of DIRECTIONS) {
+        if (!padNow[d]) continue;
+        if (!this.padHeld[d]) {
+          this.heldSince[d] = t;
+          this.lastRepeat[d] = t;
+          continue;
+        }
+        if (t - this.heldSince[d] >= REPEAT_AFTER && t - this.lastRepeat[d] >= REPEAT_EVERY) {
+          frame.pad[d] = true;
+          this.lastRepeat[d] = t;
+        }
+      }
+      this.padHeld = padNow;
+      this.typed = [];
+      this.taps.clear();
+      return frame;
+    }
+  };
+
+  // src/level/kinds.ts
+  var FIRE2 = [255, 138, 80];
+  var CANDLE = [255, 165, 105];
+  var MOON = [150, 172, 255];
+  var GLASS = [190, 205, 255];
+  var lantern = (dx) => ({ dx, dy: -80, radius: 48, strength: 0.7, flicker: 0.5, color: CANDLE });
+  var KINDS = {
+    hero: { role: "spawn", actor: "hero" },
+    shade: { role: "spawn", actor: "shade" },
+    ghoul: { role: "spawn", actor: "ghoul" },
+    demon: { role: "spawn", actor: "demon" },
+    skull: { role: "spawn", actor: "skull" },
+    // flies: its point is the bottom of its box, in the air
+    hound: { role: "spawn", actor: "hound" },
+    ghost: { role: "spawn", actor: "ghost" },
+    crow: { role: "spawn", actor: "crow" },
+    hand: { role: "spawn", actor: "hand" },
+    drowned: { role: "spawn", actor: "drowned" },
+    beast: { role: "spawn", actor: "beast" },
+    "reaper-guard": { role: "spawn", actor: "reaper" },
+    // the reaper of stone who keeps the gate: the door opens only once it is dust              // under the ground: its point is where it comes up              // perched: its point is under its feet            // comes out near a hero within its haunt, either side of its point
+    grave: { role: "grave" },
+    bell: { role: "bell" },
+    spikes: { role: "hazard" },
+    hill: { role: "terrain" },
+    candle: { role: "heal" },
+    ember: { role: "ember" },
+    door: { role: "door" },
+    window: { role: "decor", plane: "wall", image: "back", src: [0, 0, 160, 192], anchor: [80, 192], lights: [{ dx: 0, dy: -96, radius: 86, strength: 0.7, flicker: 0, color: MOON, cool: true }, { dx: 0, dy: -112, radius: 28, strength: 0.9, flicker: 0, color: GLASS }], shaft: true },
+    altar: { role: "decor", plane: "wall", image: "back", src: [320, 0, 128, 192], anchor: [64, 192], lights: [{ dx: 0, dy: -48, radius: 58, strength: 0.75, flicker: 0.5, color: CANDLE }], shaft: false },
+    gargoyle: { role: "decor", plane: "wall", image: "back", src: [464, 0, 80, 192], anchor: [40, 192], lights: [], shaft: false },
+    pillar: { role: "decor", plane: "wall", image: "column", src: [0, 0, 114, 190], anchor: [57, 190], lights: [lantern(-19), lantern(36)], shaft: false },
+    balustrade: { role: "decor", plane: "wall", image: "tiles", src: [192, 92, 80, 52], anchor: [40, 52], lights: [{ dx: 31, dy: -46, radius: 38, strength: 0.6, flicker: 0.5, color: CANDLE }], shaft: false },
+    torch: { role: "decor", plane: "back", sheet: "torch", lights: [{ dx: 0, dy: -26, radius: 150, strength: 1, flicker: 1, color: FIRE2 }] },
+    // An opening in the wall, on the sky: its foot on (x, y), `width` and `height` in its properties. The moon comes in.
+    arch: { role: "decor", plane: "wall", painter: "arch", lights: [{ dx: 0, dy: -40, radius: 96, strength: 0.6, flicker: 0, color: MOON, cool: true }] },
+    // Out of doors: a place where there is no wall, only the sky (its point is the top left corner; width, height).
+    outdoors: { role: "decor", plane: "wall", painter: "outdoors", lights: [] },
+    // Stone out of doors: the stone of the grid inside it is dressed as stone, not as earth (top left corner; width, height).
+    masonry: { role: "decor", plane: "wall", painter: "masonry", lights: [] },
+    // Rock out of doors: the stone of the grid inside it is dressed as the cemetery's mounds of rock, grass on top (top left corner; width, height).
+    rock: { role: "decor", plane: "wall", painter: "masonry", lights: [] },
+    // A wall left standing out of doors, ragged at its top and its sides, from its bottom left corner (width, height;
+    // `door` 1 for a doorway at its foot, `windows` for so many arched openings on the sky).
+    "ruin-wall": { role: "decor", plane: "wall", painter: "ruin-wall", lights: [] },
+    // An iron railing, spears on top, from its bottom left corner (width, height).
+    railing: { role: "decor", plane: "wall", painter: "railing", lights: [] },
+    // A column of the cemetery, two tiles wide, standing on the ground: its point is its bottom left corner on the
+    // top of the ground, `height` the tiles it rises above it. The stone of the grid under it is its body.
+    column: { role: "decor", plane: "back", painter: "column", lights: [] },
+    // A ledge of the cemetery: ground two tiles thick held up in the air, from its top left corner, `width` wide; the
+    // stone of the grid there is its body. Ruined columns behind hold it up: one walks under it, or on it.
+    ledge: { role: "decor", plane: "back", painter: "ledge", lights: [] },
+    // Crows perched together, `count` of them about the point (on a branch, a stone): they fly off all at once when the
+    // hero comes near or the thunder rolls. Only seen, never felt.
+    flock: { role: "decor", plane: "front", painter: "flock", lights: [] },
+    // The cemetery (ansimuz, public domain): its trees, its stones, its statue, its bushes, its mounds.
+    tree: { role: "decor", plane: "wall", image: "cemetery/tree-1", src: [0, 0, 166, 117], anchor: [72, 117], lights: [], shaft: false },
+    "mossy-tree": { role: "decor", plane: "wall", image: "cemetery/tree-2", src: [0, 0, 166, 117], anchor: [72, 117], lights: [], shaft: false },
+    "great-tree": { role: "decor", plane: "wall", image: "cemetery/tree-3", src: [0, 0, 176, 171], anchor: [78, 171], lights: [], shaft: false },
+    reaper: { role: "decor", plane: "wall", image: "cemetery/statue", src: [0, 0, 63, 75], anchor: [31, 75], lights: [], shaft: false },
+    "headstone-1": { role: "decor", plane: "wall", image: "cemetery/stone-1", src: [0, 0, 27, 39], anchor: [13, 39], lights: [], shaft: false },
+    "headstone-2": { role: "decor", plane: "wall", image: "cemetery/stone-2", src: [0, 0, 27, 40], anchor: [13, 40], lights: [], shaft: false },
+    "headstone-3": { role: "decor", plane: "wall", image: "cemetery/stone-3", src: [0, 0, 27, 33], anchor: [13, 33], lights: [], shaft: false },
+    "headstone-4": { role: "decor", plane: "wall", image: "cemetery/stone-4", src: [0, 0, 19, 38], anchor: [9, 38], lights: [], shaft: false },
+    bush: { role: "decor", plane: "wall", image: "cemetery/bush-large", src: [0, 0, 76, 65], anchor: [38, 65], lights: [], shaft: false },
+    shrub: { role: "decor", plane: "front", image: "cemetery/bush-small", src: [0, 0, 34, 29], anchor: [17, 29], lights: [], shaft: false },
+    mound: { role: "decor", plane: "wall", image: "cemetery/tiles", src: [278, 71, 148, 73], anchor: [74, 73], lights: [], shaft: false },
+    knoll: { role: "decor", plane: "wall", image: "cemetery/tiles", src: [304, 16, 96, 48], anchor: [48, 48], lights: [], shaft: false },
+    ruin: { role: "decor", plane: "back", image: "cemetery/tiles", src: [224, 48, 32, 96], anchor: [16, 64], lights: [], shaft: false },
+    // its base sunk into the ground, as the pack sets it
+    breach: { role: "decor", plane: "wall", painter: "breach", lights: [{ dx: 0, dy: 40, radius: 120, strength: 0.55, flicker: 0, color: MOON, cool: true }] },
+    "chain-lantern": { role: "decor", plane: "wall", painter: "chain-lantern", lights: [{ dx: 0, dy: 6, radius: 62, strength: 0.8, flicker: 0.6, color: CANDLE }] }
+  };
+  var KIND_NAMES = new Set(Object.keys(KINDS));
+  var CHURCH = "gothicvania-church/";
+  var CEMETERY = "gothicvania-cemetery/";
+  var MONK_FRAMES = [
+    "idle1",
+    "idle2",
+    "idle3",
+    "idle4",
+    "walk1",
+    "walk2",
+    "walk3",
+    "walk4",
+    "walk5",
+    "walk6",
+    "jump1",
+    "jump2",
+    "fall1",
+    "fall2",
+    "punch1",
+    "punch2",
+    "punch3",
+    "punch4",
+    "punch5",
+    "punch6",
+    "kick1",
+    "kick2",
+    "kick3",
+    "kick4",
+    "kick5",
+    "flying-kick1",
+    "flying-kick2",
+    "hurt1",
+    "hurt2",
+    "crouch1",
+    "crouch2",
+    "crouch-kick1",
+    "crouch-kick2",
+    "crouch-kick3",
+    "crouch-kick4",
+    "crouch-kick5"
+  ];
+  var range = (from, to5) => Array.from({ length: to5 - from + 1 }, (_, i) => from + i);
+  var IMAGES = {
+    tiles: CHURCH + "environment/tileset.png",
+    tilesCut: CHURCH + "environment/tileset-cut.png",
+    back: CHURCH + "environment/backgrounds-cut.png",
+    column: CHURCH + "environment/column-cut.png",
+    ...Object.fromEntries(MONK_FRAMES.map((n) => ["monk/" + n, `${CHURCH}player/${n}.png`])),
+    ...Object.fromEntries(range(1, 8).map((i) => ["ghoul/" + i, `${CHURCH}ghoul/burning-ghoul${i}.png`])),
+    ...Object.fromEntries(range(2, 8).map((i) => ["death/" + i, `${CHURCH}fx/enemy-death${i}.png`])),
+    ...Object.fromEntries(range(1, 3).map((i) => ["orb/" + i, `${CHURCH}fx/fireball${i}.png`])),
+    // The skeletons of the cemetery pack: bare (0) or in rags (1), walking and coming out of the ground.
+    ...Object.fromEntries(["bg-moon", "bg-mountains", "bg-graveyard", "tileset", "tree-1", "tree-2", "tree-3", "statue", "stone-1", "stone-2", "stone-3", "stone-4", "bush-large", "bush-small"].map((n) => ["cemetery/" + (n === "tileset" ? "tiles" : n), `${CEMETERY}environment/${n}.png`])),
+    ...Object.fromEntries([0, 1].flatMap((look) => range(1, 8).map((i) => [`skeleton/${look}/${i}`, `${CEMETERY}skeleton/skeleton${look ? "-clothed" : ""}-${i}.png`]))),
+    ...Object.fromEntries([0, 1].flatMap((look) => range(1, 6).map((i) => [`skeleton-rise/${look}/${i}`, `${CEMETERY}skeleton/skeleton-rise${look ? "-clothed" : ""}-${i}.png`])))
+  };
+  var STRIPS = {
+    "demon/idle": { file: "gothicvania-patreon/demon/demon-idle.png", w: 160, h: 144, frames: 6, footX: 61, footY: 126 },
+    "demon/attack": { file: "gothicvania-patreon/demon/demon-attack.png", w: 240, h: 192, frames: 11, footX: 135, footY: 166 },
+    // The beast of the furnace: (footX, footY) is between its feet; burning, it sinks into its fire and becomes a pillar of it.
+    "beast/idle": { file: "gothicvania-patreon/beast/beast-idle.png", w: 55, h: 67, frames: 6, footX: 27, footY: 66 },
+    "beast/breath": { file: "gothicvania-patreon/beast/beast-breath.png", w: 64, h: 64, frames: 4, footX: 32, footY: 63 },
+    "beast/burn": { file: "gothicvania-patreon/beast/beast-burn.png", w: 74, h: 160, frames: 6, footX: 37, footY: 159 },
+    "beast/ball": { file: "gothicvania-patreon/beast/fire-ball.png", w: 19, h: 16, frames: 3, footX: 9, footY: 8 },
+    // The fire skull, at half the size of the pack's (made with ffmpeg, its edges kept sharp): (footX, footY)
+    // is the middle of the skull, which flies; the bare skull lies on its bottom.
+    "skull/fire": { file: "gothicvania-patreon/skull/fire-skull-half.png", w: 48, h: 56, frames: 8, footX: 22, footY: 33 },
+    "skull/bare": { file: "gothicvania-patreon/skull/fire-skull-no-fire-half.png", w: 27, h: 35, frames: 4, footX: 13, footY: 32 },
+    "hound/idle": { file: "gothicvania-patreon/hound/hell-hound-idle.png", w: 64, h: 32, frames: 6, footX: 29, footY: 31 },
+    "hound/run": { file: "gothicvania-patreon/hound/hell-hound-run.png", w: 67, h: 32, frames: 5, footX: 35, footY: 31 },
+    "hound/jump": { file: "gothicvania-patreon/hound/hell-hound-jump.png", w: 65, h: 48, frames: 6, footX: 33, footY: 47 },
+    "ghost/appear": { file: "gothicvania-patreon/ghost/ghost-appears.png", w: 64, h: 48, frames: 6, footX: 32, footY: 45 },
+    "ghost/idle": { file: "gothicvania-patreon/ghost/ghost-idle.png", w: 64, h: 80, frames: 7, footX: 32, footY: 63 },
+    "ghost/shriek": { file: "gothicvania-patreon/ghost/ghost-shriek.png", w: 64, h: 80, frames: 4, footX: 31, footY: 58 },
+    "ghost/vanish": { file: "gothicvania-patreon/ghost/ghost-vanish.png", w: 64, h: 64, frames: 7, footX: 32, footY: 61 }
+  };
+  var sheet = (name2, frames, w, h, px, py, cols) => ({ file: `pixelfx/${name2}.png`, fps: 30, frames, w, h, px, py, cols });
+  var SHEETS = {
+    "hit-spark": sheet("hit-spark", 16, 136, 80, 44, 64, 4),
+    "crit-hit": sheet("crit-hit", 28, 216, 136, 84, 106, 5),
+    "blunt-hit": sheet("blunt-hit", 28, 128, 88, 64, 72, 5),
+    "collect-burst": sheet("collect-burst", 42, 112, 108, 56, 94, 7),
+    "poof-green": sheet("poof-green", 49, 112, 92, 56, 80, 7),
+    "heavy-landing": sheet("heavy-landing", 49, 176, 80, 88, 60, 5),
+    torch: sheet("torch", 60, 72, 120, 36, 94, 10),
+    bat: sheet("bat", 72, 112, 80, 56, 40, 8)
+  };
+  var EFFECTS = {
+    "hit-spark": { sheet: "hit-spark" },
+    "crit-hit": { sheet: "crit-hit" },
+    "blunt-hit": { sheet: "blunt-hit" },
+    "collect-burst": { sheet: "collect-burst" },
+    "poof-green": { sheet: "poof-green" },
+    "heavy-landing": { sheet: "heavy-landing" },
+    death: { frames: range(2, 8).map((i) => "death/" + i), frameTime: 0.08, anchorX: 40 }
+  };
+  function effectDuration(kind) {
+    const e = EFFECTS[kind];
+    if (!e) return 0;
+    return "sheet" in e ? SHEETS[e.sheet].frames / SHEETS[e.sheet].fps : e.frames.length * e.frameTime;
   }
-  function to3(e, mode) {
+
+  // src/level/tiled.ts
+  var LevelError = class extends Error {
+    constructor(message) {
+      super(message);
+      this.name = "LevelError";
+    }
+  };
+  var FLIP_BITS = 536870911;
+  function readProps(list) {
+    const props = {};
+    if (Array.isArray(list)) {
+      for (const p of list) if (p && typeof p.name === "string") props[p.name] = p.value;
+    }
+    return props;
+  }
+  function parseLevel(tiled, knownKinds, name2 = "") {
+    const map = tiled;
+    if (!map || map.type !== "map" || !Array.isArray(map.layers)) throw new LevelError("this file is not a Tiled map");
+    if (map.orientation !== "orthogonal" || map.infinite) throw new LevelError("the map must be orthogonal and of a fixed size");
+    if (map.tilewidth !== TILE || map.tileheight !== TILE) throw new LevelError(`the tiles must be ${TILE} pixels, they are ${map.tilewidth} x ${map.tileheight}`);
+    const tileset = (map.tilesets ?? []).find((t) => t.name === "collision");
+    if (!tileset) throw new LevelError('the map has no tileset named "collision"');
+    const layer = map.layers.find((l) => l.type === "tilelayer" && l.name === "collision");
+    if (!layer) throw new LevelError('the map has no tile layer named "collision"');
+    if (!Array.isArray(layer.data) || layer.data.length !== map.width * map.height) throw new LevelError('the "collision" layer must be stored as plain numbers (CSV), uncompressed');
+    const cells = new Uint8Array(map.width * map.height);
+    for (let i = 0; i < cells.length; i++) {
+      const gid = layer.data[i] & FLIP_BITS;
+      if (gid === 0) cells[i] = AIR;
+      else if (gid === tileset.firstgid) cells[i] = STONE;
+      else if (gid === tileset.firstgid + 1) cells[i] = LADDER;
+      else if (gid === tileset.firstgid + 2) cells[i] = PLATFORM;
+      else throw new LevelError(`the "collision" layer uses tile ${gid} at column ${i % map.width}, row ${Math.floor(i / map.width)}: only the three tiles of the "collision" tileset mean something there`);
+    }
+    const objects = [];
+    for (const group of map.layers) {
+      if (group.type !== "objectgroup") continue;
+      for (const o of group.objects ?? []) {
+        const kind = o.type || o.class || "";
+        if (!kind) throw new LevelError(`object ${o.id} in layer "${group.name}" has no type`);
+        if (!knownKinds.has(kind)) throw new LevelError(`unknown kind "${kind}" (object ${o.id} in layer "${group.name}")`);
+        objects.push({ kind, x: o.x, y: o.y, props: readProps(o.properties) });
+      }
+    }
+    const p = readProps(map.properties);
+    const settings = {
+      name: name2,
+      title: typeof p.title === "string" ? p.title : name2.toUpperCase(),
+      darkness: typeof p.darkness === "number" ? p.darkness : 0.5,
+      music: typeof p.music === "string" ? p.music : "",
+      mist: p.mist === true,
+      bats: typeof p.bats === "number" ? p.bats : 0,
+      sky: p.sky === true,
+      snow: p.snow === true,
+      storm: p.storm === true,
+      omen: p.omen === true,
+      intro: typeof p.intro === "string" ? p.intro : "",
+      collapse: typeof p.collapse === "number" && p.collapse > 0 ? p.collapse : 0,
+      water: typeof p.water === "number" && p.water > 0 ? p.water : 0,
+      rain: p.rain === true,
+      skyline: typeof p.skyline === "string" ? p.skyline : "",
+      restless: typeof p.restless === "number" && p.restless > 0 ? p.restless : 0,
+      tremor: typeof p.tremor === "number" && p.tremor > 0 ? p.tremor : 0,
+      fliers: typeof p.fliers === "string" ? p.fliers : "",
+      ending: typeof p.ending === "string" ? p.ending : "",
+      demo: p.demo === true
+    };
+    return { grid: new Grid(map.width, map.height, cells), objects, settings, width: map.width * TILE, height: map.height * TILE };
+  }
+
+  // src/levels.ts
+  var table = globalThis.LEVELS ?? {};
+  var LEVELS2 = table;
+  var LEVEL_NAMES = Object.keys(table);
+
+  // src/sim/terrain.ts
+  function hillShape(u) {
+    const v = Math.max(0, Math.min(1, u));
+    return v * v * (3 - 2 * v);
+  }
+  function terrainOf(objects, width) {
+    const hills = objects.filter((o) => o.kind === "hill");
+    if (!hills.length) return null;
+    const t = new Float32Array(Math.ceil(width)).fill(NaN);
+    for (const o of hills) {
+      const w = Number(o.props.width ?? 160), h = Number(o.props.height ?? 48), top = Math.min(w, Number(o.props.top ?? w / 3));
+      const rise = Math.max(1, (w - top) / 2);
+      for (let x = Math.max(0, Math.floor(o.x)); x < Math.min(t.length, o.x + w); x++) {
+        const d = x - o.x, u = d < rise ? hillShape(d / rise) : d < rise + top ? 1 : hillShape((w - d) / rise);
+        const y = o.y - h * u;
+        if (Number.isNaN(t[x]) || y < t[x]) t[x] = y;
+      }
+    }
+    return t;
+  }
+
+  // src/sim/reaper.ts
+  var REAPER = {
+    hp: 12,
+    wake: 230,
+    // px: how near the hero must come, across, to wake it
+    waking: 1.2,
+    // seconds it takes to come out of the stone
+    speed: 58,
+    hover: 6,
+    // px a second it floats at the hero; px over its floor
+    reach: 62,
+    // px: its blade, from its middle
+    windup: 0.55,
+    sweep: 0.3,
+    rest: 0.8,
+    far: 130,
+    // px: beyond this it throws its scythe rather than come
+    hold: 0.45,
+    // seconds it takes to throw
+    scythe: { speed: 270, out: 230, catch: 18, half: 10 },
+    hurt: 1,
+    stun: 0.22,
+    dust: 1.4
+    // seconds it takes to fall to dust
+  };
+  var to2 = (e, mode) => {
     e.mode = mode;
     e.modeT = 0;
     e.struck = false;
-  }
-  var enraged = (e) => e.hp <= BEAST.hp * BEAST.enraged;
-  function beastThere(e) {
-    return !BEAST.untouchable.includes(e.mode) && (e.mode !== "reform" || e.modeT > BEAST.reform * 0.4);
-  }
-  function beastGuards(e) {
-    return e.mode === "rest" || e.mode === "claw" && e.modeT < BEAST.claw.windup + BEAST.claw.strike || e.mode === "flare" && e.modeT < BEAST.flare.windup;
-  }
-  function strikeBeast(e, damage) {
-    e.hp = Math.max(0, e.hp - damage);
-    e.invul = 0.12;
-    if (e.hp > 0) return false;
-    to3(e, "dying");
-    return true;
-  }
-  function stepBeast(e, a, fire, dt) {
+  };
+  function stepReaper(e, a, dt, held) {
+    const hero = a.hero, cx = centreX(e), hx = centreX(hero), dx = hx - cx, side = dx >= 0 ? 1 : -1;
     e.modeT += dt;
-    e.invul = Math.max(0, e.invul - dt);
-    e.vx = 0;
-    e.vy = 0;
-    e.y = e.spawnY - e.h;
-    const hero = a.hero, dx = centreX(hero) - centreX(e), floor = feetY(e);
-    stepFire(e, a, fire, dt);
-    const face = () => {
-      if (Math.abs(dx) > 4) e.facing = dx > 0 ? 1 : -1;
-    };
+    e.animT += dt;
+    stepScythe(e, a, dt, held);
     switch (e.mode) {
-      case "wait":
-        if (a.playing && Math.abs(dx) < BEAST.wake && Math.abs(feetY(hero) - floor) < 220) {
-          face();
-          to3(e, "rest");
-          a.emit({ type: "sound", name: "roar" });
-          a.shake(0.4);
+      case "stone":
+        if (a.playing && Math.abs(dx) < REAPER.wake && Math.abs(hero.y + hero.h - e.spawnY) < 120) {
+          to2(e, "waking");
+          a.emit({ type: "sound", name: "reaper" });
+          a.emit({ type: "debris", x: cx, y: e.y + 10, count: 10 });
+          a.shake(0.3);
         }
         return;
-      case "rest":
-        face();
-        if (!a.playing || e.modeT < (enraged(e) ? BEAST.restEnraged : BEAST.rest)) return;
-        if (Math.abs(dx) < BEAST.claw.near && Math.abs(feetY(hero) - floor) < 30) {
-          if (e.chain >= 2) {
-            e.chain = 0;
-            to3(e, "flare");
-          } else {
-            e.chain++;
-            to3(e, "claw");
-          }
+      case "waking":
+        e.y = e.spawnY - e.h - REAPER.hover * Math.min(1, e.modeT / REAPER.waking);
+        if (e.modeT >= REAPER.waking) to2(e, "drift");
+        return;
+      case "dust":
+        if (e.modeT >= REAPER.dust) e.dead = 1;
+        return;
+      case "stunned":
+        if (e.modeT >= REAPER.stun) to2(e, "drift");
+        return;
+      case "drift": {
+        e.facing = side;
+        e.y = e.spawnY - e.h - REAPER.hover + Math.sin(e.animT * 2.2) * 3;
+        if (!a.playing) return;
+        if (Math.abs(dx) <= REAPER.reach - 8) {
+          to2(e, "windup");
           return;
         }
-        e.chain = 0;
-        {
-          const plan = enraged(e) ? ["breath", "burn"] : ["breath", "breath", "burn"];
-          to3(e, plan[e.look++ % plan.length]);
+        if (Math.abs(dx) > REAPER.far && !held.scythe && e.cool <= 0) {
+          to2(e, "throw");
+          return;
         }
+        e.cool = Math.max(0, e.cool - dt);
+        e.x += side * REAPER.speed * dt;
         return;
-      case "breath":
-        if (!e.struck && e.modeT >= BEAST.throwAt) {
+      }
+      case "windup":
+        if (e.modeT >= REAPER.windup) to2(e, "sweep");
+        return;
+      case "sweep":
+        if (!e.struck && Math.abs(dx) < REAPER.reach && hero.y < e.y + e.h && hero.y + hero.h > e.y) {
           e.struck = true;
-          const mx = centreX(e) + e.facing * 20, my = e.y + 22;
-          const aim = Math.atan2(hero.y + hero.h / 2 - my, centreX(hero) - mx);
-          const angles = enraged(e) ? [aim - BEAST.ball.fan, aim, aim + BEAST.ball.fan] : [aim];
-          for (const r of angles) fire.balls.push({ x: mx, y: my, vx: Math.cos(r) * BEAST.ball.speed, vy: Math.sin(r) * BEAST.ball.speed, life: BEAST.ball.life, gone: false });
+          a.hurt(side, REAPER.hurt, false);
+        }
+        if (e.modeT >= REAPER.sweep) to2(e, "rest");
+        return;
+      case "rest":
+        if (e.modeT >= REAPER.rest) to2(e, "drift");
+        return;
+      case "throw":
+        if (e.modeT >= REAPER.hold) {
+          held.scythe = { x: cx, y: e.y + e.h * 0.45, vx: e.facing * REAPER.scythe.speed, fromX: cx, back: false, t: 0 };
           a.emit({ type: "sound", name: "breath" });
+          e.cool = 2.5;
+          to2(e, "drift");
         }
-        if (e.modeT >= BEAST.breath) to3(e, "recover");
-        return;
-      case "recover":
-        if (e.modeT >= BEAST.recover) to3(e, "rest");
-        return;
-      case "claw": {
-        const c = BEAST.claw;
-        if (!e.struck && e.modeT >= c.windup) {
-          e.struck = true;
-          const left = e.facing > 0 ? e.x : e.x - c.reach, right = e.facing > 0 ? e.x + e.w + c.reach : e.x + e.w;
-          const box = { x: left, y: e.y + 10, w: right - left, h: e.h - 20 };
-          if (hero.x < box.x + box.w && hero.x + hero.w > box.x && hero.y < box.y + box.h && hero.y + hero.h > box.y) a.hurt(Math.abs(dx) < 2 ? e.facing : dx > 0 ? 1 : -1, c.hurt, false);
-          a.emit({ type: "sound", name: "swing" });
-        }
-        if (e.modeT >= c.windup + c.strike + c.recover) to3(e, "rest");
-        return;
-      }
-      case "flare": {
-        const f = BEAST.flare;
-        if (!e.struck && e.modeT >= f.windup) {
-          e.struck = true;
-          a.emit({ type: "sound", name: "blaze" });
-          a.shake(0.3);
-          if (Math.abs(dx) < f.reach && feetY(hero) > e.y && hero.y < floor) a.hurt(Math.abs(dx) < 2 ? e.facing : dx > 0 ? 1 : -1, f.hurt, true);
-        }
-        if (e.modeT >= f.windup + f.recover) to3(e, "rest");
-        return;
-      }
-      case "burn":
-        if (e.modeT >= BEAST.burn) {
-          to3(e, "pillars");
-          e.chain = enraged(e) ? BEAST.pillar.countEnraged : BEAST.pillar.count;
-          e.motionT = 0;
-          a.emit({ type: "sound", name: "flare" });
-        }
-        return;
-      case "pillars": {
-        const p = BEAST.pillar;
-        e.motionT -= dt;
-        if (e.chain > 0 && e.motionT <= 0) {
-          fire.pillars.push({ x: centreX(hero), y: floor, t: 0, rose: false, hit: false });
-          e.chain--;
-          e.motionT = p.every;
-        }
-        if (e.chain <= 0 && fire.pillars.length === 0) {
-          const last = e.cool, inside = Math.max(TILE * 2 + e.w, Math.min(a.width - TILE * 2 - e.w, last));
-          e.x = inside - e.w / 2;
-          to3(e, "reform");
-        }
-        if (fire.pillars.length) e.cool = fire.pillars[fire.pillars.length - 1].x;
-        return;
-      }
-      case "reform":
-        face();
-        if (e.modeT >= BEAST.reform) to3(e, "rest");
-        return;
-      case "dying":
-        fire.balls.length = 0;
-        fire.pillars.length = 0;
-        if (e.modeT >= BEAST.dying) to3(e, "gone");
         return;
     }
   }
-  function stepFire(e, a, fire, dt) {
-    const hero = a.hero, b = BEAST.ball, p = BEAST.pillar;
-    for (const ball of fire.balls) {
-      ball.x += ball.vx * dt;
-      ball.y += ball.vy * dt;
-      ball.life -= dt;
-      if (ball.life <= 0 || a.grid.solidAt(Math.floor(ball.x / TILE), Math.floor(ball.y / TILE))) {
-        ball.gone = true;
-        continue;
+  function stepScythe(e, a, dt, held) {
+    const s = held.scythe;
+    if (!s) return;
+    s.t += dt;
+    if (!s.back) {
+      s.x += s.vx * dt;
+      if (Math.abs(s.x - s.fromX) >= REAPER.scythe.out) s.back = true;
+    } else {
+      const home = centreX(e), d = home - s.x;
+      s.x += Math.sign(d) * Math.min(Math.abs(d), REAPER.scythe.speed * dt);
+      s.y += (e.y + e.h * 0.45 - s.y) * Math.min(1, 4 * dt);
+      if (Math.abs(d) < REAPER.scythe.catch) {
+        held.scythe = null;
+        return;
       }
-      const touch = hero.x < ball.x + b.w / 2 && hero.x + hero.w > ball.x - b.w / 2 && hero.y < ball.y + b.h / 2 && hero.y + hero.h > ball.y - b.h / 2;
-      if (touch && a.playing && a.hurt(ball.vx >= 0 ? 1 : -1, b.hurt, false)) ball.gone = true;
     }
-    fire.balls = fire.balls.filter((ball) => !ball.gone);
-    for (const pillar of fire.pillars) {
-      pillar.t += dt;
-      if (pillar.t < p.warn) continue;
-      if (!pillar.rose) {
-        pillar.rose = true;
-        a.emit({ type: "sound", name: "blaze" });
-        a.shake(0.15);
+    const h = a.hero, r = REAPER.scythe.half;
+    if (a.playing && h.x < s.x + r && h.x + h.w > s.x - r && h.y < s.y + r && h.y + h.h > s.y - r) {
+      const got = a.hurt(s.x <= h.x + h.w / 2 ? 1 : -1, REAPER.hurt, false);
+      if (got) s.back = true;
+    }
+  }
+  function strikeReaper(e, damage) {
+    e.hp -= damage;
+    if (e.hp <= 0) {
+      to2(e, "dust");
+      return true;
+    }
+    to2(e, "stunned");
+    return false;
+  }
+  var reaperThere = (e) => e.mode !== "stone" && e.mode !== "waking" && e.mode !== "dust";
+
+  // src/sim/creatures.ts
+  var SKULL = {
+    hurt: 1,
+    range: 150,
+    high: 90,
+    // px: how near the hero must be, across and up or down, for it to fly at him
+    flare: 0.45,
+    // seconds its fire flares up before it flies: the warning
+    dash: 330,
+    dashTime: 0.8,
+    // px a second, and for how long at most
+    back: 90,
+    drift: 50,
+    // px a second, going home and hovering
+    cool: 1.4,
+    // seconds before it flies again
+    out: 6
+    // seconds it lies out after a blow, before it lights again
+  };
+  var HOUND = {
+    hurt: 1,
+    hp: 2,
+    sight: 230,
+    // px: a hero on its floor this near wakes it
+    run: 195,
+    // faster than the hero
+    leapRange: 70,
+    leapVx: 250,
+    leapVy: 360,
+    rest: 0.6,
+    // seconds it gathers itself after a leap
+    back: 9
+    // seconds before it comes back where it sat
+  };
+  var GHOST = {
+    hurt: 1,
+    haunt: 220,
+    // px: it haunts this far either side of its place
+    near: [56, 80],
+    // px: how far from the hero it comes out
+    appear: 0.6,
+    idle: 1,
+    windup: 0.5,
+    scream: 0.35,
+    vanish: 0.6,
+    reach: 90,
+    // px: how far its shriek carries
+    away: [2.2, 3.6],
+    // seconds it stays away, in turn
+    driven: 6
+    // seconds it stays away when a blow drives it off
+  };
+  var CROW = {
+    hurt: 1,
+    wake: 150,
+    high: 150,
+    // px: how near the hero must come, across and up or down, to wake it
+    rise: 0.35,
+    climb: 70,
+    // seconds it rises from its perch, and how fast
+    dive: 1,
+    speed: 210,
+    // seconds it dives at where the hero was, and how fast
+    away: 1.4,
+    flee: 150
+    // seconds it flies off after, and how fast, then it is gone
+  };
+  var to3 = (e, mode) => {
+    e.mode = mode;
+    e.modeT = 0;
+    e.struck = false;
+  };
+  var towards = (e, tx, ty, speed, dt) => {
+    const cx = centreX(e), cy = e.y + e.h / 2, dx = tx - cx, dy = ty - cy, d = Math.hypot(dx, dy);
+    if (d > 0.01) {
+      const k = Math.min(d, speed * dt) / d;
+      e.x += dx * k;
+      e.y += dy * k;
+      if (Math.abs(dx) > 1) e.facing = dx > 0 ? 1 : -1;
+    }
+    return d;
+  };
+  var sideOf = (hero, e) => centreX(hero) >= centreX(e) ? 1 : -1;
+  var overlap2 = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  function stepSkull(e, a, dt) {
+    const hero = a.hero, homeX = e.spawnX, homeY = e.spawnY - e.h / 2;
+    e.modeT += dt;
+    e.animT += dt;
+    e.invul = Math.max(0, e.invul - dt);
+    e.cool = Math.max(0, e.cool - dt);
+    const cx = centreX(e), cy = e.y + e.h / 2, hx = centreX(hero), hy = hero.y + hero.h / 2;
+    switch (e.mode) {
+      case "hover":
+        towards(e, homeX + Math.sin(e.animT * 0.9) * 22, homeY + Math.sin(e.animT * 1.7) * 7, SKULL.drift, dt);
+        if (a.playing && e.cool <= 0 && Math.abs(hx - cx) < SKULL.range && Math.abs(hy - cy) < SKULL.high) {
+          to3(e, "flare");
+          e.facing = hx >= cx ? 1 : -1;
+          a.emit({ type: "sound", name: "flare" });
+        }
+        break;
+      case "flare":
+        if (e.modeT >= SKULL.flare) {
+          const dx = hx - cx, dy = hy - cy, d = Math.hypot(dx, dy) || 1;
+          e.vx = dx / d * SKULL.dash;
+          e.vy = dy / d * SKULL.dash;
+          to3(e, "dash");
+        }
+        break;
+      case "dash": {
+        const nx = e.x + e.vx * dt, ny = e.y + e.vy * dt;
+        if (a.grid.solidAt(Math.floor((nx + e.w / 2) / TILE), Math.floor((ny + e.h / 2) / TILE)) || e.modeT >= SKULL.dashTime) {
+          to3(e, "back");
+          e.cool = SKULL.cool;
+        } else {
+          e.x = nx;
+          e.y = ny;
+        }
+        break;
       }
-      const feet = feetY(hero), under = Math.abs(centreX(hero) - pillar.x) < p.half && feet > pillar.y - p.high && feet <= pillar.y + 4;
-      if (!pillar.hit && under && a.playing && a.hurt(centreX(hero) >= pillar.x ? 1 : -1, p.hurt, true)) pillar.hit = true;
+      case "back":
+        if (towards(e, homeX, homeY, SKULL.back, dt) < 4) to3(e, "hover");
+        break;
+      case "out":
+        e.vy = Math.min(TUNING.maxFall, e.vy + TUNING.gravity * dt);
+        if (e.onGround) e.vx *= Math.exp(-6 * dt);
+        move(e, a.grid, dt, () => {
+        });
+        if (e.modeT >= SKULL.out) {
+          to3(e, "back");
+          e.invul = 0.6;
+          e.cool = SKULL.cool;
+          a.emit({ type: "effect", kind: "collect-burst", x: centreX(e), y: e.y + e.h + 20, flip: false });
+        }
+        return;
     }
-    fire.pillars = fire.pillars.filter((pillar) => pillar.t < p.warn + p.rise);
-    void e;
+    if (a.playing && (e.mode === "dash" || e.mode === "hover" || e.mode === "flare") && e.invul <= 0 && overlap2(e, hero)) {
+      if (a.hurt(sideOf(hero, e), SKULL.hurt, false)) {
+        to3(e, "back");
+        e.cool = SKULL.cool;
+      }
+    }
+  }
+  function strikeSkull(e, dir) {
+    to3(e, "out");
+    e.vx = dir * 120;
+    e.vy = -140;
+    e.onGround = false;
+  }
+  function stepCrow(e, a, dt) {
+    const hero = a.hero;
+    e.modeT += dt;
+    e.animT += dt;
+    if (e.mode === "fallen") {
+      e.vy = Math.min(TUNING.maxFall, e.vy + TUNING.gravity * dt);
+      if (e.onGround) e.vx = 0;
+      move(e, a.grid, dt, () => {
+      });
+      return;
+    }
+    if (e.dead > 0) return;
+    const cx = centreX(e), cy = e.y + e.h / 2, hx = centreX(hero), hy = hero.y + hero.h / 3;
+    switch (e.mode) {
+      case "perch":
+        if (a.playing && Math.abs(hx - cx) < CROW.wake && Math.abs(hy - cy) < CROW.high) {
+          to3(e, "rise");
+          e.facing = hx >= cx ? 1 : -1;
+          a.emit({ type: "sound", name: "caw" });
+        }
+        return;
+      case "rise":
+        e.y -= CROW.climb * dt;
+        e.x -= e.facing * 20 * dt;
+        if (e.modeT >= CROW.rise) {
+          const dx = hx - cx, dy = hy - cy, d = Math.hypot(dx, dy) || 1;
+          e.vx = dx / d * CROW.speed;
+          e.vy = dy / d * CROW.speed;
+          e.facing = dx >= 0 ? 1 : -1;
+          to3(e, "dive");
+        }
+        break;
+      case "dive":
+        e.x += e.vx * dt;
+        e.y += e.vy * dt;
+        if (e.modeT >= CROW.dive) {
+          to3(e, "away");
+          e.vy = -CROW.flee * 0.6;
+          e.vx = e.facing * CROW.flee;
+        }
+        break;
+      case "away":
+        e.x += e.vx * dt;
+        e.y += e.vy * dt;
+        if (e.modeT >= CROW.away) {
+          to3(e, "gone");
+          e.dead = 1;
+        }
+        return;
+    }
+    if (a.playing && e.mode === "dive" && overlap2(e, hero)) {
+      const got = a.hurt(sideOf(hero, e), CROW.hurt, false);
+      if (got === "blocked") strikeCrow(e, sideOf(e, hero));
+      else if (got) {
+        to3(e, "away");
+        e.vy = -CROW.flee * 0.6;
+        e.vx = e.facing * CROW.flee;
+      }
+    }
+  }
+  function strikeCrow(e, dir) {
+    to3(e, "fallen");
+    e.dead = 1;
+    e.vx = dir * 90;
+    e.vy = -120;
+    e.onGround = false;
+  }
+  function stepHound(e, a, dt) {
+    const hero = a.hero;
+    if (e.dead > 0) {
+      e.dead -= dt;
+      if (e.dead <= 0) {
+        e.dead = 0;
+        e.hp = HOUND.hp;
+        e.invul = 1;
+        e.stun = 0;
+        e.x = e.spawnX - e.w / 2;
+        e.y = e.spawnY - e.h;
+        e.vx = 0;
+        e.vy = 0;
+        to3(e, "sit");
+      }
+      return;
+    }
+    e.modeT += dt;
+    e.invul = Math.max(0, e.invul - dt);
+    e.stun = Math.max(0, e.stun - dt);
+    const dx = centreX(hero) - centreX(e);
+    const sameFloor = hero.lastFloor === e.lastFloor || hero.onGround && Math.abs(dx) < HOUND.sight * 2 && a.grid.walkable(centreX(e), feetY(e), centreX(hero), feetY(hero));
+    if (e.stun > 0) e.vx *= Math.exp(-5 * dt);
+    else switch (e.mode) {
+      case "sit":
+        e.vx = 0;
+        if (a.playing && sameFloor && Math.abs(dx) < HOUND.sight) {
+          to3(e, "run");
+          a.emit({ type: "sound", name: "growl" });
+        }
+        break;
+      case "run": {
+        if (Math.abs(dx) > 2) e.facing = dx > 0 ? 1 : -1;
+        const ahead = !e.onGround || a.grid.groundUnder(centreX(e) + e.facing * 14, feetY(e)) !== null;
+        e.vx = ahead ? e.facing * HOUND.run : 0;
+        const bite = sameFloor && Math.abs(dx) < HOUND.leapRange;
+        const over = !ahead && dx * e.facing > 0 && Math.abs(feetY(hero) - feetY(e)) < 48 && leapClears(e, a.grid);
+        if (a.playing && e.onGround && (bite || over)) {
+          e.vx = e.facing * HOUND.leapVx;
+          e.vy = -HOUND.leapVy;
+          e.onGround = false;
+          to3(e, "leap");
+          a.emit({ type: "sound", name: "bark" });
+        } else if (!sameFloor && e.modeT > 2) to3(e, "sit");
+        break;
+      }
+      case "leap":
+        if (e.onGround && e.modeT > 0.1) to3(e, "land");
+        break;
+      case "land":
+        e.vx *= Math.exp(-8 * dt);
+        if (e.modeT >= HOUND.rest) to3(e, "run");
+        break;
+    }
+    e.vy = Math.min(TUNING.maxFall, e.vy + TUNING.gravity * dt);
+    move(e, a.grid, dt, a.emit);
+    e.animT += dt;
+    if (a.playing && (e.mode === "run" || e.mode === "leap") && e.stun <= 0 && e.invul <= 0 && overlap2(e, hero)) {
+      const outcome = a.hurt(sideOf(hero, e), HOUND.hurt, false);
+      if (outcome) {
+        to3(e, "land");
+        if (outcome === "blocked") {
+          e.vx = -e.facing * 220;
+          e.vy = -160;
+          e.onGround = false;
+        }
+      }
+    }
+  }
+  function leapClears(e, grid) {
+    const x0 = centreX(e), y = feetY(e);
+    const reach2 = HOUND.leapVx * 2 * HOUND.leapVy / TUNING.gravity - e.w / 2;
+    for (let d = 8; d <= reach2; d += 4) {
+      const x = x0 + e.facing * d;
+      if (grid.solidAt(Math.floor(x / TILE), Math.round(y / TILE) - 1)) return false;
+      if (grid.groundUnder(x, y) !== null && grid.groundUnder(x + e.facing * e.w / 2, y) !== null && d > 12) return true;
+    }
+    return false;
+  }
+  function strikeHound(e, dir, damage) {
+    e.hp = Math.max(0, e.hp - damage);
+    if (e.hp <= 0) {
+      e.dead = HOUND.back;
+      e.vx = 0;
+      return true;
+    }
+    e.stun = 0.4;
+    e.vx = dir * 160;
+    e.vy = -140;
+    e.onGround = false;
+    if (e.mode === "sit") to3(e, "run");
+    return false;
+  }
+  function stepGhost(e, a, dt) {
+    const hero = a.hero, hx = centreX(hero);
+    e.modeT += dt;
+    e.animT += dt;
+    switch (e.mode) {
+      case "away":
+        if (e.modeT >= e.cool && a.playing && Math.abs(hx - e.spawnX) < GHOST.haunt) {
+          const side = e.look % 2 ? 1 : -1, far = GHOST.near[0] + e.look * 7 % 5 / 4 * (GHOST.near[1] - GHOST.near[0]);
+          e.look++;
+          let x = hx + side * far;
+          if (Math.abs(x - e.spawnX) > GHOST.haunt || x < TILE * 2 || x > a.width - TILE * 2) x = hx - side * far;
+          e.x = x - e.w / 2;
+          e.y = hero.lastFloor * TILE - 2 - e.h;
+          e.facing = hx >= x ? 1 : -1;
+          to3(e, "appear");
+        }
+        break;
+      case "appear":
+        if (e.modeT >= GHOST.appear) to3(e, "idle");
+        break;
+      case "idle":
+        e.facing = sideOf(hero, e);
+        if (e.modeT >= GHOST.idle) to3(e, "shriek");
+        break;
+      case "shriek":
+        if (!e.struck && e.modeT >= GHOST.windup) {
+          e.struck = true;
+          a.emit({ type: "sound", name: "shriek" });
+          if (a.playing && Math.abs(hx - centreX(e)) < GHOST.reach && Math.abs(feetY(hero) - feetY(e)) < 30) a.hurt(sideOf(hero, e), GHOST.hurt, false);
+        }
+        if (e.modeT >= GHOST.windup + GHOST.scream) {
+          e.cool = GHOST.away[e.look % 2];
+          to3(e, "vanish");
+        }
+        break;
+      case "vanish":
+        if (e.modeT >= GHOST.vanish) to3(e, "away");
+        break;
+    }
+  }
+  function ghostThere(e) {
+    return e.mode === "idle" || e.mode === "shriek" || e.mode === "appear" && e.modeT > GHOST.appear / 2;
+  }
+  function strikeGhost(e) {
+    to3(e, "vanish");
+    e.cool = GHOST.driven;
+  }
+
+  // src/sim/fall.ts
+  var FALL = {
+    grace: 2,
+    // seconds the tower holds before it starts to come down
+    top: -60,
+    // px: where the collapse starts, over the top of the level
+    every: 0.3,
+    // seconds between two stones
+    ahead: 10,
+    // px under the collapse where a stone breaks off
+    rock: 1,
+    // what a stone costs the hero: the guard does not stop it
+    gravity: 900
+  };
+  function makeFall(speed) {
+    return { y: FALL.top, speed, t: 0, next: FALL.every, rocks: [], seed: 2654435769 };
+  }
+  function chance(f) {
+    f.seed = f.seed + 1831565813 >>> 0;
+    let z = f.seed;
+    z = Math.imul(z ^ z >>> 15, z | 1);
+    z ^= z + Math.imul(z ^ z >>> 7, z | 61);
+    return ((z ^ z >>> 14) >>> 0) / 4294967296;
+  }
+  var touches = (r, a) => r.x + r.size / 2 > a.x && r.x - r.size / 2 < a.x + a.w && r.y + r.size / 2 > a.y && r.y - r.size / 2 < a.y + a.h;
+  function stepFall(f, a, crush, dt) {
+    f.t += dt;
+    if (f.t > FALL.grace) f.y += f.speed * dt;
+    if ((f.next -= dt) <= 0) {
+      f.next = FALL.every;
+      f.rocks.push({ x: 24 + chance(f) * (a.width - 48), y: f.y + FALL.ahead, vy: 30, size: 7 + Math.floor(chance(f) * 8) });
+    }
+    const hero = a.hero;
+    f.rocks = f.rocks.filter((r) => {
+      r.vy += FALL.gravity * dt;
+      r.y += r.vy * dt;
+      if (a.playing && touches(r, hero)) {
+        a.hurt(hero.x + hero.w / 2 >= r.x ? 1 : -1, FALL.rock, true);
+        a.emit({ type: "debris", x: r.x, y: r.y, count: 8 });
+        return false;
+      }
+      if (a.grid.solidAt(Math.floor(r.x / TILE), Math.floor((r.y + r.size / 2) / TILE))) {
+        a.emit({ type: "debris", x: r.x, y: r.y, count: 6 });
+        return false;
+      }
+      return r.y < a.grid.rows * TILE + 40;
+    });
+    if (a.playing && hero.y < f.y) crush();
   }
 
   // src/sim/drowned.ts
@@ -4568,7 +5141,7 @@
 
   // src/render/scene.ts
   var isSlab = (g2, c, r) => g2.solidAt(c, r) && !g2.solidAt(c, r - 1) && !g2.solidAt(c, r + 1);
-  var hash = (a, b) => {
+  var hash2 = (a, b) => {
     const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
     return s - Math.floor(s);
   };
@@ -4626,7 +5199,7 @@
     c.width = w;
     c.height = h;
     const k = c.getContext("2d");
-    for (let y = 0; y < h; y += TILE) for (let x = 0; x < w; x += TILE) k.drawImage(tiles, 320 + Math.floor(hash(x, y) * 5) % 5 * TILE, 104, TILE, TILE, x, y, TILE, TILE);
+    for (let y = 0; y < h; y += TILE) for (let x = 0; x < w; x += TILE) k.drawImage(tiles, 320 + Math.floor(hash2(x, y) * 5) % 5 * TILE, 104, TILE, TILE, x, y, TILE, TILE);
     const shade = k.createLinearGradient(0, 0, 0, h);
     shade.addColorStop(0, "rgba(10,6,24,0.15)");
     shade.addColorStop(1, "rgba(10,6,24,0.55)");
@@ -4635,11 +5208,11 @@
     k.globalCompositeOperation = "destination-out";
     k.fillStyle = "#000";
     for (let x = 0; x < w; x += 4) {
-      const bite = Math.floor(hash(Math.floor((x0 + x) / 4), 7) * 26 + hash(Math.floor((x0 + x) / 24), 8) * 70 * (0.4 + 0.6 * Math.abs(Math.sin(x / w * Math.PI * 1.6))));
+      const bite = Math.floor(hash2(Math.floor((x0 + x) / 4), 7) * 26 + hash2(Math.floor((x0 + x) / 24), 8) * 70 * (0.4 + 0.6 * Math.abs(Math.sin(x / w * Math.PI * 1.6))));
       k.fillRect(x, 0, 4, bite);
     }
     for (let y = 0; y < h; y += 4) {
-      const edge = Math.floor(hash(Math.floor((top + y) / 4), x0) * 10 * (1 - y / h) + 2);
+      const edge = Math.floor(hash2(Math.floor((top + y) / 4), x0) * 10 * (1 - y / h) + 2);
       k.fillRect(0, y, edge, 4);
       k.fillRect(w - edge, y, edge, 4);
     }
@@ -4684,16 +5257,16 @@
       b.drawImage(tiles, 224, 96, 32, 16, x, ground - TILE, 32, 16);
     }
     for (let x = x0; x < x0 + w; x += TILE) {
-      const piece = 64 + Math.floor(hash(x, 5) * 4) % 4 * TILE;
+      const piece = 64 + Math.floor(hash2(x, 5) * 4) % 4 * TILE;
       b.drawImage(tiles, piece, 48, TILE, 32, x, top - TILE, TILE, 32);
       b.drawImage(tiles, piece, 80, TILE, 16, x, top + TILE, TILE, 16);
     }
     b.fillStyle = "#1c0f16";
     b.fillRect(x0, under, w, 2);
     for (let x = x0 + 2; x < x0 + w - 2; x += 3) {
-      const len = Math.floor(hash(x, 9) * 7);
+      const len = Math.floor(hash2(x, 9) * 7);
       if (len < 2) continue;
-      b.fillStyle = hash(x, 10) > 0.8 ? "#d8cbb0" : "#3a2418";
+      b.fillStyle = hash2(x, 10) > 0.8 ? "#d8cbb0" : "#3a2418";
       b.fillRect(x, under + 2, 1, len);
     }
   }
@@ -4718,7 +5291,7 @@
   function paintBreach(b, o) {
     const w = Number(o.props.width ?? 160), h = Number(o.props.height ?? 96);
     const half = (y, grow) => {
-      const k = y / h, ragged = (hash(Math.floor(y / 3), o.x) - 0.5) * 14 + (hash(Math.floor(y / 7), o.x + 1) - 0.5) * 10;
+      const k = y / h, ragged = (hash2(Math.floor(y / 3), o.x) - 0.5) * 14 + (hash2(Math.floor(y / 7), o.x + 1) - 0.5) * 10;
       return Math.max(0, w / 2 * (1 - k * k) + ragged * (1 - k * 0.5) + grow);
     };
     const rows = (grow, color) => {
@@ -4737,7 +5310,7 @@
     rows(0, "#000");
     b.restore();
     for (let i = 0; i < 9; i++) {
-      const y = Math.floor(hash(i, o.x + 3) * h * 0.8), side = i % 2 ? 1 : -1, x = o.x + side * (half(y, 2) + 1);
+      const y = Math.floor(hash2(i, o.x + 3) * h * 0.8), side = i % 2 ? 1 : -1, x = o.x + side * (half(y, 2) + 1);
       b.fillStyle = "#4a416e";
       b.fillRect(Math.round(x - (side > 0 ? 0 : 5)), y, 5, 3);
       b.fillStyle = "#221f36";
@@ -4795,7 +5368,7 @@
     r(0, 0, W, H, "rgb(39,38,56)");
     b.globalAlpha = 0.7;
     for (let y = 0; y < H; y += 48) for (let x = 0; x < W; x += TILE) {
-      if (hash(x, y) > 0.5) {
+      if (hash2(x, y) > 0.5) {
         b.save();
         b.translate(x + TILE, 0);
         b.scale(-1, 1);
@@ -4806,7 +5379,7 @@
     b.globalAlpha = 1;
     for (let y = 0; y < H; y += 4) r(0, y, W, 4, `rgba(8,6,22,${(0.3 * (1 - y / H)).toFixed(3)})`);
     for (let i = 0, n = Math.ceil(W * H / 3e4); i < n; i++) {
-      const x = hash(i, 11) * W, y = hash(i, 12) * H, rad = 60 + hash(i, 13) * 90;
+      const x = hash2(i, 11) * W, y = hash2(i, 12) * H, rad = 60 + hash2(i, 13) * 90;
       const stain = b.createRadialGradient(x, y, 0, x, y, rad);
       stain.addColorStop(0, "rgba(6,5,18,0.34)");
       stain.addColorStop(1, "rgba(6,5,18,0)");
@@ -4865,7 +5438,7 @@
         else if (!grid.solidAt(c, row - 2)) {
         } else b.drawImage(earth, piece, grid.solidAt(c, row - 3) ? 120 : 104, TILE, 16, x, y, TILE, 16);
       } else {
-        const piece = 64 + Math.floor(hash(c, 3) * 4) % 4 * TILE;
+        const piece = 64 + Math.floor(hash2(c, 3) * 4) % 4 * TILE;
         if (open2) b.drawImage(earth, piece, 48, TILE, 32, x, y - TILE, TILE, 32);
         else if (!grid.solidAt(c, row - 2)) b.drawImage(earth, piece, 80, TILE, 16, x, y, TILE, 16);
         else r(x, y, TILE, TILE, "#000022");
@@ -5059,7 +5632,7 @@
     k.lineTo(wx + 136, wy + 300);
     k.closePath();
   }
-  var MARGIN = 16;
+  var MARGIN2 = 16;
   var RES = 2;
   var FALL2 = [0, 0.08, 0.18, 0.3, 0.45, 0.6, 0.75, 0.88, 1];
   var SOFT = 1.5;
@@ -5156,12 +5729,12 @@
         return;
       }
       const one = this.one.getContext("2d");
-      const x = Math.floor((l.x - radius - camX + MARGIN) / RES), y = Math.floor((l.y - radius - camY + MARGIN) / RES), size = Math.ceil(radius * 2 / RES) + 2;
+      const x = Math.floor((l.x - radius - camX + MARGIN2) / RES), y = Math.floor((l.y - radius - camY + MARGIN2) / RES), size = Math.ceil(radius * 2 / RES) + 2;
       one.setTransform(1, 0, 0, 1, 0, 0);
       one.globalCompositeOperation = "source-over";
       one.globalAlpha = 1;
       one.clearRect(x, y, size, size);
-      one.setTransform(1 / RES, 0, 0, 1 / RES, (MARGIN - camX) / RES, (MARGIN - camY) / RES);
+      one.setTransform(1 / RES, 0, 0, 1 / RES, (MARGIN2 - camX) / RES, (MARGIN2 - camY) / RES);
       this.pour(one, l, poly, radius, strength);
       one.globalCompositeOperation = "destination-out";
       for (const c of cast) {
@@ -5183,7 +5756,7 @@
      * The bodies in `casters` throw their shadow on the wall behind them.
      */
     draw(g2, camX, camY, darkness, resting, moving, t, casters) {
-      const W = VIEW_W + MARGIN * 2, H = VIEW_H + MARGIN * 2, w = W / RES, h = H / RES;
+      const W = VIEW_W + MARGIN2 * 2, H = VIEW_H + MARGIN2 * 2, w = W / RES, h = H / RES;
       const make = () => Object.assign(document.createElement("canvas"), { width: w, height: h });
       this.map ??= make();
       this.cool ??= make();
@@ -5192,7 +5765,7 @@
       this.hot ??= make();
       this.air ??= make();
       const k = this.map.getContext("2d"), cool = this.cool.getContext("2d");
-      const toMap = (m) => m.setTransform(1 / RES, 0, 0, 1 / RES, (MARGIN - camX) / RES, (MARGIN - camY) / RES);
+      const toMap = (m) => m.setTransform(1 / RES, 0, 0, 1 / RES, (MARGIN2 - camX) / RES, (MARGIN2 - camY) / RES);
       for (const m of [k, cool]) {
         m.setTransform(1, 0, 0, 1, 0, 0);
         m.globalCompositeOperation = "source-over";
@@ -5202,7 +5775,7 @@
         m.globalCompositeOperation = "lighter";
         toMap(m);
       }
-      const seen = (l) => l.x + l.radius > camX - MARGIN && l.x - l.radius < camX + VIEW_W + MARGIN && l.y + l.radius > camY - MARGIN && l.y - l.radius < camY + VIEW_H + MARGIN;
+      const seen = (l) => l.x + l.radius > camX - MARGIN2 && l.x - l.radius < camX + VIEW_W + MARGIN2 && l.y + l.radius > camY - MARGIN2 && l.y - l.radius < camY + VIEW_H + MARGIN2;
       this.shown = [];
       for (const { light, poly } of this.fixed) {
         if (!seen(light)) continue;
@@ -5267,7 +5840,7 @@
       q.fillRect(0, 0, w, h);
       this.moon = moonlit(darkness);
       q.fillStyle = `rgb(${this.moon[0]},${this.moon[1]},${this.moon[2]})`;
-      for (const o of this.open) q.fillRect((o.x + MARGIN - camX) / RES, (o.y + MARGIN - camY) / RES, o.w / RES, o.h / RES);
+      for (const o of this.open) q.fillRect((o.x + MARGIN2 - camX) / RES, (o.y + MARGIN2 - camY) / RES, o.w / RES, o.h / RES);
       q.globalCompositeOperation = "lighter";
       q.drawImage(this.map, 0, 0);
       q.drawImage(this.cool, 0, 0);
@@ -5307,19 +5880,19 @@
       r.drawImage(g2.canvas, 0, 0);
       r.globalCompositeOperation = "multiply";
       r.imageSmoothingEnabled = true;
-      r.drawImage(this.hot, -MARGIN, -MARGIN, W, H);
+      r.drawImage(this.hot, -MARGIN2, -MARGIN2, W, H);
       g2.save();
       g2.setTransform(1, 0, 0, 1, 0, 0);
       g2.imageSmoothingEnabled = true;
       g2.globalCompositeOperation = "multiply";
-      g2.drawImage(this.lit, -MARGIN, -MARGIN, W, H);
+      g2.drawImage(this.lit, -MARGIN2, -MARGIN2, W, H);
       g2.globalCompositeOperation = "screen";
       g2.globalAlpha = OVER;
       g2.drawImage(this.raw, 0, 0);
       g2.globalAlpha = WASH;
-      g2.drawImage(this.hot, -MARGIN, -MARGIN, W, H);
+      g2.drawImage(this.hot, -MARGIN2, -MARGIN2, W, H);
       g2.globalAlpha = COOL_WASH;
-      g2.drawImage(this.cool, -MARGIN, -MARGIN, W, H);
+      g2.drawImage(this.cool, -MARGIN2, -MARGIN2, W, H);
       g2.restore();
       const sheen = this.wet ? SHEEN_WET : SHEEN;
       if (sheen > 0) {
@@ -5329,11 +5902,11 @@
         e.globalAlpha = 1;
         e.imageSmoothingEnabled = true;
         e.clearRect(0, 0, VIEW_W, VIEW_H);
-        e.drawImage(this.hot, -MARGIN, -MARGIN, W, H);
+        e.drawImage(this.hot, -MARGIN2, -MARGIN2, W, H);
         if (this.wet) {
           e.globalCompositeOperation = "lighter";
           e.globalAlpha = 0.6;
-          e.drawImage(this.cool, -MARGIN, -MARGIN, W, H);
+          e.drawImage(this.cool, -MARGIN2, -MARGIN2, W, H);
           e.globalAlpha = 1;
         }
         e.globalCompositeOperation = "destination-in";
@@ -5354,7 +5927,7 @@
       g2.imageSmoothingEnabled = true;
       g2.globalCompositeOperation = "screen";
       g2.globalAlpha = HAZE;
-      g2.drawImage(this.air, -MARGIN, -MARGIN, VIEW_W + MARGIN * 2, VIEW_H + MARGIN * 2);
+      g2.drawImage(this.air, -MARGIN2, -MARGIN2, VIEW_W + MARGIN2 * 2, VIEW_H + MARGIN2 * 2);
       g2.restore();
     }
     /** The light at a point of the level, as of the last frame: its colour, and the lamp that gives most of it (`not` left aside). */
@@ -5365,7 +5938,7 @@
   };
 
   // src/render/sky.ts
-  var hash2 = (a, b) => {
+  var hash3 = (a, b) => {
     const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
     return s - Math.floor(s);
   };
@@ -5376,22 +5949,57 @@
     return [-camX * depth, rise * depth * RISE2];
   }
   var ridge = (u) => 26 * Math.sin(u * 0.011) + 15 * Math.sin(u * 0.029 + 1.7) + 7 * Math.sin(u * 0.067 + 0.4);
+  var widened = /* @__PURE__ */ new WeakMap();
+  function wideSky(moon) {
+    const made = widened.get(moon);
+    if (made) return made;
+    const PW = moon.width, PH = moon.height, mid = Math.round((VIEW_W - PW) / 2);
+    const c = Object.assign(document.createElement("canvas"), { width: VIEW_W, height: PH }), k = c.getContext("2d");
+    k.imageSmoothingEnabled = true;
+    k.filter = "blur(7px)";
+    k.drawImage(moon, 0, 0, PW, PH, -12, -6, VIEW_W + 24, PH + 12);
+    k.filter = "none";
+    const wisp = (sx, sy, sw, sh, dx, dy, alpha) => {
+      const p = Object.assign(document.createElement("canvas"), { width: sw, height: sh }), q = p.getContext("2d");
+      q.drawImage(moon, sx, sy, sw, sh, 0, 0, sw, sh);
+      q.globalCompositeOperation = "destination-in";
+      const r = q.createRadialGradient(sw / 2, sh / 2, Math.min(sw, sh) * 0.15, sw / 2, sh / 2, Math.max(sw, sh) / 2);
+      r.addColorStop(0, "rgba(0,0,0,1)");
+      r.addColorStop(1, "rgba(0,0,0,0)");
+      q.save();
+      q.translate(sw / 2, sh / 2);
+      q.scale(1, sh / sw);
+      q.translate(-sw / 2, -sh / 2);
+      q.fillStyle = r;
+      q.fillRect(-sw, -sh, sw * 3, sh * 3);
+      q.restore();
+      k.globalAlpha = alpha;
+      k.drawImage(p, dx, dy);
+      k.globalAlpha = 1;
+    };
+    wisp(250, 66, 110, 58, mid - 104, 88, 0.5);
+    wisp(30, 76, 100, 52, mid + PW - 4, 64, 0.45);
+    wisp(150, 30, 90, 40, mid - 80, 30, 0.3);
+    const pic = Object.assign(document.createElement("canvas"), { width: PW, height: PH }), pk = pic.getContext("2d");
+    pk.drawImage(moon, 0, 0);
+    pk.globalCompositeOperation = "destination-in";
+    const edge = pk.createLinearGradient(0, 0, PW, 0), soft = 80 / PW;
+    edge.addColorStop(0, "rgba(0,0,0,0)");
+    edge.addColorStop(soft, "rgba(0,0,0,1)");
+    edge.addColorStop(1 - soft, "rgba(0,0,0,1)");
+    edge.addColorStop(1, "rgba(0,0,0,0)");
+    pk.fillStyle = edge;
+    pk.fillRect(0, 0, PW, PH);
+    k.drawImage(pic, mid, 0);
+    widened.set(moon, c);
+    return c;
+  }
   function paintCemetery(k, camX, ground, t, p, dawn = 0) {
     const PW = 384, PH = 224, top = Math.round(ground + 48 - PH), mid = Math.round((VIEW_W - PW) / 2);
     k.fillStyle = "#000022";
     k.fillRect(0, 0, VIEW_W, VIEW_H);
     const sky = Math.min(0, top);
-    k.drawImage(p.moon, mid, sky);
-    k.save();
-    k.translate(mid, 0);
-    k.scale(-1, 1);
-    k.drawImage(p.moon, 0, sky);
-    k.restore();
-    k.save();
-    k.translate(mid + PW * 2, 0);
-    k.scale(-1, 1);
-    k.drawImage(p.moon, 0, sky);
-    k.restore();
+    k.drawImage(wideSky(p.moon), 0, sky);
     const glow = k.createRadialGradient(VIEW_W / 2, sky + 70, 10, VIEW_W / 2, sky + 70, 120);
     glow.addColorStop(0, `rgba(255,40,140,${(0.06 + 0.04 * Math.sin(t * 0.7)).toFixed(3)})`);
     glow.addColorStop(1, "rgba(255,40,140,0)");
@@ -5404,17 +6012,44 @@
       warm.addColorStop(1, `rgba(255,210,140,${(0.95 * dawn).toFixed(3)})`);
       k.fillStyle = warm;
       k.fillRect(0, 0, VIEW_W, VIEW_H);
-      const sx = VIEW_W * 0.86, sy = top + 190 - 90 * dawn;
+      const sx = VIEW_W * 0.8, sy = top + 50 - 70 * dawn;
       const sun = k.createRadialGradient(sx, sy, 8, sx, sy, 230);
       sun.addColorStop(0, `rgba(255,235,170,${(0.85 * dawn).toFixed(3)})`);
       sun.addColorStop(0.25, `rgba(255,190,120,${(0.45 * dawn).toFixed(3)})`);
       sun.addColorStop(1, "rgba(255,170,110,0)");
       k.fillStyle = sun;
       k.fillRect(0, 0, VIEW_W, VIEW_H);
+      k.save();
+      k.globalCompositeOperation = "lighter";
+      for (let i = 0; i < 7; i++) {
+        const a = Math.PI * (0.62 + i * 0.075) + 0.03 * Math.sin(t * 0.3 + i), len = 520, spread = 0.035;
+        const breath = (0.1 + 0.07 * Math.sin(t * (0.5 + i * 0.13) + i * 1.7)) * dawn;
+        const ray = k.createLinearGradient(sx, sy, sx + Math.cos(a) * len, sy + Math.sin(a) * len);
+        ray.addColorStop(0, `rgba(255,220,160,${breath.toFixed(3)})`);
+        ray.addColorStop(1, "rgba(255,200,150,0)");
+        k.fillStyle = ray;
+        k.beginPath();
+        k.moveTo(sx, sy);
+        k.lineTo(sx + Math.cos(a - spread) * len, sy + Math.sin(a - spread) * len);
+        k.lineTo(sx + Math.cos(a + spread) * len, sy + Math.sin(a + spread) * len);
+        k.closePath();
+        k.fill();
+      }
+      k.restore();
       k.fillStyle = `rgba(255,246,214,${dawn.toFixed(3)})`;
       for (let dy = -20; dy <= 20; dy++) {
         const half = Math.round(Math.sqrt(400 - dy * dy));
         k.fillRect(Math.round(sx - half), Math.round(sy + dy), half * 2, 1);
+      }
+      k.fillStyle = `rgba(40,24,40,${(0.75 * dawn).toFixed(3)})`;
+      for (let f = 0; f < 3; f++) {
+        const span = VIEW_W + 160, speed = 14 + f * 6, x0 = (t * speed + f * 260) % span - 80, y0 = top + 40 + f * 26 + 6 * Math.sin(t * 0.4 + f);
+        for (let b = 0; b < 4 + f; b++) {
+          const bx = Math.round(x0 - b * 11), by = Math.round(y0 + Math.abs(b - 2) * 5 + b % 2 * 2), up = Math.floor(t * 6 + b + f) % 2;
+          k.fillRect(bx - 2, by - up, 2, 1);
+          k.fillRect(bx, by, 1, 1);
+          k.fillRect(bx + 1, by - up, 2, 1);
+        }
       }
     }
     for (const [picture, depth, lift] of [[p.mountains, 0.07, 56], [p.graveyard, 0.25, 0]]) {
@@ -5434,9 +6069,9 @@
     k.fillRect(0, 0, VIEW_W, VIEW_H);
     const [sx, sy] = planeShift(DEPTH.stars, camX, rise);
     for (let i = 0; i < 150; i++) {
-      const x = mod(hash2(i, 1) * (VIEW_W + 40) + sx, VIEW_W + 40) - 20, y = hash2(i, 2) * 300 + sy;
-      const twinkle = 0.45 + 0.55 * Math.sin(t * (1 + hash2(i, 3) * 2.5) + i);
-      r(x, y, hash2(i, 4) > 0.88 ? 2 : 1, 1, `rgba(220,230,255,${(0.35 + 0.65 * twinkle * hash2(i, 5)).toFixed(3)})`);
+      const x = mod(hash3(i, 1) * (VIEW_W + 40) + sx, VIEW_W + 40) - 20, y = hash3(i, 2) * 300 + sy;
+      const twinkle = 0.45 + 0.55 * Math.sin(t * (1 + hash3(i, 3) * 2.5) + i);
+      r(x, y, hash3(i, 4) > 0.88 ? 2 : 1, 1, `rgba(220,230,255,${(0.35 + 0.65 * twinkle * hash3(i, 5)).toFixed(3)})`);
     }
     const [mx, my] = planeShift(DEPTH.moon, camX, rise);
     const moonX = 455 + mx, moonY = 70 + my;
@@ -5457,9 +6092,9 @@
     }
     const [cx, cy] = planeShift(DEPTH.clouds, camX, rise);
     for (let i = 0; i < 7; i++) {
-      const w = 70 + hash2(i, 60) * 90, x = mod(hash2(i, 61) * (VIEW_W + 300) + t * (3 + hash2(i, 62) * 4) + cx, VIEW_W + 300) - 150, y = 40 + hash2(i, 63) * 150 + cy;
+      const w = 70 + hash3(i, 60) * 90, x = mod(hash3(i, 61) * (VIEW_W + 300) + t * (3 + hash3(i, 62) * 4) + cx, VIEW_W + 300) - 150, y = 40 + hash3(i, 63) * 150 + cy;
       for (let j = 0; j < 5; j++) {
-        const part = w * (0.35 + hash2(i * 5 + j, 64) * 0.4), px = x + (j - 2) * w * 0.2, py = y + (hash2(i * 5 + j, 65) - 0.5) * 8;
+        const part = w * (0.35 + hash3(i * 5 + j, 64) * 0.4), px = x + (j - 2) * w * 0.2, py = y + (hash3(i * 5 + j, 65) - 0.5) * 8;
         r(px - part / 2, py, Math.round(part), 6, "#262e6a");
         r(px - part / 2 + 3, py - 2, Math.round(part) - 6, 2, "#4a56a0");
       }
@@ -5473,8 +6108,8 @@
     const [tx, ty] = planeShift(DEPTH.town, camX, rise);
     const BLOCK = 30, ground = 262 + ty;
     for (let b = Math.floor(-tx / BLOCK) - 1; b * BLOCK + tx < VIEW_W; b++) {
-      const x = b * BLOCK + tx, tall = hash2(b, 7) > 0.84, w = tall ? 14 : 20 + Math.floor(hash2(b, 8) * 10), h = tall ? 70 + hash2(b, 9) * 40 : 26 + hash2(b, 9) * 30;
-      const left = x + (BLOCK - w) / 2, top = ground - h, roof = tall ? 34 : 9 + Math.floor(hash2(b, 10) * 8);
+      const x = b * BLOCK + tx, tall = hash3(b, 7) > 0.84, w = tall ? 14 : 20 + Math.floor(hash3(b, 8) * 10), h = tall ? 70 + hash3(b, 9) * 40 : 26 + hash3(b, 9) * 30;
+      const left = x + (BLOCK - w) / 2, top = ground - h, roof = tall ? 34 : 9 + Math.floor(hash3(b, 10) * 8);
       r(left, top, w, VIEW_H - top, "#0c0e2a");
       for (let i = 0; i < roof; i++) {
         const half = (w / 2 + 2) * (1 - i / roof);
@@ -5482,14 +6117,14 @@
         r(left + w / 2 - half, top - i, 2, 1, "#aab4e6");
       }
       r(left - 2, top, w + 4, 1, "#aab4e6");
-      for (let i = 0; i < 3; i++) if (hash2(b * 3 + i, 11) > 0.55) r(left + 3 + i * 6, top + 8 + Math.floor(hash2(b, 12 + i) * (h - 20)), 2, 3, hash2(b, 20 + i) > 0.5 ? "#ffc56a" : "#ff9a4a");
+      for (let i = 0; i < 3; i++) if (hash3(b * 3 + i, 11) > 0.55) r(left + 3 + i * 6, top + 8 + Math.floor(hash3(b, 12 + i) * (h - 20)), 2, 3, hash3(b, 20 + i) > 0.5 ? "#ffc56a" : "#ff9a4a");
     }
     r(0, ground, VIEW_W, VIEW_H - ground + 1, "#0c0e2a");
     if (snow) {
       const [fx, fy] = planeShift(DEPTH.snow, camX, rise);
       for (let i = 0; i < 70; i++) {
-        const x = mod(hash2(i, 30) * VIEW_W + t * (9 + hash2(i, 31) * 9) + 6 * Math.sin(t * 0.6 + i) + fx, VIEW_W);
-        const y = mod(hash2(i, 32) * VIEW_H + t * (16 + hash2(i, 33) * 12) + fy, VIEW_H);
+        const x = mod(hash3(i, 30) * VIEW_W + t * (9 + hash3(i, 31) * 9) + 6 * Math.sin(t * 0.6 + i) + fx, VIEW_W);
+        const y = mod(hash3(i, 32) * VIEW_H + t * (16 + hash3(i, 33) * 12) + fy, VIEW_H);
         r(x, y, 1, 1, "rgba(200,210,245,0.55)");
       }
     }
@@ -5498,8 +6133,8 @@
     const depths = [0.7, 1, 1.5];
     depths.forEach((d, layer) => {
       for (let i = 0; i < 46; i++) {
-        const x = mod(hash2(i, 40 + layer) * (VIEW_W + 40) + t * 22 * d + 9 * Math.sin(t * 0.9 + i * 1.3) - camX * d * 0.7, VIEW_W + 40) - 20;
-        const y = mod(hash2(i, 50 + layer) * VIEW_H + t * 38 * d - camY * d * 0.7, VIEW_H);
+        const x = mod(hash3(i, 40 + layer) * (VIEW_W + 40) + t * 22 * d + 9 * Math.sin(t * 0.9 + i * 1.3) - camX * d * 0.7, VIEW_W + 40) - 20;
+        const y = mod(hash3(i, 50 + layer) * VIEW_H + t * 38 * d - camY * d * 0.7, VIEW_H);
         const size = layer === 2 ? 2 : 1;
         g2.fillStyle = `rgba(232,238,255,${(0.35 + layer * 0.22).toFixed(2)})`;
         g2.fillRect(Math.round(x), Math.round(y), size, size);
@@ -5634,516 +6269,6 @@
     core(bolt.main, 2, `rgba(255,255,255,${alpha})`);
     k.restore();
   }
-
-  // src/records.ts
-  var PLACES = 5;
-  var KEY2 = "unextinguished.board";
-  var OLD_KEY = "unextinguished.best";
-  function browserStore() {
-    return {
-      get: (key) => {
-        try {
-          return globalThis.localStorage?.getItem(key) ?? null;
-        } catch {
-          return null;
-        }
-      },
-      set: (key, value) => {
-        try {
-          globalThis.localStorage?.setItem(key, value);
-        } catch {
-        }
-      }
-    };
-  }
-  function apart(store, prefix = "trial.") {
-    return { get: (key) => store.get(prefix + key), set: (key, value) => store.set(prefix + key, value) };
-  }
-  function seedBoard(board, keys) {
-    const names = ["BROTHER", "ABBOT", "NOVICE", "PRIOR", "BELLMAN"];
-    for (const key of keys) {
-      const base = key === "run" ? 900 : 120;
-      board.seed(key, names.slice(0, 4).map((name2, i) => ({ name: name2, time: Math.round(base * [0.7, 0.85, 1.1, 1.4][i]) })));
-    }
-  }
-  var read = (store, key) => {
-    try {
-      return JSON.parse(store.get(key) ?? "null");
-    } catch {
-      return null;
-    }
-  };
-  var Board = class {
-    constructor(store) {
-      this.store = store;
-      const saved = read(store, KEY2);
-      if (saved && typeof saved === "object") {
-        if (typeof saved.lastName === "string") this.lastName = saved.lastName.slice(0, NAME_LENGTH);
-        const tables = saved.tables;
-        if (tables && typeof tables === "object") for (const [key, list] of Object.entries(tables)) {
-          if (!Array.isArray(list)) continue;
-          const good = list.filter((e) => e && typeof e.name === "string" && typeof e.time === "number" && e.time > 0).map((e) => ({ name: String(e.name).slice(0, NAME_LENGTH), time: e.time }));
-          if (good.length) this.tables[key] = good.sort((a, b) => a.time - b.time).slice(0, PLACES);
-        }
-      }
-      const old = read(store, OLD_KEY);
-      if (old && typeof old === "object") for (const [key, time] of Object.entries(old)) {
-        if (typeof time === "number" && time > 0 && !this.tables[key]) this.tables[key] = [{ name: "???", time }];
-      }
-    }
-    store;
-    tables = {};
-    /** The last name given, to offer it again. */
-    lastName = "";
-    /** The table of a level (by its name) or of the runs ("run"), fastest first. */
-    table(key) {
-      return [...this.tables[key] ?? []];
-    }
-    best(key) {
-      return this.tables[key]?.[0]?.time ?? null;
-    }
-    /** The place (0 the first) a time would take in a table, or null when it is not good enough. */
-    place(key, time) {
-      const list = this.tables[key] ?? [];
-      const at = list.findIndex((e) => time < e.time);
-      if (at >= 0) return at;
-      return list.length < PLACES ? list.length : null;
-    }
-    /** Fills a table that is empty, without offering its names to anyone. */
-    seed(key, entries) {
-      if (this.tables[key]?.length) return;
-      this.tables[key] = [...entries].sort((a, b) => a.time - b.time).slice(0, PLACES);
-      this.save();
-    }
-    save() {
-      try {
-        this.store.set(KEY2, JSON.stringify({ tables: this.tables, lastName: this.lastName }));
-      } catch {
-      }
-    }
-    /** Writes a time in, under a name; its place is returned. */
-    add(key, name2, time) {
-      const list = this.tables[key] ?? [], at = this.place(key, time) ?? PLACES;
-      list.splice(at, 0, { name: name2.slice(0, NAME_LENGTH), time });
-      this.tables[key] = list.slice(0, PLACES);
-      this.lastName = name2.slice(0, NAME_LENGTH);
-      this.save();
-      return at;
-    }
-  };
-
-  // src/render/text.ts
-  var FONT = {
-    A: "010101111101101",
-    B: "110101110101110",
-    C: "011100100100011",
-    D: "110101101101110",
-    E: "111100110100111",
-    F: "111100110100100",
-    G: "011100101101011",
-    H: "101101111101101",
-    I: "111010010010111",
-    J: "001001001101010",
-    K: "101101110101101",
-    L: "100100100100111",
-    M: "101111111101101",
-    N: "110101101101101",
-    O: "010101101101010",
-    P: "110101110100100",
-    Q: "010101101110011",
-    R: "110101110101101",
-    S: "011100010001110",
-    T: "111010010010010",
-    U: "101101101101111",
-    V: "101101101101010",
-    W: "101101111111101",
-    X: "101101010101101",
-    Y: "101101010010010",
-    Z: "111001010100111",
-    0: "111101101101111",
-    1: "010110010010111",
-    2: "110001010100111",
-    3: "110001010001110",
-    4: "101101111001001",
-    5: "111100110001110",
-    6: "011100111101111",
-    7: "111001010010010",
-    8: "111101111101111",
-    9: "111101111001110",
-    ":": "000010000010000",
-    "?": "111001010000010",
-    ".": "000000000000010",
-    "!": "010010010000010",
-    "/": "001001010100100",
-    "-": "000000111000000",
-    " ": "000000000000000",
-    ">": "100010001010100",
-    "<": "001010100010001"
-  };
-  function text(g2, str, x, y, color, scale = 2) {
-    g2.fillStyle = color;
-    for (const ch of str) {
-      const bits = FONT[ch] ?? FONT[" "];
-      for (let i = 0; i < 15; i++) if (bits[i] === "1") g2.fillRect(x + i % 3 * scale, y + Math.floor(i / 3) * scale, scale, scale);
-      x += 4 * scale;
-    }
-  }
-  var textWidth = (str, scale = 2) => str.length * 4 * scale - scale;
-  function centered(g2, str, y, color, scale = 2) {
-    text(g2, str, Math.round((VIEW_W - textWidth(str, scale)) / 2), y, color, scale);
-  }
-
-  // src/render/title.ts
-  var FIRE2 = ["#fff3c4", "#ffc93c", "#ff8a2a", "#e0401c"];
-  var PALE = "#e2d8f0";
-  var DIM = "#9d93b8";
-  var GOLD = "#ffe27a";
-  var hash3 = (a, b) => {
-    const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
-    return s - Math.floor(s);
-  };
-  function veil(g2) {
-    g2.fillStyle = "rgba(8,6,18,0.32)";
-    g2.fillRect(0, 0, VIEW_W, VIEW_H);
-    const top = g2.createLinearGradient(0, 0, 0, 130);
-    top.addColorStop(0, "rgba(8,6,18,0.85)");
-    top.addColorStop(1, "rgba(8,6,18,0)");
-    g2.fillStyle = top;
-    g2.fillRect(0, 0, VIEW_W, 130);
-    const low = g2.createLinearGradient(0, VIEW_H - 90, 0, VIEW_H);
-    low.addColorStop(0, "rgba(8,6,18,0)");
-    low.addColorStop(1, "rgba(8,6,18,0.9)");
-    g2.fillStyle = low;
-    g2.fillRect(0, VIEW_H - 90, VIEW_W, 90);
-  }
-  function sparks(g2, t) {
-    g2.save();
-    g2.globalCompositeOperation = "lighter";
-    for (let i = 0; i < 46; i++) {
-      const speed = 14 + hash3(i, 1) * 30, life = VIEW_H + 60;
-      const y = VIEW_H + 20 - (t * speed + hash3(i, 2) * life) % life;
-      const x = hash3(i, 3) * VIEW_W + Math.sin(t * (0.6 + hash3(i, 4)) + i) * 10;
-      g2.fillStyle = FIRE2[i % 3];
-      g2.globalAlpha = 0.35 + 0.65 * Math.min(1, (y + 40) / VIEW_H);
-      g2.fillRect(Math.round(x), Math.round(y), i % 5 === 0 ? 2 : 1, i % 5 === 0 ? 2 : 1);
-    }
-    g2.restore();
-  }
-  function name(g2, t) {
-    const big = 7, word = "UNEXTINGUISHED", y = 56, h = 5 * big;
-    g2.save();
-    g2.globalCompositeOperation = "lighter";
-    const glow = g2.createRadialGradient(VIEW_W / 2, y + h / 2, 10, VIEW_W / 2, y + h / 2, 260);
-    glow.addColorStop(0, `rgba(255,120,40,${0.32 + 0.06 * Math.sin(t * 4.3) + 0.04 * Math.sin(t * 11)})`);
-    glow.addColorStop(1, "rgba(255,120,40,0)");
-    g2.fillStyle = glow;
-    g2.fillRect(0, y - 80, VIEW_W, h + 160);
-    g2.restore();
-    centered(g2, "THE", 36, PALE, 3);
-    const x = Math.round((VIEW_W - textWidth(word, big)) / 2);
-    text(g2, word, x + 4, y + 4, "#4a0a0c", big);
-    const flame2 = g2.createLinearGradient(0, y, 0, y + h);
-    flame2.addColorStop(0, FIRE2[0]);
-    flame2.addColorStop(0.45, FIRE2[1]);
-    flame2.addColorStop(1, FIRE2[3]);
-    text(g2, word, x, y, flame2, big);
-  }
-  function panel(g2, x, y, w, h) {
-    g2.fillStyle = "rgba(10,8,20,0.78)";
-    g2.fillRect(x, y, w, h);
-    g2.strokeStyle = "rgba(154,143,192,0.7)";
-    g2.lineWidth = 2;
-    g2.strokeRect(x + 1, y + 1, w - 2, h - 2);
-  }
-  var blink = (t) => t % 1.1 < 0.8;
-  var CONTROLS = [
-    ["MOVE", "ARROWS", "STICK"],
-    ["JUMP", "SPACE", "A"],
-    ["STRIKE", "X", "X"],
-    ["GUARD", "C", "LB"],
-    ["CHARGE", "V", "Y"]
-  ];
-  function drawTitle(g2, t, page = null, menu = null, musicOn = true, start = null) {
-    g2.setTransform(1, 0, 0, 1, 0, 0);
-    veil(g2);
-    sparks(g2, t);
-    name(g2, t);
-    centered(g2, "A GOTHIC PLATFORM FIGHTER", 104, "#c9bfe0");
-    const px = 160, pw = 320, py = 128;
-    if (menu) {
-      drawOptions(g2, t, menu, musicOn);
-      return;
-    }
-    panel(g2, px, py, pw, 136);
-    if (page) drawTable(g2, page.title, page.entries, px, py, pw);
-    else {
-      const col = [px + 24, px + 128, px + 228];
-      text(g2, "KEYBOARD", col[1], py + 12, GOLD);
-      text(g2, "GAMEPAD", col[2], py + 12, GOLD);
-      CONTROLS.forEach(([what, key, pad], i) => {
-        const y = py + 32 + i * 16;
-        text(g2, what, col[0], y, DIM);
-        text(g2, key, col[1], y, PALE);
-        text(g2, pad, col[2], y, PALE);
-      });
-      centered(g2, "THE CHARGE COSTS AN EMBER", py + 116, DIM);
-    }
-    if (start) start.lines.forEach((line, i) => {
-      const here = i === start.at;
-      centered(g2, here ? `> ${line} <` : line, 278 + i * 18, here ? GOLD : DIM);
-    });
-    else if (blink(t)) centered(g2, "PRESS JUMP TO START", 286, GOLD, 3);
-    centered(g2, "F FULL SCREEN    M MUSIC    P PAUSE    H COLLISIONS    O OPTIONS", 334, DIM);
-  }
-  var OPTIONS_HINT = "ARROWS CHOOSE AND CHANGE  O BACK";
-  function drawOptions(g2, t, menu, musicOn) {
-    const px = 150, pw = 340, py = 124, ph = 174;
-    g2.fillStyle = "rgba(10,8,20,0.94)";
-    g2.fillRect(px, py, pw, ph);
-    g2.strokeStyle = "rgba(154,143,192,0.8)";
-    g2.lineWidth = 2;
-    g2.strokeRect(px + 1, py + 1, pw - 2, ph - 2);
-    centered(g2, "OPTIONS", py + 12, GOLD);
-    const o = menu.options;
-    OPTION_LINES.forEach((what, i) => {
-      const y = py + 36 + i * 22, here = i === menu.line;
-      if (here && blink(t * 2)) text(g2, ">", px + 22, y, GOLD);
-      text(g2, what, px + 38, y, here ? GOLD : PALE);
-      const vx = px + 150;
-      if (what === "MUSIC" && !musicOn) text(g2, "OFF", vx, y, DIM);
-      else if (what === "MUSIC" || what === "SOUNDS") {
-        const level = what === "MUSIC" ? o.music : o.sounds;
-        for (let k = 0; k < LEVELS; k++) {
-          const x = vx + k * 15;
-          if (k < level) {
-            g2.fillStyle = here ? GOLD : PALE;
-            g2.fillRect(x, y, 11, 10);
-          } else {
-            g2.strokeStyle = DIM;
-            g2.lineWidth = 1;
-            g2.strokeRect(x + 0.5, y + 0.5, 10, 9);
-          }
-        }
-      } else if (what === "BLOOD") text(g2, o.blood === "red" ? "RED" : "ASH", vx, y, o.blood === "red" ? "#ff6a5a" : "#b3aeb8");
-      else if (what === "DIFFICULTY") text(g2, o.difficulty === "easy" ? "EASY" : "NORMAL", vx, y, o.difficulty === "easy" ? "#8ff0c0" : PALE);
-    });
-    centered(g2, OPTIONS_HINT, py + ph - 22, DIM);
-  }
-  function drawEnd(g2, t, lines, naming = null, note = null) {
-    g2.setTransform(1, 0, 0, 1, 0, 0);
-    veil(g2);
-    sparks(g2, t);
-    name(g2, t);
-    centered(g2, "EVERY ROOM IS CLEARED", 104, "#c9bfe0");
-    const py = 132, ph = 30 + lines.length * 26;
-    panel(g2, 130, py, 380, ph);
-    lines.forEach((line, i) => centered(g2, line, py + 18 + i * 26, i === lines.length - 1 ? DIM : PALE, 3));
-    if (naming && !naming.done) {
-      centered(g2, "A RUN FOR THE BOARD  ENTER YOUR NAME", 272, GOLD);
-      drawName(g2, naming, 288, t);
-      centered(g2, "TYPE IT  THEN ENTER     GAMEPAD  UP DOWN  A  START", 322, DIM);
-      return;
-    }
-    if (note) centered(g2, note, 274, GOLD);
-    if (t > 1.5 && blink(t)) centered(g2, "PRESS JUMP", 300, GOLD, 3);
-  }
-  function drawCredits(g2, t) {
-    g2.setTransform(1, 0, 0, 1, 0, 0);
-    veil(g2);
-    g2.fillStyle = "rgba(8,6,18,0.35)";
-    g2.fillRect(0, 0, VIEW_W, VIEW_H);
-    sparks(g2, t);
-    const shift = Math.min(t, creditsLength(VIEW_H)) * CREDITS_SPEED;
-    CREDITS.forEach((c, i) => {
-      const y = Math.round(VIEW_H + i * CREDITS_STEP - shift);
-      if (y < -30 || y > VIEW_H + 10 || !c.text) return;
-      centered(g2, c.text, y, c.head ? GOLD : PALE, c.big ? 3 : 2);
-    });
-    if (t > creditsLength(VIEW_H) && blink(t)) centered(g2, "PRESS JUMP", 300, DIM);
-  }
-  function drawTable(g2, title, entries, px, py, pw) {
-    centered(g2, title, py + 12, GOLD);
-    for (let i = 0; i < PLACES; i++) {
-      const e = entries[i], y = py + 36 + i * 18, color = e ? i === 0 ? GOLD : PALE : DIM;
-      text(g2, `${i + 1}`, px + 40, y, color);
-      text(g2, e ? e.name : "-------", px + 76, y, color);
-      const time = e ? clockText(e.time) : "-:--";
-      text(g2, time, px + pw - 40 - textWidth(time), y, color);
-    }
-  }
-  function drawName(g2, name2, y, t) {
-    const step = 22, x0 = Math.round((VIEW_W - step * NAME_LENGTH) / 2) + 3;
-    const shown = name2.shown;
-    for (let i = 0; i < NAME_LENGTH; i++) {
-      const x = x0 + i * step, here = i === name2.at && !name2.done;
-      if (!(here && Math.floor(t * 5) % 2)) text(g2, shown[i], x, y, here ? GOLD : PALE, 4);
-      g2.fillStyle = here ? GOLD : DIM;
-      g2.fillRect(x - 1, y + 23, 14, 2);
-    }
-  }
-
-  // src/render/hud.ts
-  var BAR_W = 168;
-  var BAR_H = 8;
-  var BAR_Y = 14;
-  var MARGIN2 = 16;
-  var DRAIN = 3.5;
-  var FINISH_WORDS = 1.1;
-  var Hud = class {
-    constructor(world, opening) {
-      this.world = world;
-      this.opening = opening;
-    }
-    world;
-    opening;
-    banner = 3.5;
-    heroLag = MAX_HP;
-    foeLag = MAX_HP;
-    finish = 0;
-    foe = null;
-    /** The level won, against the board; the name being given for it; the name once written. */
-    result = null;
-    naming = null;
-    named = null;
-    /** A foe has just been ended. */
-    finisher() {
-      this.finish = FINISH_WORDS;
-    }
-    // The foe whose bar is shown: the demon while it lives, or else the nearest shade still standing.
-    rival() {
-      const p = this.world.hero, boss = this.world.boss;
-      if (boss && boss.phase !== "gone" && boss.phase !== "dying") return boss.body;
-      const beast = this.world.beast;
-      if (beast) return beast.mode === "wait" || beast.mode === "gone" ? null : beast;
-      let best = null, bestD = Infinity;
-      for (const f of this.world.foes) {
-        if (f.kind !== "shade" || f.ko > 0) continue;
-        const d = Math.abs(f.x - p.x) + Math.abs(f.y - p.y);
-        if (d < bestD) {
-          bestD = d;
-          best = f;
-        }
-      }
-      return best;
-    }
-    update(dt) {
-      this.banner = Math.max(0, this.banner - dt);
-      this.finish = Math.max(0, this.finish - dt);
-      const foe = this.rival();
-      if (foe !== this.foe) {
-        this.foe = foe;
-        this.foeLag = foe ? foe.hp : 0;
-      }
-      this.heroLag = Math.max(this.world.hero.hp, this.heroLag - DRAIN * dt);
-      if (foe) this.foeLag = Math.max(foe.hp, this.foeLag - DRAIN * dt);
-    }
-    // A bar that empties towards the middle of the screen; the pale part is what the last blow took.
-    bar(g2, x, hp, lag, fromRight, color, t, alarm, max = MAX_HP) {
-      const px = (bx, by, w, h, c) => {
-        g2.fillStyle = c;
-        g2.fillRect(bx, by, w, h);
-      };
-      px(x - 2, BAR_Y - 2, BAR_W + 4, BAR_H + 4, "#0a0814");
-      px(x - 1, BAR_Y - 1, BAR_W + 2, BAR_H + 2, alarm && Math.floor(t * 8) % 2 ? "#ffffff" : "#9a8fc0");
-      px(x, BAR_Y, BAR_W, BAR_H, "#3a0d14");
-      const full = Math.round(BAR_W * hp / max), pale = Math.round(BAR_W * lag / max);
-      const start = (w) => fromRight ? x + BAR_W - w : x;
-      px(start(pale), BAR_Y, pale, BAR_H, "#fff3d6");
-      px(start(full), BAR_Y, full, BAR_H, color);
-      px(start(full), BAR_Y, full, 2, "rgba(255,255,255,0.35)");
-      for (let i = 1; i < MAX_HP; i++) px(x + Math.round(BAR_W * i / MAX_HP), BAR_Y, 1, BAR_H, "rgba(10,8,20,0.55)");
-    }
-    // The panel of a level won: its time, its place on the board, the name asked for, what comes next.
-    wonPanel(g2, t, clock, won) {
-      const r = this.result, n = this.naming, words = r ? boardWords(r) : "";
-      const asking = !!n && !n.done, h = asking ? 206 : 112 + (words ? 22 : 0) + (this.named ? 22 : 0), y = Math.round((VIEW_H - h) / 2) - 6;
-      g2.fillStyle = "rgba(10,8,20,0.9)";
-      g2.fillRect(110, y, 420, h);
-      g2.strokeStyle = "#9a8fc0";
-      g2.lineWidth = 2;
-      g2.strokeRect(111, y + 1, 418, h - 2);
-      let at = y + 18;
-      centered(g2, won.title, at, "#ffe27a", 4);
-      at += 32;
-      centered(g2, `TIME ${clock}`, at, "#e2d8f0");
-      at += 22;
-      if (words) {
-        centered(g2, words, at, r?.cheated ? "#ff7a6a" : r?.place === 0 ? Math.floor(t * 4) % 2 ? "#ffe27a" : "#ff8a2a" : r?.place !== null ? "#ffe27a" : "#9d93b8");
-        at += 22;
-      }
-      if (asking) {
-        centered(g2, "ENTER YOUR NAME", at + 4, "#e2d8f0");
-        at += 26;
-        drawName(g2, n, at, t);
-        at += 38;
-        centered(g2, "TYPE IT  THEN ENTER", at, "#9d93b8");
-        at += 16;
-        centered(g2, "GAMEPAD  UP DOWN  A  START", at, "#9d93b8");
-        return;
-      }
-      if (this.named) {
-        centered(g2, `${this.named.name} IS NUMBER ${this.named.place + 1}`, at, "#ffe27a");
-        at += 22;
-      }
-      for (const line of won.lines) {
-        centered(g2, line, at + 6, "#9d93b8");
-        at += 22;
-      }
-    }
-    draw(g2, t, paused, won, pauseAt = 0, demo = false) {
-      const w = this.world, p = w.hero;
-      const strip = g2.createLinearGradient(0, VIEW_H - 34, 0, VIEW_H);
-      strip.addColorStop(0, "rgba(8,6,18,0)");
-      strip.addColorStop(1, "rgba(8,6,18,0.85)");
-      g2.fillStyle = strip;
-      g2.fillRect(0, VIEW_H - 34, VIEW_W, 34);
-      const top = g2.createLinearGradient(0, 0, 0, 44);
-      top.addColorStop(0, "rgba(8,6,18,0.8)");
-      top.addColorStop(1, "rgba(8,6,18,0)");
-      g2.fillStyle = top;
-      g2.fillRect(0, 0, VIEW_W, 44);
-      const low = p.hp <= 2;
-      this.bar(g2, MARGIN2, p.hp, this.heroLag, false, low ? "#ff5a3a" : "#ffd23a", t, low && w.state === "play");
-      text(g2, "MONK", MARGIN2, BAR_Y + BAR_H + 5, "#e2d8f0");
-      if (demo) {
-        if (Math.floor(t * 1.6) % 2 === 0) centered(g2, "DEMO    PRESS ANY KEY", VIEW_H - 44, "#ffe27a");
-      } else if (w.invincible) text(g2, "INVINCIBLE", MARGIN2 + textWidth("MONK") + 12, BAR_Y + BAR_H + 5, "#ffe27a");
-      const foe = this.foe;
-      if (foe) {
-        const demon = foe.kind === "demon", beast = foe.kind === "beast", dazed = demon ? w.boss?.phase === "dazed" : foe.dazed > 0, x = VIEW_W - MARGIN2 - BAR_W;
-        this.bar(g2, x, foe.hp, this.foeLag, true, demon ? "#6fdcff" : beast ? "#ff8a3a" : "#6dff9a", t, dazed, demon ? DEMON.hp : beast ? BEAST.hp : MAX_HP);
-        const label = dazed ? "DAZED" : demon ? "DEMON" : beast ? "BEAST" : "SHADE";
-        text(g2, label, VIEW_W - MARGIN2 - textWidth(label), BAR_Y + BAR_H + 5, dazed && Math.floor(t * 6) % 2 ? "#ff5a3a" : "#e2d8f0");
-      }
-      const got = w.carried;
-      const need = w.embers.length, over = got > need ? `  +${got - need}` : "";
-      if (w.beast) centered(g2, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? "#ffe27a" : "#e2d8f0");
-      else if (need) centered(g2, `EMBERS ${Math.min(got, need)}/${need}${over}`, VIEW_H - 20, w.doorOpen ? "#ffe27a" : "#e2d8f0");
-      else if (w.boss) centered(g2, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? "#ffe27a" : "#e2d8f0");
-      const clock = clockText(w.clock);
-      text(g2, clock, VIEW_W - MARGIN2 - textWidth(clock), VIEW_H - 20, "#e2d8f0");
-      if (this.finish > 0) {
-        const words = "SNUFFED OUT", scale = 6, y = 84, hot = Math.floor(t * 14) % 2 === 0;
-        centered(g2, words, y + 3, "#1a0308", scale);
-        centered(g2, words, y, hot ? "#ff3b3b" : "#ffe27a", scale);
-      } else if (w.state === "play" && this.banner > 0) {
-        const top2 = w.boss ? 188 : 40;
-        this.opening.forEach((line, i) => centered(g2, line, top2 + i * 16, i === 0 ? "#ffe27a" : "#e2d8f0"));
-      } else if (w.state === "play" && w.doorOpen && w.door && Math.floor(t * 2) % 2) centered(g2, "THE DOOR IS OPEN", 40, "#ffe27a");
-      const panel2 = (lines) => {
-        const h = 44 + lines.length * 24, y = Math.round((VIEW_H - h) / 2) - 10;
-        g2.fillStyle = "rgba(10,8,20,0.88)";
-        g2.fillRect(120, y, 400, h);
-        g2.strokeStyle = "#9a8fc0";
-        g2.lineWidth = 2;
-        g2.strokeRect(121, y + 1, 398, h - 2);
-        lines.forEach(([str, color, scale], i) => centered(g2, str, y + 20 + i * 26, color, scale ?? 2));
-      };
-      if (w.state === "won") this.wonPanel(g2, t, clock, won);
-      else if (w.state === "lost" && w.slow <= 0) panel2([["KNOCKED OUT", "#ff7a6a", 4], ["PRESS JUMP TO TRY AGAIN", "#9d93b8"]]);
-      else if (paused) panel2([["PAUSED", "#ffe27a", 4], ["", "#9d93b8"], ...PAUSE_LINES.map((line, i) => i === pauseAt ? [`> ${line} <`, "#ffe27a"] : [line, "#9d93b8"])]);
-    }
-  };
 
   // src/render/frame.ts
   var PUNCH_T = 0.36;
@@ -6308,6 +6433,8 @@
     pauseAt = 0;
     /** The game plays itself: the demo. */
     demo = false;
+    /** A hint for a beginner, and how long it has been shown. */
+    hint = null;
     /** The blood turned to ash (an option, for the younger players): blows throw ash, and no blood is drawn. */
     ash = false;
     flocks = [];
@@ -6340,7 +6467,7 @@
       this.storm = null;
     }
     dawnLight() {
-      return this.dawnT < 0 ? 0 : Math.min(1, this.dawnT / 14);
+      return this.dawnT < 0 ? 0 : Math.min(1, this.dawnT / 8);
     }
     /** The level won, against the board, and the name being given for it if its time is good enough. */
     setResult(result, naming) {
@@ -6598,7 +6725,7 @@
       this.grade.vignette(g2);
       if (!this.ash) this.drawLens(g2);
       if (this.collisions) this.drawCollisions(g2, cx, cy);
-      if (!this.scenery) this.hud.draw(g2, t, paused, this.won, this.pauseAt, this.demo);
+      if (!this.scenery) this.hud.draw(g2, t, paused, this.won, this.pauseAt, this.demo, this.hint);
     }
     // Closes in on a finishing blow: the picture drawn so far is enlarged round the place of the blow.
     closeIn(g2, cx, cy) {
@@ -8127,6 +8254,8 @@
     let settings = loadOptions(store);
     let options = null;
     const pauseMenu = new PauseMenu();
+    const hintsSeen = /* @__PURE__ */ new Set();
+    let hint = null;
     const demoLevels = levels.map((l, i) => l.settings.demo ? i : -1).filter((i) => i >= 0);
     let demoTurn = 0, demoT = 0, idleT = 0, mind = null;
     const ashen = () => settings.blood === "ash";
@@ -8231,7 +8360,9 @@
       fromTitle = false;
       start(asked);
     }
-    window.__game = { demo: startDemo, get pauseAt() {
+    window.__game = { get hints() {
+      return [...hintsSeen];
+    }, demo: startDemo, get pauseAt() {
       return pauseMenu.line;
     }, get reached() {
       return reached;
@@ -8281,6 +8412,7 @@
         tally = NO_RUN;
         runCheated = cheat;
         runEased = false;
+        hintsSeen.clear();
         if (offer && startAt === 0) {
           fromTitle = false;
           start(reached);
@@ -8354,6 +8486,18 @@
       }
       st.collisions = collisions;
       st.pauseAt = pauseMenu.line;
+      if (hint && !paused) {
+        hint.t += elapsed;
+        if (hint.t > HINT_TIME) hint = null;
+      }
+      if (!hint && !paused && scene === "play" && settings.hints) {
+        const h = hintFor(w, hintsSeen, input.usingPad);
+        if (h) {
+          hintsSeen.add(h.key);
+          hint = { text: h.text, t: 0 };
+        }
+      }
+      st.hint = scene === "play" && !options ? hint : null;
       st.draw(g, clock, paused && !options);
       if (options) drawOptions(g, clock, options, sound.musicOn);
       if (trial) text(g, "TEST  N WINS THE LEVEL", 16, VIEW_H - 20, "#ff8a2a");

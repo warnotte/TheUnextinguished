@@ -16,6 +16,9 @@ const BAR_W = 168, BAR_H = 8, BAR_Y = 14, MARGIN = 16;
 const DRAIN = 3.5;          // points of health a second: how fast the pale part of a bar catches up
 const FINISH_WORDS = 1.1;   // seconds the words of a finishing blow stay
 
+/** Seconds a hint stays on the picture. */
+export const HINT_TIME = 4;
+
 export class Hud {
   private banner = 3.5;
   private heroLag = MAX_HP;
@@ -91,7 +94,7 @@ export class Hud {
     for (const line of won.lines) { centered(g, line, at + 6, '#9d93b8'); at += 22; }
   }
 
-  draw(g: CanvasRenderingContext2D, t: number, paused: boolean, won: Words, pauseAt = 0, demo = false): void {
+  draw(g: CanvasRenderingContext2D, t: number, paused: boolean, won: Words, pauseAt = 0, demo = false, hint: { text: string; t: number } | null = null): void {
     const w = this.world, p = w.hero;
     const strip = g.createLinearGradient(0, VIEW_H - 34, 0, VIEW_H);
     strip.addColorStop(0, 'rgba(8,6,18,0)'); strip.addColorStop(1, 'rgba(8,6,18,0.85)');
@@ -104,6 +107,17 @@ export class Hud {
     this.bar(g, MARGIN, p.hp, this.heroLag, false, low ? '#ff5a3a' : '#ffd23a', t, low && w.state === 'play');
     text(g, 'MONK', MARGIN, BAR_Y + BAR_H + 5, '#e2d8f0');
     if (demo) { if (Math.floor(t * 1.6) % 2 === 0) centered(g, 'DEMO    PRESS ANY KEY', VIEW_H - 44, '#ffe27a'); }
+    else if (hint && !paused && w.state === 'play') {
+      // A hint: a band at the foot of the picture, coming in and going out softly.
+      const a = Math.min(1, hint.t / 0.25, (HINT_TIME - hint.t) / 0.5);
+      if (a > 0) {
+        g.globalAlpha = a;
+        g.fillStyle = 'rgba(10,8,20,0.82)'; g.fillRect(0, VIEW_H - 54, VIEW_W, 22);
+        g.fillStyle = '#ffe27a'; g.fillRect(0, VIEW_H - 54, VIEW_W, 1); g.fillRect(0, VIEW_H - 33, VIEW_W, 1);
+        centered(g, hint.text, VIEW_H - 47, '#ffe27a');
+        g.globalAlpha = 1;
+      }
+    }
     else if (w.invincible) text(g, 'INVINCIBLE', MARGIN + textWidth('MONK') + 12, BAR_Y + BAR_H + 5, '#ffe27a');
     const foe = this.foe;
     if (foe) {

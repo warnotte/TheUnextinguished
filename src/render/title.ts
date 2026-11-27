@@ -13,9 +13,10 @@ const FIRE = ['#fff3c4', '#ffc93c', '#ff8a2a', '#e0401c'];
 const PALE = '#e2d8f0', DIM = '#9d93b8', GOLD = '#ffe27a';
 const hash = (a: number, b: number): number => { const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return s - Math.floor(s); };
 
-// What the scenery needs to stay behind the words: darker, and darker still where the words are.
-function veil(g: CanvasRenderingContext2D): void {
-  g.fillStyle = 'rgba(8,6,18,0.32)'; g.fillRect(0, 0, VIEW_W, VIEW_H);
+// What the scenery needs to stay behind the words: darker, and darker still where the words are;
+// lighter over the dawn of the end, so that it is seen.
+function veil(g: CanvasRenderingContext2D, light = false): void {
+  g.fillStyle = light ? 'rgba(8,6,18,0.1)' : 'rgba(8,6,18,0.32)'; g.fillRect(0, 0, VIEW_W, VIEW_H);
   const top = g.createLinearGradient(0, 0, 0, 130);
   top.addColorStop(0, 'rgba(8,6,18,0.85)'); top.addColorStop(1, 'rgba(8,6,18,0)');
   g.fillStyle = top; g.fillRect(0, 0, VIEW_W, 130);
@@ -108,7 +109,7 @@ export const OPTIONS_HINT = 'ARROWS CHOOSE AND CHANGE  O BACK';
  * squares, the blood red or ash, and how to work it under them.
  */
 export function drawOptions(g: CanvasRenderingContext2D, t: number, menu: OptionsMenu, musicOn: boolean): void {
-  const px = 150, pw = 340, py = 124, ph = 174;
+  const px = 150, pw = 340, py = 118, ph = 196;
   g.fillStyle = 'rgba(10,8,20,0.94)'; g.fillRect(px, py, pw, ph);
   g.strokeStyle = 'rgba(154,143,192,0.8)'; g.lineWidth = 2; g.strokeRect(px + 1, py + 1, pw - 2, ph - 2);
   centered(g, 'OPTIONS', py + 12, GOLD);
@@ -128,6 +129,7 @@ export function drawOptions(g: CanvasRenderingContext2D, t: number, menu: Option
       }
     } else if (what === 'BLOOD') text(g, o.blood === 'red' ? 'RED' : 'ASH', vx, y, o.blood === 'red' ? '#ff6a5a' : '#b3aeb8');
     else if (what === 'DIFFICULTY') text(g, o.difficulty === 'easy' ? 'EASY' : 'NORMAL', vx, y, o.difficulty === 'easy' ? '#8ff0c0' : PALE);
+    else if (what === 'HINTS') text(g, o.hints ? 'ON' : 'OFF', vx, y, o.hints ? PALE : DIM);
   });
   centered(g, OPTIONS_HINT, py + ph - 22, DIM);
 }
@@ -135,10 +137,10 @@ export function drawOptions(g: CanvasRenderingContext2D, t: number, menu: Option
 /** The end: the name again, what the run cost, and the name asked for if the run goes on the board. */
 export function drawEnd(g: CanvasRenderingContext2D, t: number, lines: string[], naming: Initials | null = null, note: string | null = null): void {
   g.setTransform(1, 0, 0, 1, 0, 0);
-  veil(g);
+  veil(g, true);
   sparks(g, t);
   name(g, t);
-  centered(g, 'EVERY ROOM IS CLEARED', 104, '#c9bfe0');
+  centered(g, 'EVERY ROOM IS CLEARED', 104, '#fff1d6');
   const py = 132, ph = 30 + lines.length * 26;
   panel(g, 130, py, 380, ph);
   lines.forEach((line, i) => centered(g, line, py + 18 + i * 26, i === lines.length - 1 ? DIM : PALE, 3));
@@ -155,8 +157,8 @@ export function drawEnd(g: CanvasRenderingContext2D, t: number, lines: string[],
 /** The credits, rolling up over the place, and the last line, the thanks, coming to rest in the middle. */
 export function drawCredits(g: CanvasRenderingContext2D, t: number): void {
   g.setTransform(1, 0, 0, 1, 0, 0);
-  veil(g);
-  g.fillStyle = 'rgba(8,6,18,0.35)'; g.fillRect(0, 0, VIEW_W, VIEW_H);
+  veil(g, true);
+  g.fillStyle = 'rgba(8,6,18,0.18)'; g.fillRect(0, 0, VIEW_W, VIEW_H);
   sparks(g, t);
   const shift = Math.min(t, creditsLength(VIEW_H)) * CREDITS_SPEED;
   CREDITS.forEach((c, i) => {

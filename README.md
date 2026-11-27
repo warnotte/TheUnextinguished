@@ -43,10 +43,14 @@ H shows what collides over the picture: stone in red, platforms in yellow, ladde
 hurts in magenta, the line of the hills in cyan, the bodies and the reach of a blow; H again hides it.
 
 O opens the options, on the title or during a level (which it pauses): how loud the music and the
-sounds are, from 0 to 10, the blood, and the difficulty. RED is the game as it is; ASH is for
+sounds are, from 0 to 10, the blood, the difficulty, and the hints. RED is the game as it is; ASH is for
 younger players: the blows throw grey ash and a few embers instead of blood, nothing stains the place
 or the bodies, and the end does not count the blood spilt. EASY is for them too: the hero takes half
-of every blow, and no time goes on the board. Up and down choose a line, left and right change it
+of every blow, and no time goes on the board. HINTS ON tells a beginner what to do, once in a run,
+at the moment it is needed, in a band at the foot of the picture: to guard when a shade is about to
+strike, how a dazed shade is ended, that the door wants every ember, the flaming charge when an
+ember is to spare, how to break free of a hand, to come up out of the water, to climb; in the words
+of the keyboard or of the gamepad, whichever was used last. Up and down choose a line, left and right change it
 (held, they go on), Escape (or O, or B, Y or Select on the gamepad) closes them. They are kept in the
 browser.
 
@@ -128,7 +132,8 @@ it; and before the gate stands a reaper of stone, a statue until he comes near: 
 him, sweeps its blade, throws its scythe that comes back, and the gate opens only when it is dust.
 The columns and the ledges are platforms: one walks through them, jumps up through them from under
 them, and stands on them. Votive candles on the graves give the hero all his health back, once each. The game ends over the
-cemetery, at dawn, to a tune of its own. Its tune comes in slow and grave, then gathers pace.
+cemetery, at dawn, to a tune of its own: the sun clears the rocks, its rays fan across the sky, far
+birds cross it. Its tune comes in slow and grave, then gathers pace.
 
 - **The demon** (36 points of health) floats over its floor and is not thrown by blows. Its wings
   rise, then beat all round it, at a hero who comes close, and at once at one who strikes it again

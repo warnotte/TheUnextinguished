@@ -96,6 +96,7 @@ check('his steps on the stone are heard', await game(() => window.__heard.includ
 await game(() => { const w = __game.world, h = w.hero, l = w.grid.ladders[0]; Object.assign(h, { x: l.x - h.w / 2, y: (l.rowBottom + 1) * 16 - h.h, vx: 0, vy: 0, onGround: true, climbing: false, lastFloor: l.rowBottom + 1 }); window.__heard.length = 0; });
 await page.keyboard.down('ArrowUp'); await page.waitForTimeout(700); await page.keyboard.up('ArrowUp');
 check('the rungs of a ladder are heard as he climbs', await game(() => window.__heard.includes('rung')), (await game(() => window.__heard)).join(' '));
+check('at the foot of a ladder, a hint tells how to climb it', await game(() => __game.hints.includes('ladder')), JSON.stringify(await game(() => __game.hints)));
 
 await page.keyboard.down('Space'); await page.waitForTimeout(120);
 check('space jumps', await game(() => !__game.world.hero.onGround));
@@ -126,7 +127,7 @@ await page.waitForTimeout(100);
 check('O in the pause opens the options', await game(() => !!__game.options && __game.paused));
 const heard = await game(() => __game.sound.mixNow.music);
 check('the music is heard at its true level while it is set, not at the hush of the pause', heard === null || Math.abs(heard - 0.12) < 1e-3, String(heard));
-await keys('Space', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'ArrowDown', 'ArrowDown', 'Space');
+await keys('Space', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'Space');
 await page.waitForTimeout(200);
 const after = await game(() => ({ clock: __game.world.clock, y: __game.world.hero.y, paused: __game.paused, options: !!__game.options, ash: __game.stage.ash }));
 check('back in the pause, the music is hushed again', await game(() => { const m = __game.sound.mixNow.music; return m === null || Math.abs(m - 0.036) < 1e-3; }));

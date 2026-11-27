@@ -106,6 +106,17 @@ describe('Input', () => {
     now = 580; expect(right()).toBe(true);
   });
 
+  it('knows whether the gamepad or the keyboard was used last: for the words of the hints', () => {
+    const keys = new Keys();
+    let pads: (PadLike | null)[] = [];
+    const input = new Input(keys, () => pads);
+    expect(input.usingPad).toBe(false);
+    pads = [pad([0, 0], [0])]; input.read();
+    expect(input.usingPad).toBe(true);
+    pads = [pad([0, 0])]; keys.down('KeyX'); input.read();
+    expect(input.usingPad).toBe(false);
+  });
+
   it('reads N as a press: the level won at once, in the trial mode', () => {
     const keys = new Keys(), input = new Input(keys, () => []);
     keys.down('KeyN');
