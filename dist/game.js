@@ -9021,7 +9021,7 @@ void main() {
         mind = makeDemoMind();
         demoT = 0;
       }
-      sound.setMusic(level.settings.music, level.settings.intro);
+      if (!demo) sound.setMusic(level.settings.music, level.settings.intro);
       sound.setPlace({ rain: level.settings.rain, drips: level.settings.water > 0 });
       const next = levels[i + 1]?.settings;
       sound.preload([level.settings.music, level.settings.intro, next?.music ?? place.settings.music, next?.intro ?? ""].filter(Boolean));

@@ -163,7 +163,7 @@ function run(assets: Assets, levels: Level[]): void {
     stage = new Stage(world, assets, openingWords(level.settings.title, boss ? 'boss' : beast ? 'beast' : world.fall ? 'fall' : ''), wonWords(i, levels.length, boss || beast, beast ? 'BEAST SLAIN' : 'DEMON SLAIN'));
     stage.ash = ashen();
     if (demo) { world.invincible = true; levelCheated = true; stage.demo = true; mind = makeDemoMind(); demoT = 0; }
-    sound.setMusic(level.settings.music, level.settings.intro);
+    if (!demo) sound.setMusic(level.settings.music, level.settings.intro);        // the demo is the title still: its tune plays on
     sound.setPlace({ rain: level.settings.rain, drips: level.settings.water > 0 });
     const next = levels[i + 1]?.settings;                                                            // the next one, or the end's
     sound.preload([level.settings.music, level.settings.intro, next?.music ?? place.settings.music, next?.intro ?? ''].filter(Boolean));

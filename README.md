@@ -16,7 +16,7 @@ Open `index.html` by double-click (after a build, see below). No server, no netw
 on its title, which shows the controls; jump starts it. Once a level past the first has been
 reached, the title offers first to go on from the furthest one reached (it is kept in the browser),
 or, one line down, a new game; going on from it is not a whole run, and its time goes on no board.
-Left alone on its title for 25 seconds, the game plays itself in one of its levels, in turn, for 40
+Left alone on its title for 25 seconds, the game plays itself, to the tune of the title still, in one of its levels, in turn, for 40
 seconds, the hero out of harm, as the arcade machines did; any key or button brings the title back.
 
 | | Keyboard | Gamepad |
@@ -184,7 +184,7 @@ demon breathes its blue fire across the sky; dead leaves fly past on the wind. T
 fro, each plane at its own pace. It is heard too: the rain, the thunder, a toll of the bell, the crows, the
 breath. Then the name catches fire letter by letter: flames rise from the ink of each, from its top and
 from inside its hollows, lean with the wind and throw embers. The title has a tune of its own, played on four
-machines at once (see the credits below). The first page shows only that and what starts the game; the controls
+machines at once (see the credits below); in its middle the Amstrad plays alone. It plays on through the demo. The first page shows only that and what starts the game; the controls
 come after it, in turn with the tables of the board.
 
 ## Build and test

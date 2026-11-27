@@ -365,6 +365,7 @@ const demo0 = await game(() => ({ scene: __game.scene, invincible: __game.world?
 await page.waitForTimeout(3000);
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/demo.png' });
 const demo1 = await game(() => ({ scene: __game.scene, x: __game.world?.hero.x, reached: __game.reached }));
+check('the demo plays on to the tune of the title', await game(() => __game.sound.tuneName === 'overture'), String(await game(() => __game.sound.tuneName)));
 check('the demo plays a level by itself, the hero going about, out of harm', demo0.scene === 'demo' && demo0.invincible && demo1.scene === 'demo' && Math.abs(demo1.x - demo0.x) > 20, JSON.stringify([demo0, demo1]));
 await page.keyboard.press('KeyX');
 await page.waitForTimeout(300);

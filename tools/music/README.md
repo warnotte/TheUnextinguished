@@ -5,7 +5,7 @@ NoobSynth3's `dsp-core` (taken by path, read only: `E:/CODEX/NoobSynth3/crates/d
 
 | Tune | Level | What plays it |
 |---|---|---|
-| `overture` | the title | four machines at once, D minor, 150 beats a minute, 51 seconds: two SIDs (the bass under the filter, the chords run through, the theme, the drums and kettledrums), the NES (two pulses under the theme, the triangle, the noise), the SNES (strings, organ, a bell), the AY of the Amstrad CPC (broken chords from side to side, its own voice in the middle part, the buzzer) |
+| `overture` | the title, and the demo | four machines at once, D minor, 150 beats a minute, 77 seconds: two SIDs (the bass under the filter, the chords run through, the theme, the drums and kettledrums), the NES (two pulses under the theme, the triangle, the noise), the SNES (strings, organ, a bell), the AY of the Amstrad CPC (broken chords from side to side, the buzzer under the bass, its own voice in the vault); in the middle the Amstrad plays alone, as a CPC did: the theme on one channel, the chords run through and the drums on another, the buzzer for a bass; then a run of its own while the others come back one by one |
 | `nef` | 1, the Nave | FM (`FmMatrix` lead, stabs, pad, pluck; `FmOperator` bass), TR-909 drums |
 | `crypte` | 2, the Crypt | `NesOsc` pulses, triangle and noise, `SnesOsc` strings and bass, `PipeOrgan`, an `FmMatrix` bell, `Kick808` and `Tom909` |
 | `furnace` | 3, the Furnace | two SIDs: C in the Phrygian dominant mode, 150 beats a minute; a bass pumping in octaves through the filter, the chords run through, the theme; drums, an anvil as in a forge; in the middle, half time, the theme in long notes over the anvil |
