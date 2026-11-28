@@ -1,6 +1,6 @@
 // The player of the demo: what the game plays by itself on its title, when nobody is at the controls.
 // It goes about the level the way the shades do (their way through the place, by its ladders and
-// over its gaps), to the nearest ember it has not given up on, then to the door; it turns on what
+// over its gaps), to the nearest ember or cold brazier it has not given up on, then to the door; it turns on what
 // comes at it and strikes, and raises its guard when a shade is about to strike. An ember it cannot
 // get to after a while is given up for a time.
 
@@ -67,7 +67,7 @@ export function demoControls(w: World, m: DemoMind, dt: number): Controls {
     return NO_CONTROLS;
   }
 
-  // Where to go: the nearest ember not given up on; when all are gathered, the door.
+  // Where to go: the nearest ember or cold brazier not given up on; when all are gathered and alight, the door.
   if (m.still > STUCK && m.target) { m.giveUp.set(m.target, m.t + GIVE_UP); m.target = ''; m.still = 0; }
   let goal: { key: string; x: number; y: number } | null = null, best = Infinity;
   w.embers.forEach((e, i) => {
@@ -75,6 +75,12 @@ export function demoControls(w: World, m: DemoMind, dt: number): Controls {
     if (e.taken || m.giveUp.has(key)) return;
     const cost = Math.abs(e.x - hx) + Math.abs(e.y - hf) * 2;
     if (cost < best) { best = cost; goal = { key, x: e.x, y: e.y }; }
+  });
+  w.braziers.forEach((b, i) => {
+    const key = 'brazier ' + i;
+    if (b.lit || m.giveUp.has(key)) return;
+    const cost = Math.abs(b.x - hx) + Math.abs(b.y - hf) * 2;
+    if (cost < best) { best = cost; goal = { key, x: b.x, y: b.y - 1 }; }
   });
   if (!goal && w.door && !m.giveUp.has('door')) goal = { key: 'door', x: w.door.x + w.door.w / 2, y: w.door.y + w.door.h - 1 };
   if (!goal) return NO_CONTROLS;

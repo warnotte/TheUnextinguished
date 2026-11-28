@@ -130,7 +130,10 @@ export class Hud {
     const got = w.carried;
     // What the door asks for, then what he carries over it (embers won from the foes, for the charge).
     const need = w.embers.length, over = got > need ? `  +${got - need}` : '';
+    // Where there are braziers, it is they the door waits for: the fires alight, of how many; then the embers in hand.
+    const fires = w.braziers.length;
     if (w.beast) centered(g, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? '#ffe27a' : '#e2d8f0');      // for the charge: no door here
+    else if (fires) centered(g, `FIRES ${w.kindled}/${fires}${need ? `   EMBERS ${Math.min(got, need)}/${need}${over}` : got ? `   EMBERS ${got}` : ''}`, VIEW_H - 20, w.doorOpen ? '#ffe27a' : '#e2d8f0');
     else if (need) centered(g, `EMBERS ${Math.min(got, need)}/${need}${over}`, VIEW_H - 20, w.doorOpen ? '#ffe27a' : '#e2d8f0');
     else if (w.boss) centered(g, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? '#ffe27a' : '#e2d8f0');
     const clock = clockText(w.clock);

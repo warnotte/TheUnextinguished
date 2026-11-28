@@ -522,6 +522,12 @@ export class Sound {
         this.hiss('lowpass', 700, 180, { dur: 0.5, vol: 0.6, hall: 0.3 });
         this.splatter(7, 0.5, 0.22);
         break;
+      case 'kindle':
+        // A fire that catches: a soft rush upward, the low breath of it, a few crackles.
+        this.hiss('bandpass', 300, 1500, { dur: 0.45, vol: 0.5, hall: 0.35 }, 0.9);
+        this.tone('sawtooth', 90, 170, { dur: 0.35, vol: 0.14, hall: 0.3 });
+        this.splatter(4, 0.4, 0.12);
+        break;
       case 'wade':
         // A step in water: it is pushed aside, wet and low, and falls back.
         this.hiss('bandpass', 900, 330, { dur: 0.2, vol: 0.32, hall: 0.25 }, 1.1);

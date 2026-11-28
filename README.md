@@ -52,10 +52,13 @@ at the moment it is needed, in a band at the foot of the picture: to guard when 
 strike, how a dazed shade is ended, that the door wants every ember, the flaming charge when an
 ember is to spare, how to break free of a hand, to come up out of the water, to climb; in the words
 of the keyboard or of the gamepad, whichever was used last. SCREEN is SHARP, or OLD TUBE: the
-picture as a cathode-ray tube showed it. On a site a shader draws it (`src/render/tube.ts`): the glass
+picture as a cathode-ray tube showed it. A shader draws it (`src/render/tube.ts`): the glass
 bulges, a scan line runs along every row of the game, the phosphors stand side by side, the colours part
-towards the edges, the corners go dark. Opened from the disk, a browser lets no shader read the picture:
-the page then lays the scan lines, the phosphors and the dark corners over it itself, without the bulge.
+towards the edges, the corners go dark. A browser lets a shader read the picture of a page opened from the
+disk only if its pictures did not come as files: so the page carries them in a script too
+(`dist/pictures.js`, written by the build), and the tube is the same by a double click as on a site. Where
+there is no shader at all, the page lays the scan lines, the phosphors and the dark corners over the
+picture itself, without the bulge.
 Up and down choose a line, left and right change it
 (held, they go on), Escape (or O, or B, Y or Select on the gamepad) closes them. They are kept in the
 browser.
@@ -115,6 +118,15 @@ its water, a dark shape on the floor and a few bubbles: one rises as the hero wa
 gurgle, and wades to him, slower than he walks; its touch hurts. It keeps to the water. Two blows
 send it back under, and it rises again from its place a while later. It does not bleed.
 
+Under the flooded crypt lies the ossuary, where no light comes: three floors in the dark, and nothing
+that gives light but a candle on the altar by the door. There are no embers to gather for the door here:
+seven braziers of cold iron stand about the place, a few coals still red in them, enough to be found.
+The hero kindles each as he comes to it, with the flame he carries; it burns from then on and pushes the
+dark back, and the door opens when all seven burn (the count of the fires is at the foot of the screen).
+What walks there is seen by its own light only: the green of the shades, the fire of the ghouls and of
+the skulls. Its three embers are for the charge. Its tune is not a theme but a pulse: a kick on every
+beat, a line that the filter of the SID opens and shuts, a short figure that the Amstrad answers.
+
 Over the belfry, a giant shape of the demon circles in the storm: only its eyes show, until a flash
 cuts it out black against the sky. The bell chamber, at the top of the belfry, is the room of the
 demon. It comes in out of the storm through the great opening, breaking the stone, and lands as
@@ -170,7 +182,7 @@ in a time drawn by chance.
 The levels follow each other: the door of one leads to the next. After the last comes the end,
 which tells the run: its time, the foes snuffed out, the blood spilt, how often the hero was knocked
 out; then the credits roll over the place at dawn. Then back to the title. To go straight to a level, without the title, add `?level=1` to
-`?level=8` to the address of the page.
+`?level=9` to the address of the page.
 
 The title has a picture of its own, the overture (`src/render/overture.ts`): the whole of what is to come,
 seen from outside, by night, in a storm. It begins in the dark, with only the monk on his rise in the
@@ -193,7 +205,7 @@ Needs Node 18 or newer.
 
 ```
 npm install
-npm run build      # writes dist/game.js, the one script index.html loads
+npm run build      # writes dist/game.js, the game, and dist/pictures.js, its pictures packed for the page
 npm run dev        # the same, rebuilt whenever src/ or levels/ change
 npm test           # the simulation, the level reader, the registry (no browser)
 npm run check      # type check
@@ -251,17 +263,18 @@ object, paint a cell); nothing drives them yet.
   `width`, `height`), the cemetery's `tree`,
   `mossy-tree`, `great-tree`, `reaper`, `headstone-1` to `headstone-4`, `bush`, `shrub` (in front of the
   actors), `mound`, `knoll`, `ruin`, `hero`, `shade`, `ghoul`, `skull` (its point is the
-  bottom of its box, in the air), `hound`, `ghost`, `demon`. The point is the anchor of the kind: the bottom middle of a piece of
+  bottom of its box, in the air), `hound`, `ghost`, `demon`, `brazier` (cold iron on the ground, its point under
+  its foot: the hero kindles it as he comes to it, and the door of a level that has any waits for them all). The point is the anchor of the kind: the bottom middle of a piece of
   decor, the feet of an actor, the pivot of a torch.
 - The map's own properties set the level: `title`, `darkness` (0 to 1), `music`, `mist`, `bats`,
   `intro` (a tune played once before `music`), `sky` (the night shows through the arches, in planes that slide at different speeds:
   `src/render/sky.ts`), `snow` and `storm` (now and then lightning lights the place through its openings, each body throws a long shadow on the wall, and the thunder follows), `omen` (the giant shape of the demon in the sky), `collapse` (px a second: the level comes down from the top), `water` (the height of its surface, in px from the top: the air under it is water) `rain` (it falls wherever the roof of the grid is open, down to the stone or the water) `skyline` (`cemetery`: the cemetery's own sky, its red moon, its rocks, its far graves, as its pack lays them out), `restless` (seconds: now and then one of the dead comes up out of the ground near the hero, a few at a time), `tremor` (seconds: the ground shakes and stones fall as the level begins) `fliers` (`crows`: crows fly over the level instead of bats; `bats` says how many), `demo` (the demo may play this level) and `ending` (on the last level: the
   tune of the end, which is then seen over that level, at dawn when it is out of doors).
 - The third level, the furnace, is written by `node tools/make-fournaise.mjs`; the fourth, the
-  flooded crypt, by `node tools/make-inondee.mjs`; the fifth, the belfry, by `node tools/make-beffroi.mjs`;
-  the sixth, the bell chamber, by `node tools/make-clocher.mjs`; the seventh, the fall, by
-  `node tools/make-effondrement.mjs` from the belfry's map; the eighth, the cemetery, by
-  `node tools/make-cimetiere.mjs`.
+  flooded crypt, by `node tools/make-inondee.mjs`; the fifth, the ossuary, by `node tools/make-ossuaire.mjs`;
+  the sixth, the belfry, by `node tools/make-beffroi.mjs`; the seventh, the bell chamber, by
+  `node tools/make-clocher.mjs`; the eighth, the fall, by `node tools/make-effondrement.mjs` from the
+  belfry's map; the ninth, the cemetery, by `node tools/make-cimetiere.mjs`.
 - A level with a `beast` is won when the beast is ended; its embers are only for the charge.
 - A level with a `demon` is won when the demon is ended, not by a door.
 - `node tools/add-creatures.mjs` puts the skull, the hounds and the ghosts into the nave and the crypt.
@@ -306,7 +319,8 @@ level. Behaviour that is new goes into `src/sim/`, never into a level.
 - Music: ours, played on the emulated sound chips of NoobSynth (FM operators and drum machines for
   the nave; NES and SNES oscillators, a pipe organ and an FM bell for the crypt; the NES chip, an
   808 kick and an FM bell for the bell chamber and the entrance of the demon; two SIDs of the
-  Commodore 64, emulated by reSID, for the furnace, the flooded crypt, the cemetery and the fall; and for the
+  Commodore 64, emulated by reSID, for the furnace, the flooded crypt, the cemetery and the fall; two SIDs and
+  the AY-3-8910 of the Amstrad CPC for the ossuary; and for the
   title all of them at once, two SIDs, the NES, the SNES and the AY-3-8910 of the Amstrad CPC) by the program in
   `tools/music` (see its README to render them again). The belfry plays `assets/music/poursuite.*`,
   an earlier tune on the AY-3-8910, made by `essais/ay-essai`.

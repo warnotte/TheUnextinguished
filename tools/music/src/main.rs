@@ -20,6 +20,7 @@ mod crypte;
 mod demon;
 mod mix;
 mod nef;
+mod ossuary;
 mod overture;
 mod score;
 mod sid;
@@ -54,6 +55,7 @@ fn tunes() -> Vec<Tune> {
         Tune { name: furnace::NAME, about: furnace::ABOUT, time: furnace::time(), sections: furnace::SECTIONS, mix: furnace::mix, once: false },
         Tune { name: graves::NAME, about: graves::ABOUT, time: graves::time(), sections: graves::SECTIONS, mix: graves::mix, once: false },
         Tune { name: overture::NAME, about: overture::ABOUT, time: overture::time(), sections: overture::SECTIONS, mix: overture::mix, once: false },
+        Tune { name: ossuary::NAME, about: ossuary::ABOUT, time: ossuary::time(), sections: ossuary::SECTIONS, mix: ossuary::mix, once: false },
     ]
 }
 

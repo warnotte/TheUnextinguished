@@ -13,12 +13,16 @@ export interface Assets {
   sheet(name: string): CanvasImageSource;
 }
 
+// The page carries its pictures in a script too (dist/pictures.js, window.PICTURES[path], written by the
+// build): a browser lets a page opened from the disk read a picture that came that way, and not one it
+// fetched as a file. The shader of the old tube needs to read the picture of the game. Where the script
+// is missing, or does not know a picture, the file is fetched as before.
 function load(path: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = () => reject(new AssetError(`could not load ${path} — keep the "assets" folder next to index.html`));
-    img.src = path;
+    img.src = (globalThis as { PICTURES?: Record<string, string> }).PICTURES?.[path] ?? path;
   });
 }
 

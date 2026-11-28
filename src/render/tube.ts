@@ -3,9 +3,11 @@
 // game, thinner where the picture is bright; the three colours of the phosphors stand side by side;
 // the bright parts bleed a little; the colours part towards the edges; the corners go dark.
 //
-// A browser lets a shader read the picture only when the page comes from a site: opened from the
-// disk, the picture is closed to it ("tainted"), and `ok` turns false at the first try. The page
-// then lays its lines over the picture itself (see index.html), without the bulge.
+// A browser lets a shader read the picture of a page opened from the disk only if no picture drawn on
+// it was fetched as a file: so the game's pictures come packed in a script (dist/pictures.js, see
+// src/render/assets.ts), and the tube is the same by a double click as on a site. Should the picture
+// be closed to the shader all the same ("tainted"), or the browser have no WebGL, `ok` turns false at
+// the first try and the page lays its lines over the picture itself (see index.html), without the bulge.
 
 const VERTEX = `
 attribute vec2 a_pos;

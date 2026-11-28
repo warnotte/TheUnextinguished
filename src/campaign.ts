@@ -16,7 +16,8 @@ export function wonWords(index: number, count: number, boss = false, slain = 'DE
 }
 
 /** What is written over a level when it starts: `boss` for the room of a demon, `beast` for the furnace, `fall` for a tower coming down. */
-export function openingWords(title: string, kind: '' | 'boss' | 'beast' | 'fall' = ''): string[] {
+export function openingWords(title: string, kind: '' | 'boss' | 'beast' | 'fall' | 'fires' = ''): string[] {
+  if (kind === 'fires') return [title, 'LIGHT EVERY FIRE', 'THEN REACH THE DOOR'];
   if (kind === 'beast') return [title, 'SLAY THE BEAST', 'GUARD AGAINST ITS FIRE BALLS', 'FLEE ITS PILLARS OF FIRE'];
   if (kind === 'fall') return [title, 'THE TOWER FALLS', 'RUN DOWN TO THE DOOR'];
   if (kind === 'boss') return [title, 'SLAY THE DEMON', 'ITS SKELETONS CARRY EMBERS', 'ONLY A FLAMING CHARGE ENDS IT'];

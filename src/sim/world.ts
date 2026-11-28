@@ -97,6 +97,7 @@ export class World {
   readonly graves: { x: number; y: number }[] = [];
   readonly hazards: { x: number; y: number; w: number; h: number }[] = [];     // pits of spikes
   readonly candles: { x: number; y: number; lit: boolean }[] = [];              // votive candles: health back, once
+  readonly braziers: { x: number; y: number; lit: boolean }[] = [];             // cold until the hero comes to them: the door waits for them all
   private bellT: number = BELL.first;
   private risen = 0;               // skeletons raised so far: every other one wears rags
   private bell = false;            // the level has a great bell: it wakes the graves
@@ -156,6 +157,7 @@ export class World {
       else if (kind.role === 'grave') this.graves.push({ x: o.x, y: o.y });
       else if (kind.role === 'bell') this.bell = true;
       else if (kind.role === 'heal') this.candles.push({ x: o.x, y: o.y, lit: true });
+      else if (kind.role === 'brazier') this.braziers.push({ x: o.x, y: o.y, lit: false });
       else if (kind.role === 'hazard') this.hazards.push({ x: o.x, y: o.y, w: Number(o.props.width ?? 32), h: TILE });
     }
     if (!hero) throw new Error(`level "${level.settings.name}" has no hero`);
@@ -175,8 +177,11 @@ export class World {
   get carried(): number { return this.embers.reduce((n, m) => n + (m.taken ? 1 : 0), 0) + this.spare; }
 
   /** As many embers in hand as the level holds. A level without embers has its door open from the start. */
-  /** The door opens with every ember gathered, and once no reaper of stone keeps it. */
-  get doorOpen(): boolean { return this.carried >= this.embers.length && !this.foes.some(f => f.kind === 'reaper' && f.dead <= 0); }
+  /** The braziers that burn. */
+  get kindled(): number { return this.braziers.reduce((n, b) => n + (b.lit ? 1 : 0), 0); }
+
+  /** The door opens with every ember gathered and every brazier alight, and once no reaper of stone keeps it. */
+  get doorOpen(): boolean { return this.carried >= this.embers.length && this.braziers.every(b => b.lit) && !this.foes.some(f => f.kind === 'reaper' && f.dead <= 0); }
 
   /** Advances by one STEP and returns what happened since the last call. */
   step(controls: Controls): GameEvent[] {
@@ -574,6 +579,14 @@ export class World {
 
   private stepItems(): void {
     const p = this.hero;
+    // A brazier catches from the flame the hero carries, as he comes to it on its floor; and stays alight.
+    const hx = centreX(p), feet = p.y + p.h;
+    for (const b of this.braziers) {
+      if (b.lit || Math.abs(hx - b.x) > 14 || Math.abs(feet - b.y) > 24) continue;
+      b.lit = true;
+      this.emit({ type: 'effect', kind: 'collect-burst', x: b.x, y: b.y - 30 + EMBER_BURST_DROP, flip: false });
+      this.emit({ type: 'sound', name: 'kindle' });
+    }
     for (const m of this.embers) {
       if (m.taken || !overlap({ x: m.x - EMBER_REACH, y: m.y - EMBER_REACH, w: EMBER_REACH * 2, h: EMBER_REACH * 2 }, p)) continue;
       m.taken = true;

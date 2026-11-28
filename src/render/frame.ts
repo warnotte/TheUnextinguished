@@ -358,6 +358,7 @@ export class Stage {
     this.drawBells(g);                               // it hangs in front of the opening, over the sky
     this.drawEmbers(g, t);
     this.drawCandles(g, t);
+    this.drawBraziers(g, t);
     if (!this.scenery) {
       if (w.boss) { this.drawDemon(g, w.boss, t); this.drawWaves(g, w.boss, t); }
       for (const f of w.foes) if (f.kind === 'skeleton') this.drawSkeleton(g, f, t);
@@ -428,6 +429,8 @@ export class Stage {
     const w = this.world, out: Light[] = [];
     for (const m of w.embers) if (!m.taken) out.push({ x: m.x, y: m.y, radius: 54, strength: 0.75, flicker: 0, color: [255, 150, 70] });
     for (const c of w.candles) if (c.lit) out.push({ x: c.x, y: c.y - 14, radius: 46, strength: 0.7, flicker: 0, color: [255, 200, 120] });
+    // A brazier alight is a fire; cold, its coals still glow a little, enough to be found in the dark.
+    for (const b of w.braziers) out.push(b.lit ? { x: b.x, y: b.y - 36, radius: 190, strength: 1.1, flicker: 1, color: [255, 138, 80] } : { x: b.x, y: b.y - 30, radius: 26, strength: 0.4, flicker: 0, color: [255, 80, 40] });
     if (w.door && w.doorOpen) out.push({ x: w.door.x + 16, y: w.door.y + 36, radius: 140, strength: 1, flicker: 0, color: [255, 215, 140] });
     const flash = this.storm?.glow ?? 0;
     if (flash > 0.02) for (const o of this.openings) out.push({ x: o.x, y: o.y, radius: LIGHTNING.radius, strength: LIGHTNING.strength * flash, flicker: 0, color: LIGHTNING.color, cool: true });
@@ -859,6 +862,44 @@ export class Stage {
     g.beginPath(); g.arc(s.x, s.y, 7, a + 0.3, a + 2.1); g.stroke();
     g.restore();
     void t;
+  }
+
+  // The braziers: a bowl of iron on its foot. Cold, a few coals that still glow; alight, tongues of flame
+  // that lean and flicker, and sparks.
+  private drawBraziers(g: CanvasRenderingContext2D, t: number): void {
+    for (const b of this.world.braziers) {
+      const x = Math.round(b.x), y = Math.round(b.y);
+      g.fillStyle = '#231f2b';
+      g.fillRect(x - 7, y - 2, 14, 2); g.fillRect(x - 5, y - 4, 2, 2); g.fillRect(x + 3, y - 4, 2, 2);          // its foot
+      g.fillRect(x - 1, y - 24, 2, 22);                                                                    // its stem
+      g.fillRect(x - 3, y - 14, 6, 2);                                                                     // a ring on it
+      g.fillRect(x - 8, y - 30, 16, 3); g.fillRect(x - 6, y - 27, 12, 2); g.fillRect(x - 4, y - 25, 8, 1);    // its bowl
+      g.fillStyle = '#4b4558'; g.fillRect(x - 8, y - 30, 16, 1); g.fillRect(x - 1, y - 24, 1, 22);
+      if (!b.lit) {
+        // Coals not quite dead: a red point or two, breathing.
+        const breath = 0.55 + 0.45 * Math.sin(t * 2.2 + x);
+        g.fillStyle = '#1a171f'; g.fillRect(x - 6, y - 32, 12, 2);
+        g.fillStyle = `rgba(255,80,40,${(0.75 * breath).toFixed(3)})`; g.fillRect(x - 3, y - 32, 2, 1); g.fillRect(x + 2, y - 32, 1, 1);
+        continue;
+      }
+      g.fillStyle = '#ff8a2a'; g.fillRect(x - 6, y - 32, 12, 2);
+      g.save(); g.globalCompositeOperation = 'lighter';
+      this.glow(g, x, y - 38, 30, 'rgba(255,150,70,0.5)');
+      for (let k = -2; k <= 2; k++) {
+        const tall = Math.round(5 + 9 * Math.abs(Math.sin(t * (7 + Math.abs(k) * 2.3) + x * 0.7 + k * 1.9)) * (1 - Math.abs(k) * 0.22));
+        const lean = Math.round(Math.sin(t * 3.1 + k + x) * 1.2);
+        g.fillStyle = '#e0401c'; g.fillRect(x + k * 3 - 1 + lean, y - 32 - tall, 3, tall);
+        g.fillStyle = '#ffc93c'; g.fillRect(x + k * 3 + lean, y - 32 - Math.round(tall * 0.65), 2, Math.round(tall * 0.65));
+        if (k === 0) { g.fillStyle = '#fff3c4'; g.fillRect(x + lean, y - 32 - Math.round(tall * 0.4), 1, Math.round(tall * 0.4)); }
+      }
+      // Sparks that rise from it.
+      for (let k = 0; k < 4; k++) {
+        const u = (t * (0.5 + k * 0.13) + k * 0.31 + x * 0.01) % 1;
+        g.globalAlpha = 1 - u; g.fillStyle = k % 2 ? '#ffc93c' : '#ff8a2a';
+        g.fillRect(Math.round(x + Math.sin(u * 5 + k * 2) * 6), Math.round(y - 40 - u * 34), 1, 1);
+      }
+      g.restore();
+    }
   }
 
   // The votive candles: a stub of wax on a little stone, its flame alive while it is lit; out, a wisp.

@@ -35,6 +35,18 @@ describe('the player of the demo', () => {
     expect(taken).toBeGreaterThanOrEqual(3);
   });
 
+  // The ossuary can be won: left to itself the demo's hero finds its braziers in the dark and kindles them.
+  it('goes to the cold braziers of the ossuary and kindles them', () => {
+    const { w } = watch('ossuaire', 60);
+    expect(w.kindled).toBeGreaterThanOrEqual(4);
+  });
+
+  it('given time, kindles every brazier of the ossuary and reaches its door', () => {
+    const { w } = watch('ossuaire', 240);
+    expect(w.kindled).toBe(7);
+    expect(w.state).toBe('won');
+  });
+
   it('fights the foes that come at it', () => {
     const { blows } = watch('salle3', 45);
     expect(blows).toBeGreaterThan(3);

@@ -26,6 +26,7 @@ export type Kind =
   | { role: 'bell' }
   | { role: 'hazard' }
   | { role: 'terrain' }
+  | { role: 'brazier' }             // cold iron until the hero comes to it with his flame: the door waits for every one of them
   | { role: 'heal' };                // a votive candle: all his health back to the hero who comes to it, once             // a hill: the left of its foot, its width, height and flat top (src/sim/terrain.ts)              // spikes: a pit one tile deep, from its point (its top left corner) as wide as its width                // the great bell, hung by its top: it swings when it tolls
 
 const lantern = (dx: number): LightSpec => ({ dx, dy: -80, radius: 48, strength: 0.7, flicker: 0.5, color: CANDLE });
@@ -48,6 +49,7 @@ export const KINDS: Readonly<Record<string, Kind>> = {
   spikes: { role: 'hazard' },
   hill: { role: 'terrain' },
   candle: { role: 'heal' },
+  brazier: { role: 'brazier' },       // its point is under its foot, on the ground
   ember: { role: 'ember' },
   door: { role: 'door' },
 
@@ -126,6 +128,11 @@ export const IMAGES: Readonly<Record<string, string>> = {
   ...Object.fromEntries([0, 1].flatMap(look => range(1, 8).map(i => [`skeleton/${look}/${i}`, `${CEMETERY}skeleton/skeleton${look ? '-clothed' : ''}-${i}.png`]))),
   ...Object.fromEntries([0, 1].flatMap(look => range(1, 6).map(i => [`skeleton-rise/${look}/${i}`, `${CEMETERY}skeleton/skeleton-rise${look ? '-clothed' : ''}-${i}.png`]))),
 };
+
+/** Every file of picture the game loads, under assets/: what the build packs into dist/pictures.js. */
+export function pictureFiles(): string[] {
+  return [...new Set([...Object.values(IMAGES), ...Object.values(SHEETS).map(s => s.file), ...Object.values(STRIPS).map(s => s.file)])];
+}
 
 /** Strips of frames cut into one picture each, so that every frame can be lit like the monk: "demon/idle/3". */
 export interface Strip { file: string; w: number; h: number; frames: number; footX: number; footY: number }

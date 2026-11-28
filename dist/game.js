@@ -701,6 +701,11 @@
           this.hiss("lowpass", 700, 180, { dur: 0.5, vol: 0.6, hall: 0.3 });
           this.splatter(7, 0.5, 0.22);
           break;
+        case "kindle":
+          this.hiss("bandpass", 300, 1500, { dur: 0.45, vol: 0.5, hall: 0.35 }, 0.9);
+          this.tone("sawtooth", 90, 170, { dur: 0.35, vol: 0.14, hall: 0.3 });
+          this.splatter(4, 0.4, 0.12);
+          break;
         case "wade":
           this.hiss("bandpass", 900, 330, { dur: 0.2, vol: 0.32, hall: 0.25 }, 1.1);
           this.hiss("bandpass", 1600, 700, { at: 0.07, dur: 0.12, vol: 0.13, hall: 0.2 }, 1.6);
@@ -748,6 +753,7 @@
     return { title, lines: ["PRESS JUMP TO GO ON"] };
   }
   function openingWords(title, kind = "") {
+    if (kind === "fires") return [title, "LIGHT EVERY FIRE", "THEN REACH THE DOOR"];
     if (kind === "beast") return [title, "SLAY THE BEAST", "GUARD AGAINST ITS FIRE BALLS", "FLEE ITS PILLARS OF FIRE"];
     if (kind === "fall") return [title, "THE TOWER FALLS", "RUN DOWN TO THE DOOR"];
     if (kind === "boss") return [title, "SLAY THE DEMON", "ITS SKELETONS CARRY EMBERS", "ONLY A FLAMING CHARGE ENDS IT"];
@@ -2494,7 +2500,9 @@
       }
       const got = w.carried;
       const need = w.embers.length, over2 = got > need ? `  +${got - need}` : "";
+      const fires = w.braziers.length;
       if (w.beast) centered(g2, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? "#ffe27a" : "#e2d8f0");
+      else if (fires) centered(g2, `FIRES ${w.kindled}/${fires}${need ? `   EMBERS ${Math.min(got, need)}/${need}${over2}` : got ? `   EMBERS ${got}` : ""}`, VIEW_H - 20, w.doorOpen ? "#ffe27a" : "#e2d8f0");
       else if (need) centered(g2, `EMBERS ${Math.min(got, need)}/${need}${over2}`, VIEW_H - 20, w.doorOpen ? "#ffe27a" : "#e2d8f0");
       else if (w.boss) centered(g2, `EMBERS ${got}`, VIEW_H - 20, got > 0 ? "#ffe27a" : "#e2d8f0");
       const clock = clockText(w.clock);
@@ -2684,6 +2692,8 @@
     spikes: { role: "hazard" },
     hill: { role: "terrain" },
     candle: { role: "heal" },
+    brazier: { role: "brazier" },
+    // its point is under its foot, on the ground
     ember: { role: "ember" },
     door: { role: "door" },
     window: { role: "decor", plane: "wall", image: "back", src: [0, 0, 160, 192], anchor: [80, 192], lights: [{ dx: 0, dy: -96, radius: 86, strength: 0.7, flicker: 0, color: MOON, cool: true }, { dx: 0, dy: -112, radius: 28, strength: 0.9, flicker: 0, color: GLASS }], shaft: true },
@@ -3742,6 +3752,7 @@
         else if (kind.role === "grave") this.graves.push({ x: o.x, y: o.y });
         else if (kind.role === "bell") this.bell = true;
         else if (kind.role === "heal") this.candles.push({ x: o.x, y: o.y, lit: true });
+        else if (kind.role === "brazier") this.braziers.push({ x: o.x, y: o.y, lit: false });
         else if (kind.role === "hazard") this.hazards.push({ x: o.x, y: o.y, w: Number(o.props.width ?? 32), h: TILE });
       }
       if (!hero2) throw new Error(`level "${level.settings.name}" has no hero`);
@@ -3798,6 +3809,8 @@
     // pits of spikes
     candles = [];
     // votive candles: health back, once
+    braziers = [];
+    // cold until the hero comes to them: the door waits for them all
     bellT = BELL.first;
     risen = 0;
     // skeletons raised so far: every other one wears rags
@@ -3842,9 +3855,13 @@
       return this.embers.reduce((n, m) => n + (m.taken ? 1 : 0), 0) + this.spare;
     }
     /** As many embers in hand as the level holds. A level without embers has its door open from the start. */
-    /** The door opens with every ember gathered, and once no reaper of stone keeps it. */
+    /** The braziers that burn. */
+    get kindled() {
+      return this.braziers.reduce((n, b) => n + (b.lit ? 1 : 0), 0);
+    }
+    /** The door opens with every ember gathered and every brazier alight, and once no reaper of stone keeps it. */
     get doorOpen() {
-      return this.carried >= this.embers.length && !this.foes.some((f) => f.kind === "reaper" && f.dead <= 0);
+      return this.carried >= this.embers.length && this.braziers.every((b) => b.lit) && !this.foes.some((f) => f.kind === "reaper" && f.dead <= 0);
     }
     /** Advances by one STEP and returns what happened since the last call. */
     step(controls) {
@@ -4368,6 +4385,13 @@
     }
     stepItems() {
       const p = this.hero;
+      const hx = centreX(p), feet = p.y + p.h;
+      for (const b of this.braziers) {
+        if (b.lit || Math.abs(hx - b.x) > 14 || Math.abs(feet - b.y) > 24) continue;
+        b.lit = true;
+        this.emit({ type: "effect", kind: "collect-burst", x: b.x, y: b.y - 30 + EMBER_BURST_DROP, flip: false });
+        this.emit({ type: "sound", name: "kindle" });
+      }
       for (const m of this.embers) {
         if (m.taken || !overlap3({ x: m.x - EMBER_REACH, y: m.y - EMBER_REACH, w: EMBER_REACH * 2, h: EMBER_REACH * 2 }, p)) continue;
         m.taken = true;
@@ -4737,7 +4761,7 @@
       const img = new Image();
       img.onload = () => resolve(img);
       img.onerror = () => reject(new AssetError(`could not load ${path} \u2014 keep the "assets" folder next to index.html`));
-      img.src = path;
+      img.src = globalThis.PICTURES?.[path] ?? path;
     });
   }
   function washed(source, color) {
@@ -6877,6 +6901,7 @@
       this.drawBells(g2);
       this.drawEmbers(g2, t);
       this.drawCandles(g2, t);
+      this.drawBraziers(g2, t);
       if (!this.scenery) {
         if (w.boss) {
           this.drawDemon(g2, w.boss, t);
@@ -6952,6 +6977,7 @@
       const w = this.world, out = [];
       for (const m of w.embers) if (!m.taken) out.push({ x: m.x, y: m.y, radius: 54, strength: 0.75, flicker: 0, color: [255, 150, 70] });
       for (const c of w.candles) if (c.lit) out.push({ x: c.x, y: c.y - 14, radius: 46, strength: 0.7, flicker: 0, color: [255, 200, 120] });
+      for (const b of w.braziers) out.push(b.lit ? { x: b.x, y: b.y - 36, radius: 190, strength: 1.1, flicker: 1, color: [255, 138, 80] } : { x: b.x, y: b.y - 30, radius: 26, strength: 0.4, flicker: 0, color: [255, 80, 40] });
       if (w.door && w.doorOpen) out.push({ x: w.door.x + 16, y: w.door.y + 36, radius: 140, strength: 1, flicker: 0, color: [255, 215, 140] });
       const flash = this.storm?.glow ?? 0;
       if (flash > 0.02) for (const o of this.openings) out.push({ x: o.x, y: o.y, radius: LIGHTNING.radius, strength: LIGHTNING.strength * flash, flicker: 0, color: LIGHTNING.color, cool: true });
@@ -7490,6 +7516,58 @@
       g2.stroke();
       g2.restore();
       void t;
+    }
+    // The braziers: a bowl of iron on its foot. Cold, a few coals that still glow; alight, tongues of flame
+    // that lean and flicker, and sparks.
+    drawBraziers(g2, t) {
+      for (const b of this.world.braziers) {
+        const x = Math.round(b.x), y = Math.round(b.y);
+        g2.fillStyle = "#231f2b";
+        g2.fillRect(x - 7, y - 2, 14, 2);
+        g2.fillRect(x - 5, y - 4, 2, 2);
+        g2.fillRect(x + 3, y - 4, 2, 2);
+        g2.fillRect(x - 1, y - 24, 2, 22);
+        g2.fillRect(x - 3, y - 14, 6, 2);
+        g2.fillRect(x - 8, y - 30, 16, 3);
+        g2.fillRect(x - 6, y - 27, 12, 2);
+        g2.fillRect(x - 4, y - 25, 8, 1);
+        g2.fillStyle = "#4b4558";
+        g2.fillRect(x - 8, y - 30, 16, 1);
+        g2.fillRect(x - 1, y - 24, 1, 22);
+        if (!b.lit) {
+          const breath = 0.55 + 0.45 * Math.sin(t * 2.2 + x);
+          g2.fillStyle = "#1a171f";
+          g2.fillRect(x - 6, y - 32, 12, 2);
+          g2.fillStyle = `rgba(255,80,40,${(0.75 * breath).toFixed(3)})`;
+          g2.fillRect(x - 3, y - 32, 2, 1);
+          g2.fillRect(x + 2, y - 32, 1, 1);
+          continue;
+        }
+        g2.fillStyle = "#ff8a2a";
+        g2.fillRect(x - 6, y - 32, 12, 2);
+        g2.save();
+        g2.globalCompositeOperation = "lighter";
+        this.glow(g2, x, y - 38, 30, "rgba(255,150,70,0.5)");
+        for (let k = -2; k <= 2; k++) {
+          const tall = Math.round(5 + 9 * Math.abs(Math.sin(t * (7 + Math.abs(k) * 2.3) + x * 0.7 + k * 1.9)) * (1 - Math.abs(k) * 0.22));
+          const lean = Math.round(Math.sin(t * 3.1 + k + x) * 1.2);
+          g2.fillStyle = "#e0401c";
+          g2.fillRect(x + k * 3 - 1 + lean, y - 32 - tall, 3, tall);
+          g2.fillStyle = "#ffc93c";
+          g2.fillRect(x + k * 3 + lean, y - 32 - Math.round(tall * 0.65), 2, Math.round(tall * 0.65));
+          if (k === 0) {
+            g2.fillStyle = "#fff3c4";
+            g2.fillRect(x + lean, y - 32 - Math.round(tall * 0.4), 1, Math.round(tall * 0.4));
+          }
+        }
+        for (let k = 0; k < 4; k++) {
+          const u = (t * (0.5 + k * 0.13) + k * 0.31 + x * 0.01) % 1;
+          g2.globalAlpha = 1 - u;
+          g2.fillStyle = k % 2 ? "#ffc93c" : "#ff8a2a";
+          g2.fillRect(Math.round(x + Math.sin(u * 5 + k * 2) * 6), Math.round(y - 40 - u * 34), 1, 1);
+        }
+        g2.restore();
+      }
     }
     // The votive candles: a stub of wax on a little stone, its flame alive while it is lit; out, a wisp.
     drawCandles(g2, t) {
@@ -8858,6 +8936,15 @@ void main() {
         goal = { key, x: e.x, y: e.y };
       }
     });
+    w.braziers.forEach((b, i) => {
+      const key = "brazier " + i;
+      if (b.lit || m.giveUp.has(key)) return;
+      const cost = Math.abs(b.x - hx) + Math.abs(b.y - hf) * 2;
+      if (cost < best) {
+        best = cost;
+        goal = { key, x: b.x, y: b.y - 1 };
+      }
+    });
     if (!goal && w.door && !m.giveUp.has("door")) goal = { key: "door", x: w.door.x + w.door.w / 2, y: w.door.y + w.door.h - 1 };
     if (!goal) return NO_CONTROLS;
     const g2 = goal;
@@ -9012,7 +9099,7 @@ void main() {
       result = null;
       naming = null;
       const boss = !!world.boss, beast = !!world.beast;
-      stage = new Stage(world, assets, openingWords(level.settings.title, boss ? "boss" : beast ? "beast" : world.fall ? "fall" : ""), wonWords(i, levels.length, boss || beast, beast ? "BEAST SLAIN" : "DEMON SLAIN"));
+      stage = new Stage(world, assets, openingWords(level.settings.title, boss ? "boss" : beast ? "beast" : world.fall ? "fall" : world.braziers.length ? "fires" : ""), wonWords(i, levels.length, boss || beast, beast ? "BEAST SLAIN" : "DEMON SLAIN"));
       stage.ash = ashen();
       if (demo) {
         world.invincible = true;

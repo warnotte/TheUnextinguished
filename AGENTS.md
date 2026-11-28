@@ -7,7 +7,7 @@ What the game is, how it plays, how a level is written and how the code is laid 
 
 ```
 npm install
-npm run build      # writes dist/game.js, the one script index.html loads
+npm run build      # writes dist/game.js, the game, and dist/pictures.js, its pictures packed for the page
 npm test           # the simulation and the level reader, no browser
 npm run check      # type check
 npm run test:e2e   # the whole game in the installed Chrome, after a build
@@ -43,7 +43,7 @@ Rust program in `tools/music` (see its README).
 
 ## Commits
 
-- `dist/game.js` is committed, so that a fresh copy plays by a double click and GitHub Pages serves
+- `dist/game.js` and `dist/pictures.js` are committed, so that a fresh copy plays by a double click and GitHub Pages serves
   the game as it is: build before every commit.
 - A push to `main` publishes the game (GitHub Pages, about a minute later).
 - `README.md` follows the game: a change a player or a level author would notice updates it in the

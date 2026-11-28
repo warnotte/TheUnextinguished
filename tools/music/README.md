@@ -9,13 +9,14 @@ NoobSynth3's `dsp-core` (taken by path, read only: `E:/CODEX/NoobSynth3/crates/d
 | `nef` | 1, the Nave | FM (`FmMatrix` lead, stabs, pad, pluck; `FmOperator` bass), TR-909 drums |
 | `crypte` | 2, the Crypt | `NesOsc` pulses, triangle and noise, `SnesOsc` strings and bass, `PipeOrgan`, an `FmMatrix` bell, `Kick808` and `Tom909` |
 | `furnace` | 3, the Furnace | two SIDs: C in the Phrygian dominant mode, 150 beats a minute; a bass pumping in octaves through the filter, the chords run through, the theme; drums, an anvil as in a forge; in the middle, half time, the theme in long notes over the anvil |
-| `dirge` | 8, played once as the Cemetery begins | two SIDs: a drone on the tritone, a music box out of tune creeping down by half tones, chords diminished; the wind, a far bell |
-| `graves` | 8, the Cemetery, after `dirge` | two SIDs, faster: a bass round the tritone, the Dies irae (the old chant, free of rights); dull blows, a clock, the bell |
+| `dirge` | 9, played once as the Cemetery begins | two SIDs: a drone on the tritone, a music box out of tune creeping down by half tones, chords diminished; the wind, a far bell |
+| `graves` | 9, the Cemetery, after `dirge` | two SIDs, faster: a bass round the tritone, the Dies irae (the old chant, free of rights); dull blows, a clock, the bell |
 | `dawn` | the end, over the cemetery at dawn | two SIDs: the music box of `dirge` climbing at last, in D major; a warm pad, a far bell |
+| `ossuary` | 5, the Ossuary | two SIDs and the AY of the Amstrad CPC, 125 beats a minute: not a theme but a pulse, in the manner of the dance records of the nineties: a kick on every beat, a bass that rolls between the kicks, a line that the SID's own filter opens and shuts, a short figure that turns on itself, the Amstrad answering it three sixteenths later; a break where its buzzer holds one note |
 | `flood` | 4, the Flooded Crypt | two SIDs of the Commodore 64: a drone through the filter, drops of water, a lament; the rain, a heart, the chords |
-| `demon` | 6, the Bell Chamber | `NesOsc` pulses, triangle and noise, a `Kick808`, an `FmMatrix` bell |
-| `arrival` | 6, played once as the demon comes in | the same, its tail kept to ring over the start of `demon` |
-| `collapse` | 7, the Fall | two SIDs of the Commodore 64 (`resid-rs`, the reSID dsp-core plays .sid files with), driven by `src/sid.rs` as the players of its day did, fifty times a second |
+| `demon` | 7, the Bell Chamber | `NesOsc` pulses, triangle and noise, a `Kick808`, an `FmMatrix` bell |
+| `arrival` | 7, played once as the demon comes in | the same, its tail kept to ring over the start of `demon` |
+| `collapse` | 8, the Fall | two SIDs of the Commodore 64 (`resid-rs`, the reSID dsp-core plays .sid files with), driven by `src/sid.rs` as the players of its day did, fifty times a second |
 
 Echo and reverb are dsp-core's `Delay`, `Reverb` and `Chorus`.
 
@@ -38,6 +39,7 @@ ffmpeg -y -i <tmp dir>/dawn.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/
 ffmpeg -y -i <tmp dir>/dirge.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/dirge.ogg
 ffmpeg -y -i <tmp dir>/graves.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/graves.ogg
 ffmpeg -y -i <tmp dir>/furnace.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/furnace.ogg
+ffmpeg -y -i <tmp dir>/ossuary.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/ossuary.ogg
 ffmpeg -y -i <tmp dir>/overture.wav -ar 44100 -c:a libvorbis -b:a 128k assets/music/overture.ogg
 cd tools/music
 cargo run --release -- pack ../../assets/music
@@ -59,7 +61,7 @@ cargo run --release -- measure <tmp dir>/nef-decoded.wav
 
 ## How a tune is written
 
-- `src/nef.rs`, `src/crypte.rs`, `src/demon.rs`, `src/arrival.rs`, `src/collapse.rs`, `src/flood.rs`, `src/dirge.rs`, `src/graves.rs`, `src/dawn.rs`, `src/furnace.rs`, `src/overture.rs`: the tunes. A tune
+- `src/nef.rs`, `src/crypte.rs`, `src/demon.rs`, `src/arrival.rs`, `src/collapse.rs`, `src/flood.rs`, `src/dirge.rs`, `src/graves.rs`, `src/dawn.rs`, `src/furnace.rs`, `src/overture.rs`, `src/ossuary.rs`: the tunes. A tune
   played once (`arrival`) keeps its tail after it; its script says when the next tune comes in.
 - `src/ay.rs`: the AY-3-8912 of the Amstrad CPC (dsp-core's `Ay3_8910`), fifty times a second: its three
   square waves on sixteen levels, its noise, and the buzzer, its envelope generator run as a sawtooth bass.

@@ -116,6 +116,6 @@ describe('the cemetery', () => {
 
   it('is played last, after the fall of the belfry', () => {
     const order = [...readFileSync('index.html', 'utf8').matchAll(/levels\/(\w+)\.js/g)].map(m => m[1]);
-    expect(order).toEqual(['salle3', 'crypte', 'fournaise', 'inondee', 'beffroi', 'clocher', 'effondrement', 'cimetiere']);
+    expect(order).toEqual(['salle3', 'crypte', 'fournaise', 'inondee', 'ossuaire', 'beffroi', 'clocher', 'effondrement', 'cimetiere']);
   });
 });

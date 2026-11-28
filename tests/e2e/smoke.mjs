@@ -15,7 +15,9 @@ page.on('requestfailed', r => errors.push('request failed: ' + r.url()));
 const results = [];
 const check = (name, ok, detail = '') => { results.push(ok); console.log((ok ? 'ok   ' : 'FAIL ') + name + (detail ? '  ' + detail : '')); };
 const game = fn => page.evaluate(fn);
-const keys = async (...codes) => { for (const k of codes) { await page.keyboard.press(k); await page.waitForTimeout(50); } };
+// One key after the other, two frames apart: the browser driven here draws a frame every 42 ms or so, and two
+// keys that fall in the same frame are not two presses in a row.
+const keys = async (...codes) => { for (const k of codes) { await page.keyboard.press(k); await page.waitForTimeout(95); } };
 
 await page.addInitScript(() => {
   const edges = [], connect = AudioNode.prototype.connect;
@@ -59,11 +61,12 @@ check('the options are the same when the game is opened again', await game(() =>
 await keys('KeyO', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'KeyO');
 await page.waitForTimeout(150);
 check('O closes them too; the blood is red again', await game(() => !__game.options && __game.settings.blood === 'red'));
-// The screen as an old tube: scan lines over the picture, as wide as a row of the game.
+// The screen as an old tube. The page carries its pictures in a script, so that even opened from the disk its
+// picture may be read: the shader draws the tube on its glass, bulge and all.
 await keys('KeyO', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'KeyO');
-await page.waitForTimeout(200);
-const tube = await game(() => { const w = document.getElementById('wrap'), o = document.getElementById('crt'), c = document.getElementById('screen'); return { on: w.classList.contains('crt'), shown: getComputedStyle(o).display !== 'none', covers: Math.abs(o.getBoundingClientRect().width - c.getBoundingClientRect().width) < 1, px: getComputedStyle(w).getPropertyValue('--px').trim(), scale: c.getBoundingClientRect().width / 640 }; });
-check('the screen can be an old tube: scan lines laid over the picture, a row of the game high', tube.on && tube.shown && tube.covers && parseFloat(tube.px) === tube.scale, JSON.stringify(tube));
+await page.waitForTimeout(300);
+const tube = await game(() => { const w = document.getElementById('wrap'), gl = document.getElementById('glass'), c = document.getElementById('screen'); return { tube: w.classList.contains('tube'), lines: w.classList.contains('crt'), shown: getComputedStyle(gl).display !== 'none', size: [gl.width, gl.height], covers: Math.abs(gl.getBoundingClientRect().width - c.getBoundingClientRect().width) < 1 }; });
+check('opened from the disk, the screen can be an old tube, drawn by the shader on its glass', tube.tube && !tube.lines && tube.shown && tube.covers && tube.size[0] >= 640, JSON.stringify(tube));
 await page.screenshot({ path: 'tests/e2e/out/crt.png' });
 await keys('KeyO', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'KeyO');
 await page.waitForTimeout(150);
@@ -246,12 +249,25 @@ await page.waitForTimeout(700);
 const out = await game(() => __game.sound.mixNow.muffle);
 check('out of it, the world is heard clear again', out !== null && out > 10000, String(out));
 
+// The ossuary: in the dark, braziers of cold iron. The hero kindles the first as he walks to it, and it is heard.
+await game(() => __game.start(4));
+await page.waitForTimeout(300);
+const dark = await game(() => ({ name: __game.world.level.settings.name, fires: __game.world.braziers.length, lit: __game.world.kindled, open: __game.world.doorOpen, tune: __game.sound.tuneName }));
+check('the fifth level is the ossuary: seven cold braziers, its door shut, a tune of its own', dark.name === 'ossuaire' && dark.fires === 7 && dark.lit === 0 && !dark.open && dark.tune === 'ossuary', JSON.stringify(dark));
+await game(() => { window.__played.length = 0; });
+await page.keyboard.down('ArrowRight');
+await page.waitForFunction(() => __game.world.kindled > 0, null, { timeout: 4000 }).catch(() => {});
+await page.keyboard.up('ArrowRight');
+check('the hero kindles the first brazier as he comes to it, and it is heard', await game(() => __game.world.kindled === 1 && window.__played.includes('kindle')), JSON.stringify(await game(() => ({ lit: __game.world.kindled, heard: window.__played }))));
+await page.waitForTimeout(400);
+await page.locator('#screen').screenshot({ path: 'tests/e2e/out/ossuary.png' });
+
 // The bell chamber: its demon, its bell, its skeletons.
-await game(() => __game.start(5));
+await game(() => __game.start(6));
 await page.waitForTimeout(300);
 const chamber = await game(() => ({ name: __game.world.level.settings.name, boss: !!__game.world.boss, door: __game.world.door }));
 check('no rain is heard where none falls', await game(() => !__game.sound.ambience.rain));
-check('the sixth level is the bell chamber, with its demon and no door', chamber.name === 'clocher' && chamber.boss && chamber.door === null, JSON.stringify(chamber));
+check('the seventh level is the bell chamber, with its demon and no door', chamber.name === 'clocher' && chamber.boss && chamber.door === null, JSON.stringify(chamber));
 await game(() => { __game.world.invincible = true; });
 await page.waitForFunction(() => __game.world.foes.some(f => f.kind === 'skeleton'), null, { timeout: 8000 }).catch(() => {});
 check('the bell tolls and raises skeletons', await game(() => __game.world.foes.some(f => f.kind === 'skeleton')));

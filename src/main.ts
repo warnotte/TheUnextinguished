@@ -160,7 +160,7 @@ function run(assets: Assets, levels: Level[]): void {
     levelEased = world.mercy < 1; runEased ||= levelEased;
     result = null; naming = null;
     const boss = !!world.boss, beast = !!world.beast;
-    stage = new Stage(world, assets, openingWords(level.settings.title, boss ? 'boss' : beast ? 'beast' : world.fall ? 'fall' : ''), wonWords(i, levels.length, boss || beast, beast ? 'BEAST SLAIN' : 'DEMON SLAIN'));
+    stage = new Stage(world, assets, openingWords(level.settings.title, boss ? 'boss' : beast ? 'beast' : world.fall ? 'fall' : world.braziers.length ? 'fires' : ''), wonWords(i, levels.length, boss || beast, beast ? 'BEAST SLAIN' : 'DEMON SLAIN'));
     stage.ash = ashen();
     if (demo) { world.invincible = true; levelCheated = true; stage.demo = true; mind = makeDemoMind(); demoT = 0; }
     if (!demo) sound.setMusic(level.settings.music, level.settings.intro);        // the demo is the title still: its tune plays on
