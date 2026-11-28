@@ -13,12 +13,13 @@ import { type Frame, Input } from './input';
 import { KIND_NAMES } from './level/kinds';
 import { type Level, parseLevel } from './level/tiled';
 import { LEVEL_NAMES, LEVELS } from './levels';
-import { fitScale, MAX_FRAME, SLOW_RATE, stepsFor } from './loop';
+import { fitScale, MAX_FRAME, SLOW_RATE, stepsFor, touchScale } from './loop';
 import { type Assets, loadAssets } from './render/assets';
 import { VIEW_H, VIEW_W } from './render/camera';
 import { Stage } from './render/frame';
 import { centered } from './render/text';
 import { Tube } from './render/tube';
+import { TouchPad } from './touch';
 import { drawOverture, overtureSounds } from './render/overture';
 import { Storm } from './render/storm';
 import { drawCredits, drawEnd, drawOptions, drawTitle } from './render/title';
@@ -40,11 +41,14 @@ function screenAs(old: boolean): void {
   wrap.classList.toggle('tube', old && !!tube?.ok);
   wrap.classList.toggle('crt', old && !tube?.ok);
 }
-const input = new Input(window, () => (navigator.getGamepads ? navigator.getGamepads() : []));
+// The fingers on the glass are read as one more gamepad: what a gamepad does, in the game and in its menus, they do.
+let touch: TouchPad | null = null;
+const input = new Input(window, () => [...(navigator.getGamepads ? navigator.getGamepads() : []), touch?.read() ?? null]);
 
 function fit(): void {
-  const help = document.fullscreenElement ? 0 : document.getElementById('help')!.offsetHeight + 30;
-  const scale = fitScale(window.innerWidth, window.innerHeight - help, window.devicePixelRatio || 1);
+  // The picture alone, in the full screen and while the touch controls are shown: they lie over it, or under it.
+  const help = document.fullscreenElement || touch?.active ? 0 : document.getElementById('help')!.offsetHeight + 30;
+  const scale = (touch?.active ? touchScale : fitScale)(window.innerWidth, window.innerHeight - help, window.devicePixelRatio || 1);
   canvas.style.width = VIEW_W * scale + 'px'; canvas.style.height = VIEW_H * scale + 'px';
   wrap.style.setProperty('--px', scale + 'px');          // a row of the game on the screen: the scan lines of the old tube
   const dpr = window.devicePixelRatio || 1;
@@ -59,7 +63,8 @@ function toggleFull(): void {
   if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
   else wrap.requestFullscreen?.().catch(() => {});
 }
-canvas.addEventListener('dblclick', toggleFull);
+canvas.addEventListener('dblclick', () => { if (!touch?.active) toggleFull(); });       // two taps of a thumb are not a double click
+touch = new TouchPad(document, fit, toggleFull);
 window.addEventListener('pointerdown', () => sound.unlock());
 window.addEventListener('gamepadconnected', e => { status.textContent = 'gamepad: ' + e.gamepad.id.replace(/\s*\(.*\)\s*/g, ''); });
 window.addEventListener('gamepaddisconnected', () => { status.textContent = 'gamepad unplugged'; });
@@ -278,7 +283,7 @@ function run(assets: Assets, levels: Level[]): void {
     // A hint for a beginner, when the moment comes; not in the demo, nor when they are silenced.
     if (hint && !paused) { hint.t += elapsed; if (hint.t > HINT_TIME) hint = null; }
     if (!hint && !paused && scene === 'play' && settings.hints) {
-      const h = hintFor(w, hintsSeen, input.usingPad);
+      const h = hintFor(w, hintsSeen, touch?.active ? 'touch' : input.usingPad);
       if (h) { hintsSeen.add(h.key); hint = { text: h.text, t: 0 }; }
     }
     st.hint = scene === 'play' && !options ? hint : null;
@@ -296,6 +301,8 @@ function run(assets: Assets, levels: Level[]): void {
   const frame = (now: number): void => {
     const elapsed = (now - last) / 1000 || 0;
     last = now;
+    // The buttons on the glass say what they do now: the game's four; OK and BACK in a menu; END too while a name is given.
+    touch?.setMode(naming ? 'name' : options || paused || scene !== 'play' || world?.state !== 'play' ? 'menu' : 'play');
     const c = input.read();
     if (c.any) sound.unlock();
     const giving = naming;

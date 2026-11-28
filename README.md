@@ -37,6 +37,13 @@ seconds, the hero out of harm, as the arcade machines did; any key or button bri
 
 J, K, L and I are the same moves under the right hand, for whoever moves with Q, Z, S and D.
 
+On a phone or a tablet the controls are on the glass: a cross under the left thumb; JUMP, STRIKE, GUARD and
+CHARGE under the right one; a small button for the pause (the options, on the title) and one for the full
+screen. Every finger counts, so that one runs, jumps and strikes at once, and a thumb slides across the cross
+or from one button to the next without lifting. In a menu the buttons say OK and BACK, and END while a name
+is given. They show themselves on a screen that is touched, and a key hides them; the hints speak in their
+words. Held upright, the phone shows the picture at its top, as wide as it is, and the controls under it.
+
 The pause is a small menu: going on comes first, then the options, then back to the title (so that
 the next player can take the gamepad); up and down choose, jump goes; P, Select or Escape go on at once.
 
@@ -222,7 +229,7 @@ The rules of the work on the code (what goes where, the tests, the commits) are 
 | `src/level/` | `tiled.ts` reads a Tiled map; `kinds.ts` is the registry of everything a level can ask for, and of every picture, sheet and effect. |
 | `src/render/` | Camera, the fixed backdrop painted from the grid and the objects, the light (`lighting.ts`, `shading.ts`), blood (`blood.ts`, `lens.ts`), the sky and the storm (`sky.ts`, `storm.ts`), the words over the picture (`hud.ts`, `title.ts`), the frame. |
 | `src/campaign.ts` | The run of the levels: the title, which level comes after a win, the end and its tally, the words on the way. |
-| `src/input.ts`, `src/audio.ts`, `src/loop.ts`, `src/main.ts` | Controls, sound, the main loop. |
+| `src/input.ts`, `src/touch.ts`, `src/audio.ts`, `src/loop.ts`, `src/main.ts` | Controls (keys and gamepad; the fingers on the glass, read as one more gamepad), sound, the main loop. |
 | `src/levels.ts` | The list of levels: the only file of the engine that names them. |
 | `levels/` | The levels, one script each. |
 | `assets/` | Pictures, effect sheets, music. A tune is a script of its own (`assets/music/<name>.js`); the page names none: the game fetches each by a tag when it is first asked for, the next level's ahead of time, so that a visitor waits for some two megabytes before the first picture and not for every tune. |

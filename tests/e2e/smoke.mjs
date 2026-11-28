@@ -404,6 +404,90 @@ await page.waitForTimeout(200);
 const apartBoards = await game(() => ({ trial: JSON.parse(localStorage.getItem('trial.unextinguished.board') || '{}'), real: JSON.parse(localStorage.getItem('unextinguished.board') || '{}') }));
 check('and writes it on a board apart, the real one left alone', apartBoards.trial.tables?.salle3?.some(e => e.name === 'TRY') && !apartBoards.real.tables?.salle3?.some(e => e.name === 'TRY'));
 
+// On a phone: no keyboard. A cross and buttons lie over the picture, and the game is played with the fingers, several
+// at once. The fingers are real ones as far as the browser can tell: touches sent to it, not calls into the page.
+check('on a computer no touch control is shown', await game(() => !document.documentElement.classList.contains('touch') && getComputedStyle(document.getElementById('touch')).display === 'none'));
+{
+  const phone = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+  const p = await phone.newPage();
+  const faults = []; p.on('pageerror', e => faults.push(String(e)));
+  await p.goto(pathToFileURL('index.html').href);
+  await p.waitForFunction(() => window.__game, null, { timeout: 15000 });
+  await p.waitForTimeout(500);
+  const cdp = await phone.newCDPSession(p);
+  const fingers = (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(q => ({ x: Math.round(q.x), y: Math.round(q.y), id: q.id })) });
+  const at = sel => p.evaluate(q => { const r = document.querySelector(q).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, r: r.width / 2, top: r.top, bottom: r.bottom, w: r.width }; }, sel);
+  const tap = async (sel, held = 110) => { const q = await at(sel); await fingers('touchStart', [{ ...q, id: 9 }]); await p.waitForTimeout(held); await fingers('touchEnd', []); await p.waitForTimeout(140); };
+  const hero = () => p.evaluate(() => { const h = __game.world.hero; return { x: h.x, vx: h.vx, ground: h.onGround, attack: h.attackT, guard: h.guard }; });
+  const words = () => p.evaluate(() => ['jump', 'strike', 'guard', 'charge'].map(c => { const e = document.querySelector('#touch .' + c); return getComputedStyle(e).display === 'none' ? '' : e.textContent; }));
+
+  const shown = await p.evaluate(() => ({ touch: document.documentElement.classList.contains('touch'), pad: getComputedStyle(document.querySelector('#touch .pad')).display !== 'none', help: getComputedStyle(document.getElementById('help')).display, canvas: document.getElementById('screen').getBoundingClientRect().toJSON(), view: [innerWidth, innerHeight] }));
+  check('on a phone the touch controls are shown, and the picture alone, whole, with them', shown.touch && shown.pad && shown.help === 'none' && shown.canvas.width <= shown.view[0] + 0.5 && shown.canvas.height <= shown.view[1] + 0.5 && shown.canvas.width > shown.view[0] * 0.6, JSON.stringify(shown));
+  const big = await at('#touch .jump');
+  check('its buttons are the size of a thumb', big.w >= 56 && (await at('#touch .strike')).w >= 50 && (await at('#touch .pad')).w >= 110, String(big.w));
+  check('on the title the buttons say OK and BACK', JSON.stringify(await words()) === JSON.stringify(['OK', 'BACK', '', '']), JSON.stringify(await words()));
+
+  await tap('#touch .jump');
+  await p.waitForTimeout(500);
+  check('a tap on OK starts the game', await p.evaluate(() => __game.scene === 'play' && __game.level === 0));
+  check('in the game they say JUMP, STRIKE, GUARD and CHARGE', JSON.stringify(await words()) === JSON.stringify(['JUMP', 'STRIKE', 'GUARD', 'CHARGE']), JSON.stringify(await words()));
+  await p.evaluate(() => { __game.world.invincible = true; });
+
+  // One thumb to the right of the cross: he runs. A second finger on JUMP while the first stays down: he jumps, still running.
+  const cross = await at('#touch .pad'), jump = await at('#touch .jump'), strike = await at('#touch .strike'), guard = await at('#touch .guard');
+  const right = { x: cross.x + cross.r * 0.6, y: cross.y, id: 1 }, left = { x: cross.x - cross.r * 0.6, y: cross.y, id: 1 };
+  const x0 = (await hero()).x;
+  await fingers('touchStart', [right]);
+  await p.waitForTimeout(700);
+  const ran = await hero();
+  check('a thumb on the right of the cross: the hero runs to the right', ran.x > x0 + 30 && ran.vx > 0, JSON.stringify([x0, ran]));
+  await fingers('touchStart', [right, { ...jump, id: 2 }]);
+  await p.waitForFunction(() => !__game.world.hero.onGround, null, { timeout: 1500 }).catch(() => {});
+  const leapt = await hero();
+  check('a second finger on JUMP while the first holds: he jumps, still running', !leapt.ground && leapt.vx > 0, JSON.stringify(leapt));
+  await fingers('touchEnd', [right]);
+  await p.waitForFunction(() => __game.world.hero.onGround, null, { timeout: 3000 }).catch(() => {});
+  // The thumb slides to the left of the cross without lifting: he turns back.
+  await fingers('touchMove', [left]);
+  await p.waitForTimeout(600);
+  const back = await hero();
+  check('the thumb slides across the cross without lifting: he turns back', back.vx < 0, JSON.stringify(back));
+  await fingers('touchEnd', []);
+  await p.waitForTimeout(500);
+  check('the thumb lifted, he stops', Math.abs((await hero()).vx) < 5, JSON.stringify(await hero()));
+
+  // A tap shorter than a frame still counts; the guard is held.
+  await fingers('touchStart', [{ ...strike, id: 3 }]);
+  await fingers('touchEnd', []);
+  await p.waitForFunction(() => __game.world.hero.attackT > 0, null, { timeout: 1000 }).catch(() => {});
+  check('a tap on STRIKE, however short, strikes', (await hero()).attack > 0, JSON.stringify(await hero()));
+  await p.waitForTimeout(700);
+  await fingers('touchStart', [{ ...guard, id: 4 }]);
+  await p.waitForTimeout(250);
+  const guarding = await hero();
+  await fingers('touchEnd', []);
+  check('a finger held on GUARD: he holds his guard', guarding.guard === true, JSON.stringify(guarding));
+
+  // The pause and its menu, by the small button, the cross and OK.
+  await tap('#touch .menu');
+  check('the small button pauses the game, and the buttons say OK and BACK again', await p.evaluate(() => __game.paused) && (await words())[0] === 'OK', JSON.stringify(await words()));
+  for (let i = 0; i < 2; i++) { await fingers('touchStart', [{ x: cross.x, y: cross.y + cross.r * 0.6, id: 5 }]); await p.waitForTimeout(110); await fingers('touchEnd', []); await p.waitForTimeout(140); }
+  await tap('#touch .jump');
+  await p.waitForTimeout(300);
+  check('the cross and OK work the menu of the pause: back to the title', await p.evaluate(() => __game.scene === 'title'));
+  check('the page did not scroll or grow under the fingers', await p.evaluate(() => scrollY === 0 && scrollX === 0 && document.documentElement.scrollHeight <= innerHeight + 1));
+  await p.screenshot({ path: 'tests/e2e/out/touch-landscape.png' });
+
+  // Held upright: the picture at the top, as wide as the phone, the controls under it.
+  await p.setViewportSize({ width: 390, height: 844 });
+  await p.waitForTimeout(400);
+  const up = await p.evaluate(() => { const c = document.getElementById('screen').getBoundingClientRect(), j = document.querySelector('#touch .jump').getBoundingClientRect(), d = document.querySelector('#touch .pad').getBoundingClientRect(); return { canvas: [c.top, c.bottom, c.width], jumpTop: j.top, padTop: d.top, view: [innerWidth, innerHeight] }; });
+  check('held upright, the picture is at the top, as wide as the phone, and the controls are under it', up.canvas[0] < 60 && up.canvas[2] > 350 && up.canvas[2] <= 390.5 && up.jumpTop > up.canvas[1] && up.padTop > up.canvas[1], JSON.stringify(up));
+  await p.screenshot({ path: 'tests/e2e/out/touch-portrait.png' });
+  check('nothing went wrong on the phone', faults.length === 0, faults.join(' | '));
+  await phone.close();
+}
+
 // Served by a site, as on the web, the browser lets a shader read the picture: the old tube is then the real
 // thing, drawn on a glass over the game. (Opened from the disk, above, the page's own lines did it.)
 {

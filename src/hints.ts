@@ -7,23 +7,28 @@ import { BEAST } from './sim/beast';
 import { TILE } from './sim/grid';
 import type { World } from './sim/world';
 
-export interface Hint { keys: string; pad: string }
+export interface Hint { keys: string; pad: string; touch: string }
+/** What the game is played with: the hints speak of its keys, of its buttons, or of the words on the glass. */
+export type Device = 'keys' | 'pad' | 'touch';
+/** A hint, in the words of what is played with. */
+export const wordsOf = (hint: Hint, device: Device): string => hint[device];
 
 /** Every hint, keyboard and gamepad, in the order they are looked for: the most pressing first. */
 export const HINTS: Readonly<Record<string, Hint>> = {
-  held: { keys: 'X X X: STRIKE TO BREAK FREE', pad: 'X X X: STRIKE TO BREAK FREE' },
-  pillar: { keys: 'A GLOW ON THE STONE: FIRE RISES THERE', pad: 'A GLOW ON THE STONE: FIRE RISES THERE' },
-  guard: { keys: 'HOLD C TO GUARD', pad: 'HOLD LB TO GUARD' },
-  dazed: { keys: 'IT IS DAZED: X X - THE KICK ENDS IT', pad: 'IT IS DAZED: X X - THE KICK ENDS IT' },
-  parry: { keys: 'IT PARRIES: STRIKE WHILE IT DRAWS BREATH', pad: 'IT PARRIES: STRIKE WHILE IT DRAWS BREATH' },
-  door: { keys: 'THE DOOR OPENS WITH EVERY EMBER', pad: 'THE DOOR OPENS WITH EVERY EMBER' },
-  charge: { keys: 'V: FLAMING CHARGE - IT COSTS AN EMBER', pad: 'Y: FLAMING CHARGE - IT COSTS AN EMBER' },
-  water: { keys: 'UNDER THE WATER: SPACE TO COME UP', pad: 'UNDER THE WATER: A TO COME UP' },
-  ladder: { keys: 'UP: CLIMB THE LADDER', pad: 'UP: CLIMB THE LADDER' },
+  held: { keys: 'X X X: STRIKE TO BREAK FREE', pad: 'X X X: STRIKE TO BREAK FREE', touch: 'STRIKE AND STRIKE TO BREAK FREE' },
+  pillar: { keys: 'A GLOW ON THE STONE: FIRE RISES THERE', pad: 'A GLOW ON THE STONE: FIRE RISES THERE', touch: 'A GLOW ON THE STONE: FIRE RISES THERE' },
+  guard: { keys: 'HOLD C TO GUARD', pad: 'HOLD LB TO GUARD', touch: 'HOLD GUARD' },
+  dazed: { keys: 'IT IS DAZED: X X - THE KICK ENDS IT', pad: 'IT IS DAZED: X X - THE KICK ENDS IT', touch: 'IT IS DAZED: STRIKE TWICE - THE KICK ENDS IT' },
+  parry: { keys: 'IT PARRIES: STRIKE WHILE IT DRAWS BREATH', pad: 'IT PARRIES: STRIKE WHILE IT DRAWS BREATH', touch: 'IT PARRIES: STRIKE WHILE IT DRAWS BREATH' },
+  door: { keys: 'THE DOOR OPENS WITH EVERY EMBER', pad: 'THE DOOR OPENS WITH EVERY EMBER', touch: 'THE DOOR OPENS WITH EVERY EMBER' },
+  charge: { keys: 'V: FLAMING CHARGE - IT COSTS AN EMBER', pad: 'Y: FLAMING CHARGE - IT COSTS AN EMBER', touch: 'CHARGE: A FLAMING RUSH - IT COSTS AN EMBER' },
+  water: { keys: 'UNDER THE WATER: SPACE TO COME UP', pad: 'UNDER THE WATER: A TO COME UP', touch: 'UNDER THE WATER: JUMP TO COME UP' },
+  ladder: { keys: 'UP: CLIMB THE LADDER', pad: 'UP: CLIMB THE LADDER', touch: 'UP: CLIMB THE LADDER' },
 };
 
-/** The hint to give now, if any, and not one already given (`seen`). */
-export function hintFor(w: World, seen: ReadonlySet<string>, pad: boolean): { key: string; text: string } | null {
+/** The hint to give now, if any, and not one already given (`seen`), in the words of what is played with (true: the gamepad; false: the keys). */
+export function hintFor(w: World, seen: ReadonlySet<string>, played: boolean | Device): { key: string; text: string } | null {
+  const device: Device = played === true ? 'pad' : played === false ? 'keys' : played;
   if (w.state !== 'play') return null;
   const h = w.hero, hx = centreX(h), hf = feetY(h);
   const near = (x: number, y: number, across: number, high = 40): boolean => Math.abs(x - hx) < across && Math.abs(y - hf) < high;
@@ -41,7 +46,7 @@ export function hintFor(w: World, seen: ReadonlySet<string>, pad: boolean): { ke
   };
   for (const key of Object.keys(HINTS)) {
     if (seen.has(key) || !now[key]()) continue;
-    return { key, text: pad ? HINTS[key].pad : HINTS[key].keys };
+    return { key, text: wordsOf(HINTS[key], device) };
   }
   return null;
 }

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { fitScale, stepsFor } from '../src/loop';
+import { fitScale, stepsFor, touchScale } from '../src/loop';
 import { readLevelFile } from './helpers';
 
 describe('the loop', () => {
@@ -25,6 +25,18 @@ describe('the size on screen', () => {
     expect(fitScale(1920, 1000, 1)).toBe(2);
     expect(fitScale(2560, 1440, 1.5)).toBeCloseTo(4);
     expect(fitScale(3840, 2160, 1)).toBe(6);
+  });
+
+  // On a screen that is touched: sharp where that fills the screen well enough, as large as the room where it would not.
+  it('fills the room of a phone when whole pixels would leave much of it empty', () => {
+    expect(touchScale(844, 390, 3)).toBe(1);                    // held sideways: 640 x 360 of 844 x 390, whole pixels
+    expect(touchScale(390, 844, 3)).toBeCloseTo(390 / 640);     // held upright: whole pixels would give a third of its width
+    expect(touchScale(360, 740, 2)).toBe(0.5);                  // whole pixels fill nine tenths of its width: they are kept
+    expect(touchScale(1280, 800, 1)).toBe(2);                   // a tablet: sharp
+  });
+
+  it('never makes the picture larger than the room', () => {
+    expect(touchScale(300, 600, 1) * 640).toBeLessThanOrEqual(300);
   });
   it('never goes under one screen pixel per game pixel', () => {
     expect(fitScale(300, 200, 1)).toBe(1);

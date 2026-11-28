@@ -1339,8 +1339,8 @@
         ball.gone = true;
         continue;
       }
-      const touch = hero2.x < ball.x + b.w / 2 && hero2.x + hero2.w > ball.x - b.w / 2 && hero2.y < ball.y + b.h / 2 && hero2.y + hero2.h > ball.y - b.h / 2;
-      if (touch && a.playing && a.hurt(ball.vx >= 0 ? 1 : -1, b.hurt, false)) ball.gone = true;
+      const touch2 = hero2.x < ball.x + b.w / 2 && hero2.x + hero2.w > ball.x - b.w / 2 && hero2.y < ball.y + b.h / 2 && hero2.y + hero2.h > ball.y - b.h / 2;
+      if (touch2 && a.playing && a.hurt(ball.vx >= 0 ? 1 : -1, b.hurt, false)) ball.gone = true;
     }
     fire.balls = fire.balls.filter((ball) => !ball.gone);
     for (const pillar of fire.pillars) {
@@ -1359,18 +1359,20 @@
   }
 
   // src/hints.ts
+  var wordsOf = (hint, device) => hint[device];
   var HINTS = {
-    held: { keys: "X X X: STRIKE TO BREAK FREE", pad: "X X X: STRIKE TO BREAK FREE" },
-    pillar: { keys: "A GLOW ON THE STONE: FIRE RISES THERE", pad: "A GLOW ON THE STONE: FIRE RISES THERE" },
-    guard: { keys: "HOLD C TO GUARD", pad: "HOLD LB TO GUARD" },
-    dazed: { keys: "IT IS DAZED: X X - THE KICK ENDS IT", pad: "IT IS DAZED: X X - THE KICK ENDS IT" },
-    parry: { keys: "IT PARRIES: STRIKE WHILE IT DRAWS BREATH", pad: "IT PARRIES: STRIKE WHILE IT DRAWS BREATH" },
-    door: { keys: "THE DOOR OPENS WITH EVERY EMBER", pad: "THE DOOR OPENS WITH EVERY EMBER" },
-    charge: { keys: "V: FLAMING CHARGE - IT COSTS AN EMBER", pad: "Y: FLAMING CHARGE - IT COSTS AN EMBER" },
-    water: { keys: "UNDER THE WATER: SPACE TO COME UP", pad: "UNDER THE WATER: A TO COME UP" },
-    ladder: { keys: "UP: CLIMB THE LADDER", pad: "UP: CLIMB THE LADDER" }
+    held: { keys: "X X X: STRIKE TO BREAK FREE", pad: "X X X: STRIKE TO BREAK FREE", touch: "STRIKE AND STRIKE TO BREAK FREE" },
+    pillar: { keys: "A GLOW ON THE STONE: FIRE RISES THERE", pad: "A GLOW ON THE STONE: FIRE RISES THERE", touch: "A GLOW ON THE STONE: FIRE RISES THERE" },
+    guard: { keys: "HOLD C TO GUARD", pad: "HOLD LB TO GUARD", touch: "HOLD GUARD" },
+    dazed: { keys: "IT IS DAZED: X X - THE KICK ENDS IT", pad: "IT IS DAZED: X X - THE KICK ENDS IT", touch: "IT IS DAZED: STRIKE TWICE - THE KICK ENDS IT" },
+    parry: { keys: "IT PARRIES: STRIKE WHILE IT DRAWS BREATH", pad: "IT PARRIES: STRIKE WHILE IT DRAWS BREATH", touch: "IT PARRIES: STRIKE WHILE IT DRAWS BREATH" },
+    door: { keys: "THE DOOR OPENS WITH EVERY EMBER", pad: "THE DOOR OPENS WITH EVERY EMBER", touch: "THE DOOR OPENS WITH EVERY EMBER" },
+    charge: { keys: "V: FLAMING CHARGE - IT COSTS AN EMBER", pad: "Y: FLAMING CHARGE - IT COSTS AN EMBER", touch: "CHARGE: A FLAMING RUSH - IT COSTS AN EMBER" },
+    water: { keys: "UNDER THE WATER: SPACE TO COME UP", pad: "UNDER THE WATER: A TO COME UP", touch: "UNDER THE WATER: JUMP TO COME UP" },
+    ladder: { keys: "UP: CLIMB THE LADDER", pad: "UP: CLIMB THE LADDER", touch: "UP: CLIMB THE LADDER" }
   };
-  function hintFor(w, seen, pad) {
+  function hintFor(w, seen, played) {
+    const device = played === true ? "pad" : played === false ? "keys" : played;
     if (w.state !== "play") return null;
     const h = w.hero, hx = centreX(h), hf = feetY(h);
     const near = (x, y, across, high = 40) => Math.abs(x - hx) < across && Math.abs(y - hf) < high;
@@ -1390,7 +1392,7 @@
     };
     for (const key of Object.keys(HINTS)) {
       if (seen.has(key) || !now[key]()) continue;
-      return { key, text: pad ? HINTS[key].pad : HINTS[key].keys };
+      return { key, text: wordsOf(HINTS[key], device) };
     }
     return null;
   }
@@ -4781,6 +4783,10 @@
   }
   function fitScale(availableW, availableH, dpr) {
     return Math.max(1, Math.floor(Math.min(availableW * dpr / VIEW_W, availableH * dpr / VIEW_H))) / dpr;
+  }
+  function touchScale(availableW, availableH, dpr) {
+    const sharp = fitScale(availableW, availableH, dpr), fill = Math.min(availableW / VIEW_W, availableH / VIEW_H);
+    return sharp > fill || sharp < fill * 0.85 ? fill : sharp;
   }
 
   // src/render/assets.ts
@@ -8532,6 +8538,222 @@ void main() {
     }
   };
 
+  // src/touch.ts
+  var A = 0;
+  var B = 1;
+  var X = 2;
+  var Y = 3;
+  var SHOULDER = 4;
+  var SELECT = 8;
+  var START = 9;
+  var UP4 = 12;
+  var DOWN3 = 13;
+  var LEFT2 = 14;
+  var RIGHT2 = 15;
+  var REST = 0.2;
+  var SIDEWAYS = 0.5;
+  var STEEP = 0.9;
+  var REACH = 1.3;
+  function padFromFingers(fingers, layout, mode, menu = false) {
+    const down = new Array(16).fill(false);
+    for (const f of fingers) {
+      if (f.on === "pad") {
+        const dx = f.x - layout.pad.x, dy = f.y - layout.pad.y;
+        if (Math.hypot(dx, dy) < layout.pad.r * REST) continue;
+        if (Math.abs(dx) > Math.abs(dy) * SIDEWAYS) down[dx > 0 ? RIGHT2 : LEFT2] = true;
+        if (Math.abs(dy) > Math.abs(dx) * STEEP) down[dy > 0 ? DOWN3 : UP4] = true;
+        continue;
+      }
+      const there2 = mode === "play" ? [[layout.jump, A], [layout.strike, X], [layout.guard, SHOULDER], [layout.charge, Y]] : mode === "name" ? [[layout.jump, A], [layout.strike, B], [layout.charge, START]] : [[layout.jump, A], [layout.strike, B]];
+      let best = -1, nearest = Infinity;
+      for (const [c, button] of there2) {
+        const d = Math.hypot(f.x - c.x, f.y - c.y);
+        if (d < c.r * REACH && d / c.r < nearest) {
+          nearest = d / c.r;
+          best = button;
+        }
+      }
+      if (best >= 0) down[best] = true;
+    }
+    if (menu) down[SELECT] = true;
+    return { connected: true, axes: [0, 0], buttons: down.map((pressed) => ({ pressed })) };
+  }
+  var LABELS = {
+    play: ["JUMP", "STRIKE", "GUARD", "CHARGE"],
+    menu: ["OK", "BACK", "", ""],
+    name: ["OK", "BACK", "", "END"]
+  };
+  var STYLE = `
+html.touch, html.touch body { overscroll-behavior:none; touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+html.touch #help { display:none; }
+html.touch #wrap { position:fixed; inset:0; height:auto; }
+@media (orientation: portrait) { html.touch #wrap { justify-content:flex-start; padding-top:env(safe-area-inset-top, 0px); } }
+#touch { display:none; position:fixed; inset:0; z-index:20; touch-action:none; -webkit-tap-highlight-color:transparent; --b:clamp(58px, 17vmin, 104px); font:700 calc(var(--b) * 0.17)/1 Consolas, "Courier New", monospace; letter-spacing:0.06em; color:#ffe27a; }
+html.touch #touch { display:block; }
+#touch div { position:absolute; display:flex; align-items:center; justify-content:center; box-sizing:border-box; border-radius:50%; border:2px solid rgba(255,226,122,0.55); background:rgba(20,16,40,0.38); pointer-events:none; }
+#touch div.on { background:rgba(255,138,42,0.6); border-color:#fff3c4; color:#1a0608; }
+#touch div.gone { display:none; }
+#touch .pad { left:calc(env(safe-area-inset-left, 0px) + var(--b) * 0.3); bottom:calc(env(safe-area-inset-bottom, 0px) + var(--b) * 0.3); width:calc(var(--b) * 2.1); height:calc(var(--b) * 2.1); }
+#touch .pad b { position:absolute; width:26%; height:26%; display:flex; align-items:center; justify-content:center; font-size:calc(var(--b) * 0.3); color:rgba(255,226,122,0.8); }
+#touch .pad b.on { color:#fff; text-shadow:0 0 8px #ff8a2a; }
+#touch .pad .u { top:6%; left:37%; } #touch .pad .d { bottom:6%; left:37%; } #touch .pad .l { left:6%; top:37%; } #touch .pad .r { right:6%; top:37%; }
+#touch .jump { right:calc(env(safe-area-inset-right, 0px) + var(--b) * 0.3); bottom:calc(env(safe-area-inset-bottom, 0px) + var(--b) * 0.35); width:calc(var(--b) * 1.15); height:calc(var(--b) * 1.15); }
+#touch .strike { right:calc(env(safe-area-inset-right, 0px) + var(--b) * 1.6); bottom:calc(env(safe-area-inset-bottom, 0px) + var(--b) * 0.25); width:var(--b); height:var(--b); }
+#touch .guard { right:calc(env(safe-area-inset-right, 0px) + var(--b) * 1.45); bottom:calc(env(safe-area-inset-bottom, 0px) + var(--b) * 1.4); width:calc(var(--b) * 0.9); height:calc(var(--b) * 0.9); }
+#touch .charge { right:calc(env(safe-area-inset-right, 0px) + var(--b) * 0.3); bottom:calc(env(safe-area-inset-bottom, 0px) + var(--b) * 1.65); width:calc(var(--b) * 0.9); height:calc(var(--b) * 0.9); }
+#touch .menu, #touch .full { top:calc(env(safe-area-inset-top, 0px) + 8px); width:calc(var(--b) * 0.62); height:calc(var(--b) * 0.62); font-size:calc(var(--b) * 0.24); border-radius:22%; }
+#touch .menu { right:calc(env(safe-area-inset-right, 0px) + 8px); }
+#touch .full { left:calc(env(safe-area-inset-left, 0px) + 8px); }
+@media (orientation: portrait) { #touch { --b:clamp(64px, 22vmin, 112px); } }
+@media (orientation: portrait) { #touch .menu, #touch .full { top:auto; bottom:calc(env(safe-area-inset-bottom, 0px) + var(--b) * 3.1); } }
+`;
+  var TAP = 140;
+  var TouchPad = class {
+    // pressed since the last read: a tap shorter than a frame still counts
+    /** `changed`: called when the controls come or go (the picture is fitted again); `full`: the full screen, asked for. */
+    constructor(doc, changed, full, now = () => performance.now()) {
+      this.doc = doc;
+      this.changed = changed;
+      this.now = now;
+      const style = doc.createElement("style");
+      style.textContent = STYLE;
+      doc.head.appendChild(style);
+      const root = this.root = doc.createElement("div");
+      root.id = "touch";
+      const part = (name2, html = "") => {
+        const e = doc.createElement("div");
+        e.className = name2;
+        e.innerHTML = html;
+        root.appendChild(e);
+        return e;
+      };
+      this.parts = {
+        pad: part("pad", '<b class="u">&#9650;</b><b class="d">&#9660;</b><b class="l">&#9664;</b><b class="r">&#9654;</b>'),
+        jump: part("jump"),
+        strike: part("strike"),
+        guard: part("guard"),
+        charge: part("charge"),
+        menu: part("menu", "&#9776;"),
+        full: part("full", "&#9974;")
+      };
+      this.arrows = ["u", "d", "l", "r"].map((c) => this.parts.pad.querySelector("." + c));
+      doc.body.appendChild(root);
+      this.label();
+      const win = doc.defaultView;
+      if (win.matchMedia?.("(hover: none) and (pointer: coarse)").matches) this.show(true);
+      win.addEventListener("pointerdown", (e) => {
+        if (e.pointerType === "touch") this.show(true);
+      }, true);
+      win.addEventListener("keydown", () => this.show(false));
+      const at = (e) => ({ x: e.clientX, y: e.clientY });
+      const inside = (el, p) => {
+        const r = el.getBoundingClientRect();
+        return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
+      };
+      root.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        const p = at(e);
+        if (inside(this.parts.menu, p)) {
+          this.menuUntil = this.now() + TAP;
+          return;
+        }
+        if (inside(this.parts.full, p)) {
+          full();
+          return;
+        }
+        this.fingers.set(e.pointerId, { ...p, on: p.x < win.innerWidth * 0.45 ? "pad" : "buttons" });
+        this.light();
+      });
+      root.addEventListener("pointermove", (e) => {
+        const f = this.fingers.get(e.pointerId);
+        if (f) {
+          e.preventDefault();
+          Object.assign(f, at(e));
+          this.light();
+        }
+      });
+      const lift = (e) => {
+        if (this.fingers.delete(e.pointerId)) this.light();
+      };
+      root.addEventListener("pointerup", lift);
+      root.addEventListener("pointercancel", lift);
+      root.addEventListener("contextmenu", (e) => e.preventDefault());
+      root.addEventListener("gesturestart", (e) => e.preventDefault());
+      const drop = () => {
+        this.fingers.clear();
+        this.menuUntil = 0;
+        this.light();
+      };
+      win.addEventListener("blur", drop);
+      doc.addEventListener("visibilitychange", drop);
+    }
+    doc;
+    changed;
+    now;
+    /** Whether the controls are shown: the screen was touched last, not the keyboard. */
+    active = false;
+    mode = "play";
+    fingers = /* @__PURE__ */ new Map();
+    root;
+    parts;
+    arrows;
+    menuUntil = 0;
+    tapped = /* @__PURE__ */ new Set();
+    show(on) {
+      if (on === this.active) return;
+      this.active = on;
+      this.doc.documentElement.classList.toggle("touch", on);
+      if (!on) {
+        this.fingers.clear();
+        this.tapped.clear();
+      }
+      this.changed();
+    }
+    /** What the buttons are for from now on. */
+    setMode(mode) {
+      if (mode === this.mode) return;
+      this.mode = mode;
+      this.label();
+      this.light();
+    }
+    label() {
+      const [jump, strike, guard, charge] = LABELS[this.mode];
+      for (const [el, words] of [[this.parts.jump, jump], [this.parts.strike, strike], [this.parts.guard, guard], [this.parts.charge, charge]]) {
+        el.textContent = words;
+        el.classList.toggle("gone", !words);
+      }
+    }
+    /** Where the controls are on the screen now. */
+    layout() {
+      const circle = (el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, r: r.width / 2 };
+      };
+      return { pad: circle(this.parts.pad), jump: circle(this.parts.jump), strike: circle(this.parts.strike), guard: circle(this.parts.guard), charge: circle(this.parts.charge) };
+    }
+    /** The gamepad the fingers make now, or none while the controls are not shown. Call once a frame. */
+    read() {
+      if (!this.active) return null;
+      const pad = padFromFingers([...this.fingers.values()], this.layout(), this.mode, this.now() < this.menuUntil);
+      const buttons = pad.buttons.map((b, i) => ({ pressed: b.pressed || this.tapped.has(i) }));
+      this.tapped.clear();
+      return { ...pad, buttons };
+    }
+    // What is pressed is lit, so that the thumb knows it without looking.
+    light() {
+      if (!this.active) return;
+      const pad = padFromFingers([...this.fingers.values()], this.layout(), this.mode), on = (i) => pad.buttons[i].pressed;
+      pad.buttons.forEach((b, i) => {
+        if (b.pressed) this.tapped.add(i);
+      });
+      this.parts.jump.classList.toggle("on", on(A));
+      this.parts.strike.classList.toggle("on", on(X) || on(B));
+      this.parts.guard.classList.toggle("on", on(SHOULDER));
+      this.parts.charge.classList.toggle("on", on(Y) || on(START));
+      [UP4, DOWN3, LEFT2, RIGHT2].forEach((b, i) => this.arrows[i].classList.toggle("on", on(b)));
+    }
+  };
+
   // src/render/overture.ts
   var FIRE4 = ["#fff3c4", "#ffc93c", "#ff8a2a", "#e0401c"];
   var BLACK = "#06050d";
@@ -8684,65 +8906,65 @@ void main() {
       g2.restore();
     };
     demon();
-    const cx0 = plane(SLIDE.church), B = 300;
+    const cx0 = plane(SLIDE.church), B2 = 300;
     g2.fillStyle = BLACK;
     g2.beginPath();
     g2.moveTo(0, VIEW_H);
     g2.lineTo(0, 318);
-    for (let x = 0; x <= VIEW_W; x += 8) g2.lineTo(x, B + 20 - 22 * Math.exp(-Math.pow((x - cx0 - 470) / 230, 2)));
+    for (let x = 0; x <= VIEW_W; x += 8) g2.lineTo(x, B2 + 20 - 22 * Math.exp(-Math.pow((x - cx0 - 470) / 230, 2)));
     g2.lineTo(VIEW_W, VIEW_H);
     g2.closePath();
     g2.fill();
-    const X = (x) => x + cx0;
+    const X2 = (x) => x + cx0;
     const spire = (x, foot, w, h) => {
       for (let i = 0; i < h; i++) {
         const half = w / 2 * (1 - i / h);
-        R(X(x) - half, foot - i - 1, Math.max(1, half * 2), 1, BLACK);
+        R(X2(x) - half, foot - i - 1, Math.max(1, half * 2), 1, BLACK);
       }
-      R(X(x) - 1, foot - h - 9, 2, 9, BLACK);
-      R(X(x) - 3, foot - h - 6, 6, 2, BLACK);
+      R(X2(x) - 1, foot - h - 9, 2, 9, BLACK);
+      R(X2(x) - 3, foot - h - 6, 6, 2, BLACK);
     };
     const lancet = (x, y, w, h, colour, alpha) => {
       g2.globalAlpha = alpha;
-      R(X(x) - w / 2, y - h + w / 2, w, h - w / 2, colour);
-      for (let i = 0; i < w / 2; i++) R(X(x) - w / 2 + i, y - h + w / 2 - i - 1, w - i * 2, 1, colour);
+      R(X2(x) - w / 2, y - h + w / 2, w, h - w / 2, colour);
+      for (let i = 0; i < w / 2; i++) R(X2(x) - w / 2 + i, y - h + w / 2 - i - 1, w - i * 2, 1, colour);
       g2.globalAlpha = 1;
-      R(X(x), y - h + 2, 1, h - 2, BLACK);
+      R(X2(x), y - h + 2, 1, h - 2, BLACK);
     };
-    R(X(350), 232, 242, B - 232, BLACK);
-    for (let i = 0; i < 26; i++) R(X(346 + i * 0.4), 232 - i - 1, 250 - i * 0.8, 1, BLACK);
+    R(X2(350), 232, 242, B2 - 232, BLACK);
+    for (let i = 0; i < 26; i++) R(X2(346 + i * 0.4), 232 - i - 1, 250 - i * 0.8, 1, BLACK);
     for (let b = 0; b < 7; b++) {
-      R(X(356 + b * 34), 252, 6, B - 252, BLACK);
-      R(X(354 + b * 34), 272, 10, B - 272, BLACK);
+      R(X2(356 + b * 34), 252, 6, B2 - 252, BLACK);
+      R(X2(354 + b * 34), 272, 10, B2 - 272, BLACK);
     }
-    R(X(442), 128, 56, 110, BLACK);
-    R(X(438), 124, 64, 6, BLACK);
-    R(X(440), 176, 60, 3, BLACK);
+    R(X2(442), 128, 56, 110, BLACK);
+    R(X2(438), 124, 64, 6, BLACK);
+    R(X2(440), 176, 60, 3, BLACK);
     spire(470, 124, 60, 28);
     for (const sx of [446, 494]) spire(sx, 124, 10, 14);
     for (let p = 0; p < 9; p++) {
       const px = 512 + p * 9;
       if (px < 590) {
-        R(X(px), 200, 2, 8, BLACK);
-        R(X(px) - 1, 203, 4, 1, BLACK);
+        R(X2(px), 200, 2, 8, BLACK);
+        R(X2(px) - 1, 203, 4, 1, BLACK);
       }
     }
-    R(X(384), 212, 50, B - 212, BLACK);
-    for (let i = 0; i < 26; i++) R(X(384 + i), 212 - i - 1, 50 - i * 2, 1, BLACK);
-    R(X(408), 176, 2, 10, BLACK);
-    R(X(405), 179, 8, 2, BLACK);
-    R(X(382), 212, 3, B - 212, BLACK);
-    R(X(433), 212, 3, B - 212, BLACK);
-    R(X(350), 180, 34, 60, BLACK);
-    R(X(347), 177, 40, 5, BLACK);
+    R(X2(384), 212, 50, B2 - 212, BLACK);
+    for (let i = 0; i < 26; i++) R(X2(384 + i), 212 - i - 1, 50 - i * 2, 1, BLACK);
+    R(X2(408), 176, 2, 10, BLACK);
+    R(X2(405), 179, 8, 2, BLACK);
+    R(X2(382), 212, 3, B2 - 212, BLACK);
+    R(X2(433), 212, 3, B2 - 212, BLACK);
+    R(X2(350), 180, 34, 60, BLACK);
+    R(X2(347), 177, 40, 5, BLACK);
     spire(367, 177, 36, 44);
-    R(X(572), 204, 20, 40, BLACK);
+    R(X2(572), 204, 20, 40, BLACK);
     spire(582, 204, 22, 28);
-    for (const [x, y, h] of [[442, 130, 106], [350, 182, 56], [572, 206, 36], [384, 214, 80]]) R(X(x), y, 1, h, RIM);
+    for (const [x, y, h] of [[442, 130, 106], [350, 182, 56], [572, 206, 36], [384, 214, 80]]) R(X2(x), y, 1, h, RIM);
     const rose = 0.75 + 0.25 * Math.sin(t * 1.3);
     g2.save();
     g2.globalCompositeOperation = "lighter";
-    const rx = X(409), ry0 = 240, rr = 13;
+    const rx = X2(409), ry0 = 240, rr = 13;
     const rg = g2.createRadialGradient(rx, ry0, 2, rx, ry0, 46);
     rg.addColorStop(0, `rgba(255,150,90,${(0.55 * rose).toFixed(3)})`);
     rg.addColorStop(1, "rgba(255,120,80,0)");
@@ -8763,7 +8985,7 @@ void main() {
     lancet(367, 226, 8, 24, "#ffb46a", 0.5 + 0.2 * Math.sin(t * 1.7));
     for (const bx of [458, 482]) {
       lancet(bx, 170, 12, 30, "#b0462a", 0.55 + 0.2 * Math.sin(t * 2.3 + bx));
-      R(X(bx) - 3, 152, 6, 7, BLACK);
+      R(X2(bx) - 3, 152, 6, 7, BLACK);
     }
     for (let i = 0; i < 6; i++) {
       const wx = [520, 540, 560, 580, 600, 620][i] - 6, awake = clamp((t - 4.5 - i * 1.6 - hash6(i, 41) * 2) / 1.5), green = i % 3 !== 1;
@@ -8772,11 +8994,11 @@ void main() {
         const pulse = awake * (0.55 + 0.45 * Math.sin(t * (1.6 + hash6(i, 43)) + i * 2));
         g2.save();
         g2.globalCompositeOperation = "lighter";
-        const gg = g2.createRadialGradient(X(wx), 262, 1, X(wx), 262, 26);
+        const gg = g2.createRadialGradient(X2(wx), 262, 1, X2(wx), 262, 26);
         gg.addColorStop(0, `rgba(90,255,150,${(0.4 * pulse).toFixed(3)})`);
         gg.addColorStop(1, "rgba(90,255,150,0)");
         g2.fillStyle = gg;
-        g2.fillRect(X(wx) - 26, 236, 52, 52);
+        g2.fillRect(X2(wx) - 26, 236, 52, 52);
         g2.restore();
         lancet(wx, 280, 8, 30, "#5aff96", 0.35 + 0.6 * pulse);
       } else lancet(wx, 280, 8, 30, "#3a4a8a", 0.5);
@@ -8784,26 +9006,26 @@ void main() {
     const door = 0.7 + 0.3 * Math.sin(t * 2.1) * Math.sin(t * 0.7);
     g2.save();
     g2.globalCompositeOperation = "lighter";
-    const dg = g2.createRadialGradient(X(366), 294, 1, X(366), 294, 40);
+    const dg = g2.createRadialGradient(X2(366), 294, 1, X2(366), 294, 40);
     dg.addColorStop(0, `rgba(255,170,80,${(0.45 * door).toFixed(3)})`);
     dg.addColorStop(1, "rgba(255,140,60,0)");
     g2.fillStyle = dg;
-    g2.fillRect(X(366) - 40, 254, 80, 80);
+    g2.fillRect(X2(366) - 40, 254, 80, 80);
     g2.restore();
     lancet(366, 300, 8, 20, "#ffc27a", 0.6 + 0.3 * door);
-    R(X(366) - 4, 282, 3, 18, BLACK);
+    R(X2(366) - 4, 282, 3, 18, BLACK);
     g2.globalAlpha = 0.25 * door;
     g2.fillStyle = "#ffb46a";
     g2.beginPath();
-    g2.moveTo(X(363), 300);
-    g2.lineTo(X(370), 300);
-    g2.lineTo(X(352), 318);
-    g2.lineTo(X(318), 318);
+    g2.moveTo(X2(363), 300);
+    g2.lineTo(X2(370), 300);
+    g2.lineTo(X2(352), 318);
+    g2.lineTo(X2(318), 318);
     g2.closePath();
     g2.fill();
     g2.globalAlpha = 1;
     for (let i = 0; i < 9; i++) {
-      const wx = 196 + i * 17 + hash6(i, 81) * 8, x = wx + cx0, y = B + 22 - 22 * Math.exp(-Math.pow((wx - 470) / 230, 2)) + 3 + hash6(i, 82) * 6;
+      const wx = 196 + i * 17 + hash6(i, 81) * 8, x = wx + cx0, y = B2 + 22 - 22 * Math.exp(-Math.pow((wx - 470) / 230, 2)) + 3 + hash6(i, 82) * 6;
       const fl = 0.6 + 0.4 * Math.sin(t * (7 + hash6(i, 83) * 5) + i * 3);
       g2.save();
       g2.globalCompositeOperation = "lighter";
@@ -8817,7 +9039,7 @@ void main() {
       R(x, y - 6, 2, 3, fl > 0.75 ? "#fff3c4" : "#ffc93c");
     }
     for (let i = 0; i < 26; i++) {
-      const wx = 150 + hash6(i, 51) * 540, x = wx + cx0, y = B + 22 - 22 * Math.exp(-Math.pow((wx - 470) / 230, 2)) + 2, tall = 5 + Math.floor(hash6(i, 52) * 6);
+      const wx = 150 + hash6(i, 51) * 540, x = wx + cx0, y = B2 + 22 - 22 * Math.exp(-Math.pow((wx - 470) / 230, 2)) + 2, tall = 5 + Math.floor(hash6(i, 52) * 6);
       if (wx > 330 && wx < 600 && hash6(i, 53) < 0.6) continue;
       R(x, y - tall, 2, tall, BLACK);
       if (hash6(i, 54) < 0.6) R(x - 2, y - tall + 2, 6, 2, BLACK);
@@ -9007,10 +9229,11 @@ void main() {
     wrap.classList.toggle("tube", old && !!tube?.ok);
     wrap.classList.toggle("crt", old && !tube?.ok);
   }
-  var input = new Input(window, () => navigator.getGamepads ? navigator.getGamepads() : []);
+  var touch = null;
+  var input = new Input(window, () => [...navigator.getGamepads ? navigator.getGamepads() : [], touch?.read() ?? null]);
   function fit() {
-    const help = document.fullscreenElement ? 0 : document.getElementById("help").offsetHeight + 30;
-    const scale = fitScale(window.innerWidth, window.innerHeight - help, window.devicePixelRatio || 1);
+    const help = document.fullscreenElement || touch?.active ? 0 : document.getElementById("help").offsetHeight + 30;
+    const scale = (touch?.active ? touchScale : fitScale)(window.innerWidth, window.innerHeight - help, window.devicePixelRatio || 1);
     canvas.style.width = VIEW_W * scale + "px";
     canvas.style.height = VIEW_H * scale + "px";
     wrap.style.setProperty("--px", scale + "px");
@@ -9029,7 +9252,10 @@ void main() {
     else wrap.requestFullscreen?.().catch(() => {
     });
   }
-  canvas.addEventListener("dblclick", toggleFull);
+  canvas.addEventListener("dblclick", () => {
+    if (!touch?.active) toggleFull();
+  });
+  touch = new TouchPad(document, fit, toggleFull);
   window.addEventListener("pointerdown", () => sound.unlock());
   window.addEventListener("gamepadconnected", (e) => {
     status.textContent = "gamepad: " + e.gamepad.id.replace(/\s*\(.*\)\s*/g, "");
@@ -9328,7 +9554,7 @@ void main() {
         if (hint.t > HINT_TIME) hint = null;
       }
       if (!hint && !paused && scene === "play" && settings.hints) {
-        const h = hintFor(w, hintsSeen, input.usingPad);
+        const h = hintFor(w, hintsSeen, touch?.active ? "touch" : input.usingPad);
         if (h) {
           hintsSeen.add(h.key);
           hint = { text: h.text, t: 0 };
@@ -9347,6 +9573,7 @@ void main() {
     const frame = (now) => {
       const elapsed = (now - last) / 1e3 || 0;
       last = now;
+      touch?.setMode(naming ? "name" : options || paused || scene !== "play" || world?.state !== "play" ? "menu" : "play");
       const c = input.read();
       if (c.any) sound.unlock();
       const giving = naming;

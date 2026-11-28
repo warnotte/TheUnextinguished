@@ -24,3 +24,13 @@ export function stepsFor(elapsedSeconds: number, bank: number): { steps: number;
 export function fitScale(availableW: number, availableH: number, dpr: number): number {
   return Math.max(1, Math.floor(Math.min((availableW * dpr) / VIEW_W, (availableH * dpr) / VIEW_H))) / dpr;
 }
+
+/**
+ * The scale on a screen that is touched. The sharp one where it fills the room well enough; where whole
+ * pixels would leave more than a seventh of the room empty (a phone held upright is narrow), or would not
+ * fit in it at all, as large as the room: there a picture that fills the width is worth more than whole pixels.
+ */
+export function touchScale(availableW: number, availableH: number, dpr: number): number {
+  const sharp = fitScale(availableW, availableH, dpr), fill = Math.min(availableW / VIEW_W, availableH / VIEW_H);
+  return sharp > fill || sharp < fill * 0.85 ? fill : sharp;
+}
