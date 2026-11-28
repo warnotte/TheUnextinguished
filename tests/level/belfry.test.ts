@@ -1,5 +1,5 @@
 // The third level, the belfry: open to the night sky, under the snow.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { KINDS } from '../../src/level/kinds';
 import { parseLevel } from '../../src/level/tiled';
@@ -54,7 +54,7 @@ describe('the belfry', () => {
     const page = readFileSync('index.html', 'utf8');
     const order = [...page.matchAll(/levels\/(\w+)\.js/g)].map(m => m[1]);
     expect(order).toEqual(['salle3', 'crypte', 'fournaise', 'inondee', 'ossuaire', 'beffroi', 'clocher', 'effondrement', 'cimetiere']);
-    expect(page).toContain('assets/music/poursuite.js');
+    expect(existsSync('assets/music/poursuite.js'), 'its tune on the disk').toBe(true);
   });
 
   const SPOTS: [string, number, number][] = FLOORS.flatMap(row => [[`floor ${row} left`, 24, row], [`floor ${row} right`, 700, row]] as [string, number, number][]);

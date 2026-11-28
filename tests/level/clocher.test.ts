@@ -1,6 +1,6 @@
 // The fourth level, the bell chamber at the top of the belfry: one screen, the great bell, the
 // graves, and the demon.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { KINDS } from '../../src/level/kinds';
 import { parseLevel } from '../../src/level/tiled';
@@ -52,7 +52,7 @@ describe('the bell chamber', () => {
     const page = readFileSync('index.html', 'utf8');
     const order = [...page.matchAll(/levels\/(\w+)\.js/g)].map(m => m[1]);
     expect(order).toEqual(['salle3', 'crypte', 'fournaise', 'inondee', 'ossuaire', 'beffroi', 'clocher', 'effondrement', 'cimetiere']);
-    expect(page).toContain('assets/music/demon.js');
-    expect(page).toContain('assets/music/arrival.js');
+    expect(existsSync('assets/music/demon.js'), 'its tune on the disk').toBe(true);
+    expect(existsSync('assets/music/arrival.js'), 'its tune on the disk').toBe(true);
   });
 });

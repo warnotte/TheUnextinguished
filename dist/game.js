@@ -127,6 +127,7 @@
   }
 
   // src/audio.ts
+  var TUNES = "assets/music/";
   var MUSIC_VOLUME = 0.12;
   var HALL = 0.9;
   var WIND = 0.035;
@@ -165,6 +166,8 @@
     soundsLv = 7;
     reader = null;
     // reads the tunes before sound is allowed
+    fetching = /* @__PURE__ */ new Map();
+    // the scripts of the tunes asked for, by name
     reading = /* @__PURE__ */ new Map();
     // the tunes read, or being read
     get musicPlaying() {
@@ -352,12 +355,40 @@
       for (const name2 of names) void this.read(name2)?.catch(() => {
       });
     }
-    // A tune, read once: from the text the page carries to sound the browser can play.
+    // A tune comes in a script of its own (assets/music/<name>.js fills window.MUSIC[name]), fetched when it is
+    // first asked for: the page does not make a visitor wait for every tune before its first picture. A tag
+    // fetches it, which a page opened from the disk may add as well as one served by a site.
+    fetchTune(name2) {
+      const known = this.fetching.get(name2);
+      if (known) return known;
+      const has = () => typeof globalThis.MUSIC?.[name2] === "string";
+      const fetching = new Promise((resolve, reject) => {
+        if (has()) {
+          resolve();
+          return;
+        }
+        if (typeof document === "undefined") {
+          reject(new Error("no page to fetch a tune into"));
+          return;
+        }
+        const tag = document.createElement("script");
+        tag.src = TUNES + name2 + ".js";
+        tag.onload = () => has() ? resolve() : reject(new Error(`${tag.src} holds no tune named "${name2}"`));
+        tag.onerror = () => {
+          tag.remove();
+          reject(new Error(`could not fetch ${tag.src}`));
+        };
+        document.head.appendChild(tag);
+      });
+      fetching.catch(() => this.fetching.delete(name2));
+      this.fetching.set(name2, fetching);
+      return fetching;
+    }
+    // A tune, read once: fetched if need be, then from the text of its script to sound the browser can play.
     read(name2) {
+      if (!name2) return null;
       const known = this.reading.get(name2);
       if (known) return known;
-      const data = globalThis.MUSIC?.[name2];
-      if (!data) return null;
       let ctx = this.ac ?? this.reader;
       if (!ctx) {
         try {
@@ -366,9 +397,12 @@
           return null;
         }
       }
-      const raw = atob(data), bytes = new Uint8Array(raw.length);
-      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-      const reading = ctx.decodeAudioData(bytes.buffer);
+      const reader = ctx;
+      const reading = this.fetchTune(name2).then(() => {
+        const raw = atob(globalThis.MUSIC[name2]), bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        return reader.decodeAudioData(bytes.buffer);
+      });
       reading.catch(() => this.reading.delete(name2));
       this.reading.set(name2, reading);
       return reading;
@@ -9111,7 +9145,7 @@ void main() {
       if (!demo) sound.setMusic(level.settings.music, level.settings.intro);
       sound.setPlace({ rain: level.settings.rain, drips: level.settings.water > 0 });
       const next = levels[i + 1]?.settings;
-      sound.preload([level.settings.music, level.settings.intro, next?.music ?? place.settings.music, next?.intro ?? ""].filter(Boolean));
+      sound.preload([level.settings.music, level.settings.intro, next ? next.music : endPlace.settings.ending || place.settings.music, next?.intro ?? ""].filter(Boolean));
       paused = false;
       sound.hush(false);
       bank = 0;
@@ -9143,7 +9177,7 @@ void main() {
       sound.setMusic(s === "end" ? endPlace.settings.ending || place.settings.music : TITLE_TUNE);
       sound.setPlace({ rain: s === "title", drips: false });
       sound.setUnder(false);
-      sound.preload([TITLE_TUNE, levels[0].settings.music, endPlace.settings.ending].filter(Boolean));
+      sound.preload((s === "title" ? [TITLE_TUNE, levels[0].settings.music] : [endPlace.settings.ending || place.settings.music, TITLE_TUNE]).filter(Boolean));
       paused = false;
       sound.hush(false);
     };
@@ -9395,6 +9429,7 @@ void main() {
     requestAnimationFrame(frame);
   }
   fit();
+  document.getElementById("boot")?.remove();
   g.fillStyle = "#0a0814";
   g.fillRect(0, 0, VIEW_W, VIEW_H);
   centered(g, "LOADING", 170, "#9d93b8");

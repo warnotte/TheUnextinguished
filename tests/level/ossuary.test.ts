@@ -1,5 +1,5 @@
 // The ossuary: under the flooded crypt, where no light comes. Braziers of cold iron to kindle, one by one.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { KINDS } from '../../src/level/kinds';
 import { parseLevel } from '../../src/level/tiled';
@@ -53,6 +53,6 @@ describe('the ossuary', () => {
     expect(order.indexOf('ossuaire')).toBe(4);
     expect(order[3]).toBe('inondee');
     expect(order[5]).toBe('beffroi');
-    expect(page).toContain('assets/music/ossuary.js');
+    expect(existsSync('assets/music/ossuary.js'), 'its tune on the disk').toBe(true);
   });
 });

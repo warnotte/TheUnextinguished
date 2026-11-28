@@ -1,5 +1,5 @@
 // The furnace: a room of its own after the crypt, the beast of fire in it and nothing else.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { KINDS } from '../../src/level/kinds';
 import { parseLevel } from '../../src/level/tiled';
@@ -15,7 +15,7 @@ describe('the furnace', () => {
     expect(order.indexOf('fournaise')).toBe(2);
     expect(order[1]).toBe('crypte');
     expect(order[3]).toBe('inondee');
-    expect(page).toContain(`assets/music/${lv.settings.music}.js`);
+    expect(existsSync(`assets/music/${lv.settings.music}.js`), 'its tune on the disk').toBe(true);
   });
 
   it('holds the beast, and no other foe, and no door', () => {

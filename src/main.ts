@@ -166,7 +166,8 @@ function run(assets: Assets, levels: Level[]): void {
     if (!demo) sound.setMusic(level.settings.music, level.settings.intro);        // the demo is the title still: its tune plays on
     sound.setPlace({ rain: level.settings.rain, drips: level.settings.water > 0 });
     const next = levels[i + 1]?.settings;                                                            // the next one, or the end's
-    sound.preload([level.settings.music, level.settings.intro, next?.music ?? place.settings.music, next?.intro ?? ''].filter(Boolean));
+    // Asked for ahead: this level's tune, the next one's, or after the last level the tune of the end.
+    sound.preload([level.settings.music, level.settings.intro, next ? next.music : endPlace.settings.ending || place.settings.music, next?.intro ?? ''].filter(Boolean));
     paused = false; sound.hush(false); bank = 0;
   };
   const show = (s: 'title' | 'end' | 'credits'): void => {
@@ -187,7 +188,8 @@ function run(assets: Assets, levels: Level[]): void {
     sound.setMusic(s === 'end' ? endPlace.settings.ending || place.settings.music : TITLE_TUNE);
     sound.setPlace({ rain: s === 'title', drips: false });        // the title stands in the rain
     sound.setUnder(false);
-    sound.preload([TITLE_TUNE, levels[0].settings.music, endPlace.settings.ending].filter(Boolean));     // the title's; the first level's, for jump; the end's
+    // Asked for ahead: the title's own and the first level's, to start at once; at the end, the title's for the way back.
+    sound.preload((s === 'title' ? [TITLE_TUNE, levels[0].settings.music] : [endPlace.settings.ending || place.settings.music, TITLE_TUNE]).filter(Boolean));
     paused = false; sound.hush(false);
   };
   const startDemo = (): void => { if (demoLevels.length) start(demoLevels[demoTurn++ % demoLevels.length], true); idleT = 0; };
@@ -362,6 +364,7 @@ function run(assets: Assets, levels: Level[]): void {
 }
 
 fit();
+document.getElementById('boot')?.remove();         // the page's own notice: the game writes its own from here on
 g.fillStyle = '#0a0814'; g.fillRect(0, 0, VIEW_W, VIEW_H);
 centered(g, 'LOADING', 170, '#9d93b8');
 loadAssets().then(assets => {

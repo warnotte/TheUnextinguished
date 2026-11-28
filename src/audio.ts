@@ -11,6 +11,8 @@
 import { levelGain } from './options';
 import type { SoundName } from './sim/events';
 
+/** Where the tunes are: a script each, named after its tune. */
+const TUNES = 'assets/music/';
 const MUSIC_VOLUME = 0.12;       // under the effects: louder, the drums of the tunes cover them
 const HALL = 0.9;                // how loud the echo of the hall is
 const WIND = 0.035;              // the air of the place, always there, very low
@@ -48,6 +50,7 @@ export class Sound {
   private musicLv = 7;                          // the levels of the options, 0 to 10; 7 is the mix as made
   private soundsLv = 7;
   private reader: BaseAudioContext | null = null;                     // reads the tunes before sound is allowed
+  private readonly fetching = new Map<string, Promise<void>>();       // the scripts of the tunes asked for, by name
   private readonly reading = new Map<string, Promise<AudioBuffer>>();  // the tunes read, or being read
 
   get musicPlaying(): boolean { return this.gain !== null && this.ac !== null && this.ac.state === 'running'; }
@@ -199,17 +202,40 @@ export class Sound {
     for (const name of names) void this.read(name)?.catch(() => {});
   }
 
-  // A tune, read once: from the text the page carries to sound the browser can play.
+  // A tune comes in a script of its own (assets/music/<name>.js fills window.MUSIC[name]), fetched when it is
+  // first asked for: the page does not make a visitor wait for every tune before its first picture. A tag
+  // fetches it, which a page opened from the disk may add as well as one served by a site.
+  private fetchTune(name: string): Promise<void> {
+    const known = this.fetching.get(name);
+    if (known) return known;
+    const has = (): boolean => typeof (globalThis as any).MUSIC?.[name] === 'string';
+    const fetching = new Promise<void>((resolve, reject) => {
+      if (has()) { resolve(); return; }
+      if (typeof document === 'undefined') { reject(new Error('no page to fetch a tune into')); return; }
+      const tag = document.createElement('script');
+      tag.src = TUNES + name + '.js';
+      tag.onload = () => (has() ? resolve() : reject(new Error(`${tag.src} holds no tune named "${name}"`)));
+      tag.onerror = () => { tag.remove(); reject(new Error(`could not fetch ${tag.src}`)); };
+      document.head.appendChild(tag);
+    });
+    fetching.catch(() => this.fetching.delete(name));        // it may be tried again
+    this.fetching.set(name, fetching);
+    return fetching;
+  }
+
+  // A tune, read once: fetched if need be, then from the text of its script to sound the browser can play.
   private read(name: string): Promise<AudioBuffer> | null {
+    if (!name) return null;
     const known = this.reading.get(name);
     if (known) return known;
-    const data = (globalThis as any).MUSIC?.[name] as string | undefined;
-    if (!data) return null;
     let ctx: BaseAudioContext | null = this.ac ?? this.reader;
     if (!ctx) { try { ctx = this.reader = new OfflineAudioContext(2, 1, 44100); } catch { return null; } }
-    const raw = atob(data), bytes = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-    const reading = ctx.decodeAudioData(bytes.buffer);
+    const reader = ctx;
+    const reading = this.fetchTune(name).then(() => {
+      const raw = atob((globalThis as any).MUSIC[name] as string), bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+      return reader.decodeAudioData(bytes.buffer);
+    });
     reading.catch(() => this.reading.delete(name));
     this.reading.set(name, reading);
     return reading;

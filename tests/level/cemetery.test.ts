@@ -1,5 +1,5 @@
 // The cemetery, the last level: out of the falling belfry, across the graves under the red moon, to the gate.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { KINDS } from '../../src/level/kinds';
 import { parseLevel } from '../../src/level/tiled';
@@ -20,7 +20,7 @@ describe('the cemetery', () => {
     expect(lv.settings.restless).toBeGreaterThan(0);
     expect(lv.settings.tremor).toBeGreaterThan(0);
     const page = readFileSync('index.html', 'utf8');
-    for (const tune of ['dirge', 'graves', 'dawn']) expect(page).toContain(`assets/music/${tune}.js`);
+    for (const tune of ['dirge', 'graves', 'dawn']) expect(existsSync(`assets/music/${tune}.js`), 'its tune on the disk').toBe(true);
   });
 
   it('is one screen high and many wide, out of doors from end to end', () => {

@@ -225,7 +225,7 @@ The rules of the work on the code (what goes where, the tests, the commits) are 
 | `src/input.ts`, `src/audio.ts`, `src/loop.ts`, `src/main.ts` | Controls, sound, the main loop. |
 | `src/levels.ts` | The list of levels: the only file of the engine that names them. |
 | `levels/` | The levels, one script each. |
-| `assets/` | Pictures, effect sheets, music. |
+| `assets/` | Pictures, effect sheets, music. A tune is a script of its own (`assets/music/<name>.js`); the page names none: the game fetches each by a tag when it is first asked for, the next level's ahead of time, so that a visitor waits for some two megabytes before the first picture and not for every tune. |
 | `tools/` | `build.mjs` bundles the game; `music/` is the Rust program that composes and renders the tunes. |
 | `essais/` | The three throwaway trial rooms the engine was drawn from. They are kept as a reference and no longer change. |
 

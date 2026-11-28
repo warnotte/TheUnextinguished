@@ -1,5 +1,5 @@
 // The flooded crypt: the crypt under the church, half drowned, its vault broken open on the storm.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { KINDS } from '../../src/level/kinds';
 import { parseLevel } from '../../src/level/tiled';
@@ -50,6 +50,6 @@ describe('the flooded crypt', () => {
     const page = readFileSync('index.html', 'utf8');
     const order = [...page.matchAll(/levels\/(\w+)\.js/g)].map(m => m[1]);
     expect(order).toEqual(['salle3', 'crypte', 'fournaise', 'inondee', 'ossuaire', 'beffroi', 'clocher', 'effondrement', 'cimetiere']);
-    expect(page).toContain('assets/music/flood.js');
+    expect(existsSync('assets/music/flood.js'), 'its tune on the disk').toBe(true);
   });
 });

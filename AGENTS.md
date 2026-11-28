@@ -27,7 +27,8 @@ Rust program in `tools/music` (see its README).
   level file is its output.
 - What the player reads, the code, its comments and the commit messages are in English.
 - The page opens by a double click, from the disk, with no server. Everything comes in by `<script>`
-  tags: that is why the levels and the tunes are scripts, not files fetched.
+  tags: that is why the levels and the tunes are scripts, not files fetched. A tune's tag is added by the
+  game when the tune is first asked for (`src/audio.ts`): the page itself names none, to open quickly.
 
 ## The code
 

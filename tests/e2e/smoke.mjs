@@ -30,6 +30,11 @@ await page.waitForFunction(() => window.__game, null, { timeout: 15000 }).catch(
 check('the game starts', await game(() => !!window.__game), await page.locator('#status').textContent());
 await page.waitForTimeout(400);
 check('it opens on the title', await game(() => __game.scene === 'title' && __game.world === null));
+// No tune comes with the page: each is fetched by a tag of its own when it is asked for. On the title, its own
+// and the first level's (to start at once), no other.
+const fetched = async () => game(() => [...document.querySelectorAll('script[src*="assets/music/"]')].map(t => t.getAttribute('src').replace('assets/music/', '').replace('.js', '')).sort());
+check('on the title, only its tune and the first level\'s have been fetched', JSON.stringify(await fetched()) === JSON.stringify(['nef', 'overture']), JSON.stringify(await fetched()));
+check('nothing is left of the notice that the page was loading', await game(() => !document.getElementById('boot')));
 await game(() => { __game.titleStorm.wait = 0; });             // a strike of lightning, at once
 await page.waitForTimeout(1600);                                // and its thunder
 await page.locator('#screen').screenshot({ path: 'tests/e2e/out/title.png' });

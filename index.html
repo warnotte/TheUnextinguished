@@ -26,6 +26,11 @@
   html, body { margin:0; height:100%; background:#07080c; color:#8f96a6; font:13px/1.5 "Segoe UI", system-ui, sans-serif; overflow:hidden; }
   #wrap { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; }
   canvas { display:block; background:#000; image-rendering:pixelated; }
+  /* While the scripts of the game are on their way: a word and a bar over the black picture. The game takes it away. */
+  #boot { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; color:#9d93b8; font:700 14px/1 Consolas, monospace; letter-spacing:0.3em; pointer-events:none; }
+  #boot i { display:block; width:180px; height:4px; background:#1d1a38; overflow:hidden; position:relative; }
+  #boot i::after { content:""; position:absolute; top:0; bottom:0; width:40%; background:#ff8a2a; animation:boot 1.1s ease-in-out infinite alternate; }
+  @keyframes boot { from { left:0; } to { left:60%; } }
   /* The screen as an old tube (an option): laid over the picture. --px is a row of the game on the screen. */
   #tube { position:relative; }
   #crt, #glass { display:none; position:absolute; inset:0; pointer-events:none; }
@@ -48,26 +53,13 @@
 </head>
 <body>
 <div id="wrap">
-  <div id="tube"><canvas id="screen" width="640" height="360"></canvas><div id="crt"></div><canvas id="glass"></canvas></div>
+  <div id="tube"><canvas id="screen" width="640" height="360"></canvas><div id="crt"></div><canvas id="glass"></canvas><div id="boot">LOADING<i></i></div></div>
   <div id="help">
     <div><b>Keyboard</b> — move <kbd>←</kbd><kbd>→</kbd> or <kbd>Q</kbd><kbd>D</kbd> · climb <kbd>↑</kbd><kbd>↓</kbd> or <kbd>Z</kbd><kbd>S</kbd> · jump <kbd>Space</kbd> · strike <kbd>X</kbd> or <kbd>Ctrl</kbd> · guard <kbd>C</kbd> or <kbd>↓</kbd> · charge <kbd>V</kbd> (costs an ember) · pause <kbd>P</kbd> · restart <kbd>R</kbd> · music <kbd>M</kbd> · full screen <kbd>F</kbd> or a double click · what collides <kbd>H</kbd></div>
     <div><b>Gamepad</b> — stick or d-pad · jump <kbd>A</kbd> · strike <kbd>X</kbd> or <kbd>B</kbd> · guard <kbd>LB</kbd> or <kbd>RB</kbd> · charge <kbd>Y</kbd>, or <kbd>↓</kbd><kbd>→</kbd> then strike · restart <kbd>Start</kbd> · <span id="status"></span></div>
     <div><small>Sprites and tiles: "Gothicvania Church", "Gothicvania Cemetery" and the "Gothicvania Patreon's Collection" by Luis Zuno (ansimuz), public domain (CC0). Effects: pixelfx by Patch, MIT. Music: ours, on NoobSynth's emulated chips (FM, NES, SNES, AY).</small></div>
   </div>
 </div>
-<script src="assets/music/overture.js"></script>
-<script src="assets/music/nef.js"></script>
-<script src="assets/music/crypte.js"></script>
-<script src="assets/music/furnace.js"></script>
-<script src="assets/music/poursuite.js"></script>
-<script src="assets/music/demon.js"></script>
-<script src="assets/music/arrival.js"></script>
-<script src="assets/music/collapse.js"></script>
-<script src="assets/music/flood.js"></script>
-<script src="assets/music/ossuary.js"></script>
-<script src="assets/music/dirge.js"></script>
-<script src="assets/music/graves.js"></script>
-<script src="assets/music/dawn.js"></script>
 <script src="levels/salle3.js"></script>
 <script src="levels/crypte.js"></script>
 <script src="levels/fournaise.js"></script>

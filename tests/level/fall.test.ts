@@ -1,5 +1,5 @@
 // The fifth level, the fall: the belfry again, coming down; the hero at its top, the door at its foot.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { KINDS } from '../../src/level/kinds';
 import { parseLevel } from '../../src/level/tiled';
@@ -39,6 +39,6 @@ describe('the fall of the belfry', () => {
     const page = readFileSync('index.html', 'utf8');
     const order = [...page.matchAll(/levels\/(\w+)\.js/g)].map(m => m[1]);
     expect(order).toEqual(['salle3', 'crypte', 'fournaise', 'inondee', 'ossuaire', 'beffroi', 'clocher', 'effondrement', 'cimetiere']);
-    expect(page).toContain('assets/music/collapse.js');
+    expect(existsSync('assets/music/collapse.js'), 'its tune on the disk').toBe(true);
   });
 });
